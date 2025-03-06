@@ -239,7 +239,7 @@ version(opengl){
     };
 
 
-    nothrow @nogc extern(C) void debug_msg_callback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length,
+    extern(C) void debug_msg_callback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length,
                                       const(GLchar)* message, const(void*) userParam){
 
         if(severity != GL_DEBUG_SEVERITY_NOTIFICATION){
@@ -453,7 +453,7 @@ version(opengl){
         return success;
     }
 
-    public void render_begin_frame(float width, float height, Allocator* memory){
+    public void render_begin_frame(float width, float height){
         // TODO: Set viewport and the like.
 
     }
