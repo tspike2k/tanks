@@ -11,6 +11,7 @@ import render;
 import math;
 import assets;
 import files;
+import os;
 
 enum Main_Memory_Size    =  4*1024*1024;
 enum Frame_Memory_Size   =  8*1024*1024;
@@ -20,8 +21,9 @@ struct App_State{
     Allocator main_memory;
     Allocator frame_memory;
 
+    float t;
     float player_angle;
-    Vec2  player_pos;
+    Vec3  player_pos;
 }
 
 Mesh obj_to_mesh(Obj_Data* obj, Allocator* allocator){
@@ -195,9 +197,37 @@ extern(C) int main(){
 
     auto teapot_mesh = load_mesh_from_obj("./build/teapot.obj", &s.main_memory);
 
+    auto shaders_dir = "./build/shaders";
+    Shader shader;
+    load_shader(&shader, "default", shaders_dir, &s.frame_memory);
+
+    float target_dt = 1.0f/60.0f;
+
+    ulong current_timestamp = ns_timestamp();
+    ulong prev_timestamp    = current_timestamp;
+    auto camera_polar = Vec3(68.0f, 0.0f, 10.0f); // TODO: Make these in radians eventually?
+
+    Shader_Light light = void;
+    Vec3 light_color = Vec3(1, 1, 1);
+    light.ambient  = light_color*0.25f;
+    light.diffuse  = light_color;
+    light.specular = light_color;
+
+    Shader_Material material = void;
+    Vec3 material_color = Vec3(0.2f, 0.2f, 0.4f);
+    material.ambient   = material_color*0.25f;
+    material.diffuse   = material_color;
+    material.specular  = Vec3(1, 1, 1);
+    //material.shininess = 32.0f;
+    //material.shininess = 300.0f;
+    material.shininess = 256.0f;
+    //material.shininess = 0.1f;
+
     bool running = true;
     while(running){
         begin_frame();
+
+        auto window = get_window_info();
 
         Event evt;
         while(next_event(&evt)){
@@ -211,8 +241,52 @@ extern(C) int main(){
             }
         }
 
+        auto dt = target_dt;
+        s.t += dt;
+
+        current_timestamp = ns_timestamp();
+        ulong frame_time = cast(ulong)(dt*1000000000.0f);
+        ulong elapsed_time = current_timestamp - prev_timestamp;
+        if(elapsed_time < frame_time){
+            ns_sleep(frame_time - elapsed_time); // TODO: Better sleep time.
+        }
+        prev_timestamp = current_timestamp;
+
         render_begin_frame(0, 0, &s.frame_memory);
-        clear_target_to_color(Vec4(1, 0, 0, 1));
+
+        clear_target_to_color(Vec4(0, 0.05f, 0.12f, 1));
+
+        float aspect_ratio = (cast(float)window.width) / (cast(float)window.height);
+        Mat4 mat_proj = make_perspective_matrix(90.0f, aspect_ratio);
+
+        auto camera_target_pos = s.player_pos;
+        auto camera_pos = polar_to_world(camera_polar, camera_target_pos);
+        auto mat_lookat = make_lookat_matrix(camera_pos, camera_target_pos, Vec3(0, 1, 0));
+        auto mat_vp = mat_proj*mat_lookat;
+
+        Shader_Constants constants;
+        constants.camera = transpose(mat_vp);
+        constants.camera_pos = camera_pos;
+        constants.time = s.t;
+
+        light.pos = Vec3(cos(s.t)*18.0f, 2, sin(s.t)*18.0f);
+
+        set_constants(0, &constants, constants.sizeof);
+        set_material(&material);
+        set_light(&light);
+        set_shader(shader);
+
+        //render_mesh(&mesh_cube, mat4_translate(light.pos));
+        auto pot1_xform = mat4_translate(s.player_pos) * mat4_rot_y(s.player_angle);
+        render_mesh(&teapot_mesh, pot1_xform);
+
+        //auto pot2_xform = mat4_translate(teapot_pos + Vec3(0, -3, 16))*mat4_scale(Vec3(1, 1, 1)*1.1f);
+        //render_mesh(&mesh, pot2_xform);
+
+        //auto ground_xform = mat4_translate(Vec3(-8.0f, -2, -8.0f))*mat4_scale(Vec3(16.0f, 1.0f, 16.0f));
+        //render_mesh(&ground_mesh, ground_xform);
+
+
         render_end_frame();
 
         end_frame();

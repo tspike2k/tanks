@@ -125,6 +125,20 @@ Vec2 rotate(Vec2 v, float radians){
     return result;
 }
 
+Vec3 polar_to_world(Vec3 polar, Vec3 target_pos){
+    float phi   = polar.x * (PI/180.0f);
+    float theta = (polar.y + 90.0f) * (PI/180.0f);
+
+    float phi_sin = sin(phi);
+    float phi_cos = cos(phi);
+    float theta_sin = sin(theta);
+    float theta_cos = cos(theta);
+
+    Vec3 dir_to_camera = Vec3(theta_sin * phi_cos, theta_cos, theta_sin*phi_sin);
+    Vec3 world_pos = target_pos + dir_to_camera*polar.z;
+    return world_pos;
+}
+
 union Mat4{
     float[16]   c;
     float[4][4] m;
@@ -219,6 +233,50 @@ Mat4 mat4_rot_z(float angle_rad){
         0.0f, 0.0f, 1.0f, 0.0f,
         0.0f, 0.0f, 0.0f, 1.0f
     ]);
+    return result;
+}
+
+Mat4 make_lookat_matrix(Vec3 camera_pos, Vec3 look_pos, Vec3 up_pos){
+    Vec3 look_dir = normalize(look_pos - camera_pos);
+    Vec3 up_dir   = normalize(up_pos); // TODO: Do we really need to normalize the up direction?
+
+    Vec3 right_dir   = normalize(cross(look_dir, up_dir));
+    Vec3 perp_up_dir = cross(right_dir, look_dir);
+
+    auto result = Mat4([
+        right_dir.x, perp_up_dir.x, -look_dir.x, 0,
+        right_dir.y, perp_up_dir.y, -look_dir.y, 0,
+        right_dir.z, perp_up_dir.z, -look_dir.z, 0,
+        0,           0,             0,           1,
+    ]);
+
+    result = transpose(result)*mat4_translate(camera_pos*-1.0f);
+    return result;
+}
+
+Mat4 make_inverse_lookat_matrix(Mat4 m){
+    Mat4 result = void;
+
+    result.c[0 + 0*4] = m.c[0 + 0*4];
+    result.c[1 + 0*4] = m.c[0 + 1*4];
+    result.c[2 + 0*4] = m.c[0 + 2*4];
+    result.c[3 + 0*4] = 0.0f;
+
+    result.c[0 + 1*4] = m.c[1 + 0*4];
+    result.c[1 + 1*4] = m.c[1 + 1*4];
+    result.c[2 + 1*4] = m.c[1 + 2*4];
+    result.c[3 + 1*4] = 0.0f;
+
+    result.c[0 + 2*4] = m.c[2 + 0*4];
+    result.c[1 + 2*4] = m.c[2 + 1*4];
+    result.c[2 + 2*4] = m.c[2 + 2*4];
+    result.c[3 + 2*4] = 0.0f;
+
+    result.c[0 + 3*4] = -(m.c[0 + 3*4] * result.c[0 + 0*4] + m.c[1 + 3*4] * result.c[0 + 1*4] + m.c[2 + 3*4] * result.c[0 + 2*4]);
+    result.c[1 + 3*4] = -(m.c[0 + 3*4] * result.c[1 + 0*4] + m.c[1 + 3*4] * result.c[1 + 1*4] + m.c[2 + 3*4] * result.c[1 + 2*4]);
+    result.c[2 + 3*4] = -(m.c[0 + 3*4] * result.c[2 + 0*4] + m.c[1 + 3*4] * result.c[2 + 1*4] + m.c[2 + 3*4] * result.c[2 + 2*4]);
+    result.c[3 + 3*4] = 1.0f;
+
     return result;
 }
 

@@ -31,8 +31,8 @@ Unqual!T[] dup_array(T)(T[] src, Allocator* allocator){
 
 char[] concat(String a, String b, Allocator* allocator){
     auto result = alloc_array!(char)(allocator, a.length+b.length+1);
-    result[0 .. a.length]        = a[0 .. $];
-    result[a.length .. a.length + b.length] = b[0 .. $];
+    copy(a[0 .. $], result[0 .. a.length]);
+    copy(b[0 .. $], result[a.length .. a.length + b.length]);
     result[$-1] = '\0';
     return result;
 }
@@ -66,7 +66,7 @@ if(Args.length > 0){
 
     size_t place;
     void append(String s){
-        dest[place .. place + s.length] = s[0 .. $];
+        copy(s[0 .. $], dest[place .. place + s.length]);
         place += s.length;
     }
 
@@ -162,6 +162,17 @@ void[] alloc(Allocator* block, size_t size, uint flags = 0, uint alignment = Def
     return result;
 }
 
+void copy(T)(const(T[]) src, T[] dest){
+    version(LDC){
+        // NOTE: Workaround for LDC compilation issues.
+        assert(dest.length == src.length);
+        memcpy(dest.ptr, src.ptr, src.length*src[0].sizeof);
+    }
+    else{
+        dest[0 .. $] = src[0 .. $];
+    }
+}
+
 T* alloc_type(T)(Allocator* allocator, uint flags = 0, uint alignment = Default_Align){
     auto result = cast(T*)alloc(allocator, T.sizeof, flags, alignment);
     return result;
@@ -237,16 +248,8 @@ bool to_float(float* f, String s){
     // null termination dance.
     char[512] buffer = void;
     if(s.length > 0 && s.length < buffer.length){
-        version(LDC){
-            // NOTE: Workaround for LDC compilation issues.
-            assert(buffer.length >= s.length);
-            memcpy(buffer.ptr, s.ptr, s.length);
-        }
-        else{
-            buffer[0 .. s.length] = s[0..$];
-        }
+        copy(s[0..$], buffer[0 .. s.length]);
         buffer[s.length] = '\0';
-
         *f = strtod(buffer.ptr, null);
         result = true;
     }
