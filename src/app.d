@@ -205,7 +205,7 @@ extern(C) int main(){
 
     ulong current_timestamp = ns_timestamp();
     ulong prev_timestamp    = current_timestamp;
-    auto camera_polar = Vec3(68.0f, 0.0f, 10.0f); // TODO: Make these in radians eventually?
+    auto camera_polar = Vec3(68.0f, -45.0f, 10.0f); // TODO: Make these in radians eventually?
 
     Shader_Light light = void;
     Vec3 light_color = Vec3(1, 1, 1);
@@ -218,10 +218,27 @@ extern(C) int main(){
     material.ambient   = material_color*0.25f;
     material.diffuse   = material_color;
     material.specular  = Vec3(1, 1, 1);
-    //material.shininess = 32.0f;
-    //material.shininess = 300.0f;
     material.shininess = 256.0f;
-    //material.shininess = 0.1f;
+
+    Mesh ground_mesh;
+    ground_mesh.vertices = alloc_array!Vertex(&s.main_memory, 6);
+    {
+        auto n = Vec3(0, 1, 0);
+        auto v = ground_mesh.vertices;
+        auto bounds = Rect(Vec2(0.5f, 0.5f), Vec2(0.5f, 0.5f));
+
+        v[0].pos = Vec3(left(bounds), 0, bottom(bounds));
+        v[1].pos = Vec3(left(bounds), 0, top(bounds));
+        v[2].pos = Vec3(right(bounds), 0, top(bounds));
+
+        v[3].pos = Vec3(right(bounds), 0, top(bounds));
+        v[4].pos = Vec3(right(bounds), 0, bottom(bounds));
+        v[5].pos = Vec3(left(bounds), 0, bottom(bounds));
+
+        static foreach(i; 0 .. 6){
+            v[i].normal = n;
+        }
+    }
 
     bool running = true;
     while(running){
@@ -276,16 +293,11 @@ extern(C) int main(){
         set_light(&light);
         set_shader(shader);
 
-        //render_mesh(&mesh_cube, mat4_translate(light.pos));
+        auto ground_xform = mat4_translate(Vec3(-8.0f, 0, -8.0f))*mat4_scale(Vec3(16.0f, 1.0f, 16.0f));
+        render_mesh(&ground_mesh, ground_xform);
+
         auto pot1_xform = mat4_translate(s.player_pos) * mat4_rot_y(s.player_angle);
         render_mesh(&teapot_mesh, pot1_xform);
-
-        //auto pot2_xform = mat4_translate(teapot_pos + Vec3(0, -3, 16))*mat4_scale(Vec3(1, 1, 1)*1.1f);
-        //render_mesh(&mesh, pot2_xform);
-
-        //auto ground_xform = mat4_translate(Vec3(-8.0f, -2, -8.0f))*mat4_scale(Vec3(16.0f, 1.0f, 16.0f));
-        //render_mesh(&ground_mesh, ground_xform);
-
 
         render_end_frame();
 
