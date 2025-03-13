@@ -255,6 +255,27 @@ extern(C) int main(){
                     // TODO: Save state before exit in a temp/suspend file.
                     running = false;
                 } break;
+
+                case Event_Type.Key:{
+                    auto key = &evt.key;
+                    if(key.pressed){
+                        float speed = 2.0f;
+                        if(key.id == Key_ID_A){
+                            s.player_pos.x -= speed;
+                        }
+                        else if (key.id == Key_ID_D){
+                            s.player_pos.x += speed;
+                        }
+
+                        float rot_speed = (1.0f/1.0f)/(2.0f*PI);
+                        if(key.id == Key_ID_W){
+                            s.player_angle += rot_speed;
+                        }
+                        else if(key.id == Key_ID_S){
+                            s.player_angle -= rot_speed;
+                        }
+                    }
+                } break;
             }
         }
 
