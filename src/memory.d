@@ -237,13 +237,89 @@ bool to_float(float* f, String s){
     // null termination dance.
     char[512] buffer = void;
     if(s.length > 0 && s.length < buffer.length){
-        buffer[0 .. s.length] = s[0..$];
+        version(LDC){
+            // NOTE: Workaround for LDC compilation issues.
+            assert(buffer.length >= s.length);
+            memcpy(buffer.ptr, s.ptr, s.length);
+        }
+        else{
+            buffer[0 .. s.length] = s[0..$];
+        }
         buffer[s.length] = '\0';
 
         *f = strtod(buffer.ptr, null);
         result = true;
     }
 
+    return result;
+}
+
+//
+// Strings
+//
+
+
+String eat_line(ref String reader){
+    String result = reader;
+    foreach(i, c; reader){
+        if(c == '\n'){ // Handle Windows style line ends?
+            result = reader[0 .. i];
+            break;
+        }
+    }
+
+    reader = reader[result.ptr - reader.ptr+1 .. $];
+    return result;
+}
+
+String eat_obj_line_command(ref String reader){
+    String result;
+
+    foreach(i, c; reader){
+        if(is_whitespace(c)){
+            result = reader[0 .. i];
+            reader = reader[i+1..$];
+            break;
+        }
+    }
+
+    return result;
+}
+
+String eat_whitespace(ref String reader){
+    auto result = reader;
+    foreach(i, c; reader){
+        if(!is_whitespace(c)){
+            result = result[0 .. i];
+            reader = reader[i .. $];
+            break;
+        }
+    }
+    return result;
+}
+
+String eat_between_whitespace(ref String reader){
+    eat_whitespace(reader);
+    auto result = reader;
+    foreach(i, c; reader){
+        if(is_whitespace(c)){
+            result = result[0 .. i];
+            reader = reader[i .. $];
+            break;
+        }
+    }
+    return result;
+}
+
+String eat_between_char(ref String reader, char delimiter){
+    auto result = reader;
+    foreach(i, c; reader){
+        if(c == delimiter){
+            result = result[0 .. i];
+            reader = reader[i+1 .. $];
+            break;
+        }
+    }
     return result;
 }
 

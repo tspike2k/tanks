@@ -437,7 +437,7 @@ version(opengl){
 
     public void render_test_triangle(Mat4 translate){
         Vec4 color = Vec4(1, 0, 0, 1);
-        Vertex[3] v;
+        Vertex[3] v = void;
         v[0].pos = Vec3(-0.5f, -0.5f, 0);
         v[0].normal = Vec3(0, 0);
         v[0].uv = Vec2(0, 0);
