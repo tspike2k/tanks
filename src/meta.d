@@ -1,8 +1,4 @@
-/*
-Authors:   tspike (github.com/tspike2k)
-Copyright: Copyright (c) 2025
-License:   Boost Software License 1.0 (https://www.boost.org/LICENSE_1_0.txt)
-*/
+// Copyright (c) 2020 Nathaniel Williams. All rights reserved.
 
 module meta;
 

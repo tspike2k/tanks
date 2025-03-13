@@ -25,8 +25,8 @@ private{
     import logging;
 }
 
-alias Shader_ID = uint;
-alias Texture   = ulong;
+alias Shader  = ulong;
+alias Texture = ulong;
 
 enum Render_Shaders_Max  = 16;
 enum Max_Quads_Per_Batch = 2048; // TODO: Isn't this a bit high? 512 would be a lot.
@@ -49,13 +49,30 @@ struct Font{
     alias metrics this;
 }
 
-// TODO: Ensure memembers are correctly aligned with both HLSL and GLSL requirements
-struct Default_Constants{
+// TODO: Ensure members are correctly aligned with both HLSL and GLSL requirements
+struct Shader_Constants{
     align(16):
-
     Mat4 camera;
+    Mat4 model;
     Vec3 camera_pos;
     float time;
+}
+
+struct Shader_Material{
+    Vec3  ambient;
+    float pad_0;
+    Vec3  diffuse;
+    float pad_1;
+    Vec3  specular;
+    float shininess;
+}
+
+struct Shader_Light{
+    align(16):
+    Vec3 pos;
+    Vec3 ambient;
+    Vec3 diffuse;
+    Vec3 specular;
 }
 
 Mat4 make_perspective_matrix(float fov_in_degrees, float aspect_ratio){
@@ -134,12 +151,9 @@ version(opengl){
     import math;
     import bind.opengl;
 
-    enum Constants_Uniform_Binding_Index = 0;
-
-    struct Shader{
-        GLuint handle;
-        GLuint constants_uniform_block_index;
-    };
+    enum Constants_Uniform_Binding = 0;
+    enum Material_Uniform_Binding  = 1;
+    enum Light_Uniform_Binding     = 2;
 
     enum{
         Vertex_Attribute_ID_Pos,
@@ -152,94 +166,14 @@ version(opengl){
     enum Default_Texture_Filter = GL_LINEAR;
 
     __gshared GLuint                     g_shader_constants_buffer;
+    __gshared GLuint                     g_shader_material_buffer;
+    __gshared GLuint                     g_shader_light_buffer;
     __gshared Shader[Render_Shaders_Max] g_shaders;
     __gshared GLuint                     g_quads_vbo;
     __gshared GLuint                     g_quad_index_buffer;
     __gshared Texture                    g_default_texture;
 
-    const(char)[] Default_Vertex_Shader_Source = q{
-        #version 330
-
-        in vec3 v_pos;
-        in vec3 v_normal;
-        in vec2 v_uv;
-
-        out vec4 f_color;
-        out vec2 f_uv;
-        out vec3 f_normal;
-        out vec3 f_world_pos;
-        out vec3 f_camera_pos;
-
-        layout(std140) uniform Constants{
-            mat4  mat_camera;
-            vec3  camera_pos;
-            float time;
-        };
-
-        void main(){
-            gl_Position = mat_camera*vec4(v_pos, 1);
-
-            //vec4 mesh_color = vec4(1, 0, 0, 1);
-            vec4 mesh_color = vec4(0.25, 0.25, 1, 1);
-            f_color         = mesh_color;
-            f_normal        = v_normal;
-            f_uv            = v_uv;
-            f_camera_pos    = camera_pos;
-
-            // TODO: For now, model-space is the same as world-space. This will need to change in the future.
-            // When we do, we're going to need to need a "normal matrix" to correctly scale our normals
-            // from model-space to world-space.
-            //
-            // See here for more information:
-            // https://learnopengl.com/Lighting/Basic-Lighting
-            f_world_pos = v_pos;
-        }
-    };
-
-    const(char)[] Default_Fragment_Shader_Source = q{
-        #version 330
-
-        in vec4  f_color;
-        in vec2  f_uv;
-        in vec3  f_normal;
-        in vec3  f_world_pos;
-        in vec3  f_camera_pos;
-
-        out vec4 out_color;
-
-        void main(){
-            vec3 view_dir    = normalize(f_camera_pos - f_world_pos);
-            vec3 light_color = vec3(0.5, 1, 0.5);
-            vec3 light_dir   = vec3(0, 0, 1);
-
-            // Phong shading adapted from both learnopengl.com and Tom Dalling's blog on Modern OpenGL.
-            float ambient_strength = 0.1;
-            vec3 ambient = ambient_strength * light_color * f_color.rgb;
-
-            float diffuse_intensity = max(dot(f_normal, light_dir), 0.0);
-            vec3 diffuse = diffuse_intensity * light_color * f_color.rgb;
-
-            /*
-            float specular_strength = 0.5;
-            vec3 reflect_dir = reflect(-light_dir, f_normal);
-            float s = pow(max(dot(view_dir, reflect_dir), 0.0), 32);
-            vec3 specular = specular_strength * s * light_color;
-*/
-            // Blin-phong attempt adapted from here:
-            // https://en.wikipedia.org/wiki/Blinn%E2%80%93Phong_reflection_model
-
-            float specular_strength = 1;
-            vec3 half_vector = normalize(light_dir + view_dir);
-            float specular_intensity = pow(dot(f_normal, half_vector), 32);
-            vec3 specular = specular_strength * specular_intensity * light_color;
-
-            vec3 linear_color = ambient + diffuse + specular;
-            out_color = vec4(linear_color, f_color.a);
-        }
-    };
-
-
-    extern(C) void debug_msg_callback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length,
+    nothrow @nogc extern(C) void debug_msg_callback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length,
                                       const(GLchar)* message, const(void*) userParam){
 
         if(severity != GL_DEBUG_SEVERITY_NOTIFICATION){
@@ -270,6 +204,13 @@ version(opengl){
         return result;
     }
 
+    void init_uniform_buffer(GLuint* buffer, GLuint binding_id, size_t buffer_size){
+        glGenBuffers(1, buffer);
+        glBindBuffer(GL_UNIFORM_BUFFER, *buffer);
+        glBindBufferRange(GL_UNIFORM_BUFFER, binding_id, *buffer, 0, buffer_size);
+        glBufferData(GL_UNIFORM_BUFFER, buffer_size, null, GL_DYNAMIC_DRAW); // TODO: Is static draw correct? We re-upload every frame.
+    }
+
     public bool render_open(Allocator* allocator){
         assert(allocator.scratch);
         push_frame(allocator.scratch);
@@ -281,7 +222,7 @@ version(opengl){
 
         glEnable(GL_CULL_FACE);
         glCullFace(GL_BACK);
-        glFrontFace(GL_CCW); // TODO: I think we really want counter-clockwise winding order, since that's the direction of cos/sin
+        glFrontFace(GL_CCW);
 
         glEnable(GL_DEPTH_TEST);
         glDepthMask(GL_TRUE);
@@ -299,7 +240,6 @@ version(opengl){
         glDebugMessageCallback(&debug_msg_callback, null);
 
         glGenBuffers(1, &g_quads_vbo);
-        glGenBuffers(1, &g_shader_constants_buffer);
 
         version(none){
             /*
@@ -344,13 +284,14 @@ version(opengl){
             }
         }
 
-        glBindBuffer(GL_UNIFORM_BUFFER, g_shader_constants_buffer);
-        glBindBufferRange(GL_UNIFORM_BUFFER, Constants_Uniform_Binding_Index, g_shader_constants_buffer, 0, Default_Constants.sizeof);
-        glBufferData(GL_UNIFORM_BUFFER, Default_Constants.sizeof, null, GL_STATIC_DRAW); // TODO: Is static draw correct? We re-upload eery frame.
+        init_uniform_buffer(&g_shader_constants_buffer, Constants_Uniform_Binding, Shader_Constants.sizeof);
+        init_uniform_buffer(&g_shader_material_buffer, Material_Uniform_Binding, Shader_Material.sizeof);
+        init_uniform_buffer(&g_shader_light_buffer, Light_Uniform_Binding, Shader_Light.sizeof);
 
-        if(!render_compile_shader("default", 0, Default_Vertex_Shader_Source, Default_Fragment_Shader_Source)){
+        /*
+        if(!compile_shader("default", 0, Default_Vertex_Shader_Source, Default_Fragment_Shader_Source)){
             log("Error: Unable to create default shader. Aborting.\n");
-        }
+        }*/
 
         return true;
     }
@@ -378,7 +319,14 @@ version(opengl){
         return shader;
     }
 
-    bool render_compile_shader(const(char)[] program_name, uint shader_id, const(char)[] vertex_source, const(char)[] fragment_source){
+    void make_uniform_binding(GLuint shader_handle, const(char)[] name, GLuint binding_id){
+        auto block_index = glGetUniformBlockIndex(shader_handle, name.ptr);
+        if(block_index != GL_INVALID_INDEX){
+            glUniformBlockBinding(shader_handle, block_index, binding_id);
+        }
+    }
+
+    public bool compile_shader(Shader* shader, const(char)[] program_name, const(char)[] vertex_source, const(char)[] fragment_source){
         GLuint program = glCreateProgram();
         if(!program){
             // TODO(tspike): Get error string!
@@ -386,9 +334,9 @@ version(opengl){
             return 0;
         }
 
-        glBindAttribLocation(program, Vertex_Attribute_ID_Pos,   "v_pos");
+        glBindAttribLocation(program, Vertex_Attribute_ID_Pos,    "v_pos");
         glBindAttribLocation(program, Vertex_Attribute_ID_Normal, "v_normal");
-        glBindAttribLocation(program, Vertex_Attribute_ID_UV,    "v_uv");
+        glBindAttribLocation(program, Vertex_Attribute_ID_UV,     "v_uv");
 
         GLuint vertex_shader = compile_shader_pass(GL_VERTEX_SHADER, "Vertex Shader", vertex_source.ptr);
         if(!vertex_shader){
@@ -431,14 +379,13 @@ version(opengl){
 
         bool success = link_status != GL_FALSE;
         if(success){
-            Shader *shader = &g_shaders[shader_id];
-            shader.handle = program;
-            shader.constants_uniform_block_index = glGetUniformBlockIndex(shader.handle, "Constants");
-            if(shader.constants_uniform_block_index != GL_INVALID_INDEX){
-                glUniformBlockBinding(shader.handle, shader.constants_uniform_block_index, Constants_Uniform_Binding_Index);
-            }
+            *shader = program;
 
-            glBindBuffer(GL_ARRAY_BUFFER, g_quads_vbo);
+            make_uniform_binding(program, "Constants", Constants_Uniform_Binding);
+            make_uniform_binding(program, "Material", Material_Uniform_Binding);
+            make_uniform_binding(program, "Light", Light_Uniform_Binding);
+
+            glBindBuffer(GL_ARRAY_BUFFER, g_quads_vbo); // TODO: Do we need this here?
 
             GLsizei stride = Vertex.sizeof;
             glEnableVertexAttribArray(Vertex_Attribute_ID_Pos);
@@ -453,7 +400,12 @@ version(opengl){
         return success;
     }
 
-    public void render_begin_frame(float width, float height){
+    public void destroy_shader(Shader* shader){
+        glDeleteProgram(*cast(GLuint*)shader);
+        *shader = 0;
+    }
+
+    public void render_begin_frame(float width, float height, Allocator* memory){
         // TODO: Set viewport and the like.
 
     }
@@ -467,6 +419,20 @@ version(opengl){
     public void set_constants(uint offset, void *data, uint size){
         glBindBuffer(GL_UNIFORM_BUFFER, g_shader_constants_buffer);
         glBufferSubData(GL_UNIFORM_BUFFER, offset, size, data);
+    }
+
+    public void set_material(Shader_Material* material){
+        glBindBuffer(GL_UNIFORM_BUFFER, g_shader_material_buffer);
+        glBufferSubData(GL_UNIFORM_BUFFER, 0, Shader_Material.sizeof, material);
+    }
+
+    public void set_light(Shader_Light* light){
+        glBindBuffer(GL_UNIFORM_BUFFER, g_shader_light_buffer);
+        glBufferSubData(GL_UNIFORM_BUFFER, 0, Shader_Light.sizeof, light);
+    }
+
+    public void set_shader(Shader shader){
+        glUseProgram(cast(GLuint)shader);
     }
 
     public void render_test_triangle(Mat4 translate){
@@ -484,11 +450,8 @@ version(opengl){
         v[2].normal = Vec3(0, 0, 0);
         v[2].uv = Vec2(0, 0);
 
-        Shader* shader = &g_shaders[0];
-        glUseProgram(shader.handle);
-
         Mat4 mat_final = transpose(translate);
-        set_constants(0, &mat_final, mat_final.sizeof);
+        set_constants(Shader_Constants.model.offsetof, &mat_final, mat_final.sizeof);
 
         glBindBuffer(GL_ARRAY_BUFFER, g_quads_vbo);
         glBufferData(GL_ARRAY_BUFFER, cast(GLsizeiptr)(v.length * Vertex.sizeof), &v[0], GL_DYNAMIC_DRAW);
@@ -496,11 +459,8 @@ version(opengl){
     }
 
     public void render_mesh(Mesh* mesh, Mat4 transform){
-        Shader* shader = &g_shaders[0];
-        glUseProgram(shader.handle);
-
         auto mat_final = transpose(transform);
-        set_constants(0, &mat_final, mat_final.sizeof);
+        set_constants(Shader_Constants.model.offsetof, &mat_final, mat_final.sizeof);
 
         glBindBuffer(GL_ARRAY_BUFFER, g_quads_vbo);
         glBufferData(GL_ARRAY_BUFFER, cast(GLsizeiptr)(mesh.vertices.length * Vertex.sizeof), &mesh.vertices[0], GL_DYNAMIC_DRAW);

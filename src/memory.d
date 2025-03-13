@@ -29,6 +29,58 @@ Unqual!T[] dup_array(T)(T[] src, Allocator* allocator){
     return result;
 }
 
+char[] concat(String a, String b, Allocator* allocator){
+    auto result = alloc_array!(char)(allocator, a.length+b.length+1);
+    result[0 .. a.length]        = a[0 .. $];
+    result[a.length .. a.length + b.length] = b[0 .. $];
+    result[$-1] = '\0';
+    return result;
+}
+
+bool begins_with(String a, String b){
+    bool result = false;
+    if(a.length >= b.length){
+        result = a[0 .. b.length] == b[0 .. $];
+    }
+    return result;
+}
+
+// TODO: Make sure the source args are String.
+char[] make_file_path(Args...)(Args args, Allocator* allocator)
+if(Args.length > 0){
+    version(Windows){
+        String dir = "\\";
+    }
+    else{
+        String dir = "/";
+    }
+
+    size_t len;
+    static foreach(arg; args){
+        len += arg.length;
+    }
+
+    len += args.length-1; // Account for directory seperators
+    len += 1; // Account for null terminator
+    auto dest = alloc_array!char(allocator, len);
+
+    size_t place;
+    void append(String s){
+        dest[place .. place + s.length] = s[0 .. $];
+        place += s.length;
+    }
+
+    foreach(arg; args[0 .. $-1]){
+        append(arg);
+        append(dir);
+    }
+    append(args[$-1]);
+    append("\0");
+
+    return dest[0 .. $-1]; // Ignore the null terminator
+}
+
+
 version(linux){
     import core.sys.linux.sys.mman;
 

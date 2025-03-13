@@ -64,7 +64,7 @@ extern(C) int main(){
             }
         }
 
-        render_begin_frame(0, 0);
+        render_begin_frame(0, 0, &s.frame_memory);
         clear_target_to_color(Vec4(1, 0, 0, 1));
         render_end_frame();
 

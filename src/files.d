@@ -33,8 +33,10 @@ void[] read_file_into_memory(const(char)[] file_name, Allocator* allocator){
     if(is_open(&file)){
         auto file_size = get_file_size(&file);
         if(file_size > 0){
-            result = alloc_array!void(allocator, file_size);
-            read_file(&file, 0, result);
+            auto memory = cast(char[])alloc_array!void(allocator, file_size+1);
+            read_file(&file, 0, memory);
+            memory[$-1] = '\0';
+            result = memory[0 .. $-1];
         }
 
         close_file(&file);
@@ -69,8 +71,10 @@ version(linux){
             result.flags |= flags|File_Flag_Is_Open;
         }
         else{
-            // TODO: Fix this once we have logging.
-            assert(0);
+            // TODO: Better logging
+            log("Unable to open ");
+            log(file_name);
+            log("\n");
             //log(Cyu_Err "Unable to open {0}.\n", fmt_cstr(file_path));
         }
         return result;
@@ -135,6 +139,104 @@ version(linux){
         int* result = cast(int*)&file.internal;
         return result;
     }
+}
+
+version(linux){
+    import logging;
+    import core.sys.posix.poll;
+    import core.stdc.string : strlen;
+    import core.sys.linux.sys.inotify;
+
+    struct File_Watcher{
+        int    inotify_fd;
+        bool   can_read;
+        uint   to_watch_count;
+        int[8] to_watch;
+        char[] read_buffer;
+    }
+
+    enum{
+        Watch_Event_None     = 0,
+        Watch_Event_Modified = IN_MODIFY,
+    }
+
+    alias Watch_Handle = int;
+
+    struct Watch_Event{
+        Watch_Handle handle;
+        uint event;
+        const(char)[] name;
+    }
+
+    File_Watcher watch_begin(char[] read_buffer){
+        File_Watcher watcher;
+        watcher.inotify_fd = inotify_init1(IN_NONBLOCK);
+        if(watcher.inotify_fd == -1)
+            log_warn("Failed to create Inotify fd.\n");
+
+        watcher.read_buffer = read_buffer;
+        return watcher;
+    }
+
+    void watch_end(File_Watcher* watcher){
+        if(watcher.inotify_fd != -1){
+            foreach(i; 0 .. watcher.to_watch_count){
+                int fd = watcher.to_watch[i];
+                assert(fd != -1);
+                inotify_rm_watch(watcher.inotify_fd, fd);
+            }
+
+            close(watcher.inotify_fd);
+        }
+    }
+
+    Watch_Handle watch_add(File_Watcher *watcher, const(char)[] file_path, uint watch_events){
+        int result = -1;
+
+        if(watcher.inotify_fd != -1){
+            int fd = inotify_add_watch(watcher.inotify_fd, file_path.ptr, watch_events);
+            if(fd != -1){
+                watcher.to_watch[watcher.to_watch_count++] = fd;
+                result = fd;
+            }
+            else
+                log_warn("Failed to add to Inotify fd watch list.\n");
+                //log_warn("Failed to add %s to Inotify fd watch list.\n", file_path);
+        }
+
+        return result;
+    }
+
+    void watch_update(File_Watcher* watcher){
+        if(watcher.inotify_fd != -1){
+            pollfd pollfds;
+            pollfds.fd = watcher.inotify_fd;
+            pollfds.events = POLLIN;
+            poll(&pollfds, 1, 0);
+
+            watcher.can_read = pollfds.revents & POLLIN;
+        }
+    }
+
+    bool watch_read_events(File_Watcher* watcher, Watch_Event* event){
+        bool read_event = false;
+        if(watcher.inotify_fd != -1 && watcher.can_read){
+            // For some reason, I could only get reads to work if I used a buffer. Trying to only read a single event
+            // from the inotify_fd failed every time, even when an event should have fired.
+            //
+            // TODO: Handle read failures due to kernel interrupts, etc.
+            if(read(watcher.inotify_fd, watcher.read_buffer.ptr, watcher.read_buffer.length) > 0){
+                auto i_evt = cast(inotify_event*)&watcher.read_buffer[0];
+                auto name_raw = i_evt.name.ptr;
+                event.handle = i_evt.wd;
+                event.event  = i_evt.mask;
+                event.name   = name_raw[0 .. strlen(name_raw)];
+                read_event = true;
+            }
+        }
+        return read_event;
+    }
+
 }
 
 /+

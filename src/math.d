@@ -1,8 +1,4 @@
-/*
-Authors:   tspike (github.com/tspike2k)
-Copyright: Copyright (c) 2025
-License:   Boost Software License 1.0 (https://www.boost.org/LICENSE_1_0.txt)
-*/
+// Copyright (c) 2019 Nathaniel Williams. All rights reserved.
 
 module math;
 
@@ -133,7 +129,7 @@ union Mat4{
     float[16]   c;
     float[4][4] m;
 
-    Mat4 opBinary(string op)(ref Mat4 rhs)
+    Mat4 opBinary(string op)(auto ref Mat4 rhs)
     if(op == "*"){
         Mat4 result = void;
 
@@ -157,14 +153,23 @@ immutable Mat4 Mat4_Identity = Mat4([
     0.0f, 0.0f, 0.0f, 1.0f]
 );
 
-Mat4 translate(Mat4 mat, Vec3 offset){
-    Mat4 temp = Mat4([
+Mat4 mat4_scale(Vec3 s){
+    Mat4 result = Mat4([
+        s.x,   0,    0,   0,
+          0, s.y,    0,   0,
+          0,   0,  s.z,   0,
+          0,   0,    0,   1,
+    ]);
+    return result;
+}
+
+Mat4 mat4_translate(Vec3 offset){
+    Mat4 result = Mat4([
         1.0f, 0.0f, 0.0f, offset.x,
         0.0f, 1.0f, 0.0f, offset.y,
         0.0f, 0.0f, 1.0f, offset.z,
         0.0f, 0.0f, 0.0f, 1.0f,
     ]);
-    Mat4 result = mat*temp;
     return result;
 }
 
@@ -178,48 +183,44 @@ Mat4 transpose(Mat4 m){
     return result;
 }
 
-Mat4 rotate_x(Mat4 mat, float angle_rad){
+Mat4 mat4_rot_x(float angle_rad){
     float c = cos(angle_rad);
     float s = sin(angle_rad);
 
-    auto temp = Mat4([
+    auto result = Mat4([
         1.0f, 0.0f, 0.0f, 0.0f,
         0.0f, c,    -s,   0.0f,
         0.0f, s,     c,   0.0f,
         0.0f, 0.0f, 0.0f, 1.0f
     ]);
-    //temp = transpose(temp);
-    auto result = mat*temp;
     return result;
 }
 
-Mat4 rotate_y(Mat4 mat, float angle_rad){
+Mat4 mat4_rot_y(float angle_rad){
     float c = cos(angle_rad);
     float s = sin(angle_rad);
 
-    auto temp = Mat4([
+    auto result = Mat4([
         c,    0.0f, s,    0.0f,
         0.0f, 1.0f, 0.0f, 0.0f,
         -s,   0.0f, c,    0.0f,
         0.0f, 0.0f, 0.0f, 1.0f
     ]);
-    auto result = mat*temp;
     return result;
 }
 
-/*
-static void mat4_rot_z(Mat4* mat, float angle_rad){
-    f32 c = cosf(angle_rad);
-    f32 s = sinf(angle_rad);
+Mat4 mat4_rot_z(float angle_rad){
+    float c = cos(angle_rad);
+    float s = sin(angle_rad);
 
-    Mat4 temp = cast(Mat4){{
+    Mat4 result = Mat4([
         c,   -s,    0.0f, 0.0f,
         s,    c,    0.0f, 0.0f,
         0.0f, 0.0f, 1.0f, 0.0f,
         0.0f, 0.0f, 0.0f, 1.0f
-    }};
-    mat4_mul(mat, &temp);
-}*/
+    ]);
+    return result;
+}
 
 struct Rect{
     Vec2 center;
