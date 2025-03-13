@@ -241,6 +241,12 @@ extern(C) int main(){
     }
 
     bool running = true;
+
+    bool player_turn_left;
+    bool player_turn_right;
+    bool player_move_forward;
+    bool player_move_backward;
+
     while(running){
         begin_frame();
 
@@ -258,24 +264,44 @@ extern(C) int main(){
 
                 case Event_Type.Key:{
                     auto key = &evt.key;
-                    if(key.pressed){
-                        float speed = 2.0f;
-                        if(key.id == Key_ID_A){
-                            s.player_pos.x -= speed;
-                        }
-                        else if (key.id == Key_ID_D){
-                            s.player_pos.x += speed;
-                        }
+                    switch(key.id){
+                        default: break;
 
-                        float rot_speed = (1.0f/1.0f)/(2.0f*PI);
-                        if(key.id == Key_ID_W){
-                            s.player_angle += rot_speed;
-                        }
-                        else if(key.id == Key_ID_S){
-                            s.player_angle -= rot_speed;
-                        }
+                        case Key_ID_A:
+                            player_turn_left = key.pressed; break;
+
+                        case Key_ID_D:
+                            player_turn_right = key.pressed; break;
+
+                        case Key_ID_W:
+                            player_move_forward = key.pressed; break;
+
+                        case Key_ID_S:
+                            player_move_backward = key.pressed; break;
                     }
                 } break;
+            }
+        }
+
+        // Player movement
+        {
+            float rot_speed = (1.0f/4.0f)/(2.0f*PI);
+            if(player_turn_left){
+                s.player_angle += rot_speed;
+            }
+            if(player_turn_right){
+                s.player_angle -= rot_speed;
+            }
+
+            auto dir = rotate(Vec2(1, 0), s.player_angle);
+            float speed = 1.0f/16.0f;
+            if(player_move_forward){
+                s.player_pos.x += dir.x*speed;
+                s.player_pos.z -= dir.y*speed;
+            }
+            if(player_move_backward){
+                s.player_pos.x -= dir.x*speed;
+                s.player_pos.z += dir.y*speed;
             }
         }
 
