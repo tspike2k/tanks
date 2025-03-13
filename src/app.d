@@ -142,6 +142,27 @@ Mesh load_mesh_from_obj(String file_path, Allocator* allocator){
     return result;
 }
 
+bool load_shader(Shader* shader, String name, String path, Allocator* allocator){ // TODO: Take the directory path
+    push_frame(allocator.scratch);
+    scope(exit) pop_frame(allocator.scratch);
+
+    if(*shader){
+        destroy_shader(shader);
+    }
+
+    auto scratch = allocator.scratch;
+    auto vertex_file_name   = make_file_path(path, concat(name, "_vert.glsl", scratch), scratch);
+    auto fragment_file_name = make_file_path(path, concat(name, "_frag.glsl", scratch), scratch);
+
+    auto vertex_source   = cast(char[])read_file_into_memory(vertex_file_name, scratch);
+    auto fragment_source = cast(char[])read_file_into_memory(fragment_file_name, scratch);
+
+    // TODO: Error handling?
+    auto succeeded = compile_shader(shader, name, vertex_source, fragment_source);
+
+    return succeeded;
+}
+
 extern(C) int main(){
     auto app_memory = os_alloc(Main_Memory_Size + Scratch_Memory_Size + Frame_Memory_Size, 0);
     scope(exit) os_dealloc(app_memory);
