@@ -12,6 +12,7 @@ import math;
 import assets;
 import files;
 import os;
+import net;
 
 enum Main_Memory_Size    =  4*1024*1024;
 enum Frame_Memory_Size   =  8*1024*1024;
@@ -246,11 +247,30 @@ extern(C) int main(){
     bool player_turn_right;
     bool player_move_forward;
     bool player_move_backward;
+    bool send_broadcast;
+
+    Socket socket;
+    Socket lan_broadcast_socket;
+    String net_port_number = "1654";
+
+    open_socket(&lan_broadcast_socket, "255.255.255.255", net_port_number, Socket_Flag_Broadcast|Socket_Flag_Host);
+    scope(exit) close_socket(&lan_broadcast_socket);
 
     while(running){
         begin_frame();
 
         auto window = get_window_info();
+
+        sockets_poll((&lan_broadcast_socket)[0 .. 1], &s.frame_memory);
+
+        if(lan_broadcast_socket.events & Socket_Event_Writable){
+            log("We can send requests now!\n");
+            send_broadcast = false;
+        }
+
+        if(lan_broadcast_socket.events & Socket_Event_Readable){
+            log("We have events!\n");
+        }
 
         Event evt;
         while(next_event(&evt)){
@@ -278,6 +298,9 @@ extern(C) int main(){
 
                         case Key_ID_S:
                             player_move_backward = key.pressed; break;
+
+                        case Key_ID_Enter:
+                            send_broadcast = key.pressed && !key.is_repeat; break;
                     }
                 } break;
             }
