@@ -166,9 +166,17 @@ bool load_shader(Shader* shader, String name, String path, Allocator* allocator)
     return succeeded;
 }
 
-extern(C) int main(){
+extern(C) int main(int args_count, char** args){
     auto app_memory = os_alloc(Main_Memory_Size + Scratch_Memory_Size + Frame_Memory_Size, 0);
     scope(exit) os_dealloc(app_memory);
+
+    bool is_host;
+    foreach(s; args[0 .. args_count]){
+        auto arg = s[0 .. strlen(s)];
+        if(arg == "-host"){
+            is_host = true;
+        }
+    }
 
     App_State* s;
     {
@@ -250,26 +258,41 @@ extern(C) int main(){
     bool send_broadcast;
 
     Socket socket;
-    Socket lan_broadcast_socket;
+    Socket broadcast_socket;
     String net_port_number = "1654";
 
-    open_socket(&lan_broadcast_socket, "255.255.255.255", net_port_number, Socket_Flag_Broadcast|Socket_Flag_Host);
-    scope(exit) close_socket(&lan_broadcast_socket);
+    /+
+        When programming a netplay lobby, clients can send broadcast messages to look for hosts on the network.
+    +/
+
+    if(is_host){
+        log("Starting as host.\n");
+        open_socket(&socket, null, net_port_number, 0);
+        socket_listen(&socket);
+    }
+    else{
+        // TODO: Test this!
+        open_socket(&socket, "255.255.255.255", net_port_number, Socket_Flag_Broadcast);
+        socket_connect(&socket);
+    }
+    scope(exit) close_socket(&socket);
 
     while(running){
         begin_frame();
 
         auto window = get_window_info();
 
-        sockets_poll((&lan_broadcast_socket)[0 .. 1], &s.frame_memory);
+        sockets_update((&socket)[0 .. 1], &s.frame_memory);
 
-        if(lan_broadcast_socket.events & Socket_Event_Writable){
-            log("We can send requests now!\n");
+        if(!is_host && send_broadcast){
+            log("Sending broadcast now!\n");
+            auto msg = "Hello.\n";
+            socket_write(&socket, msg.ptr, msg.length);
             send_broadcast = false;
         }
 
-        if(lan_broadcast_socket.events & Socket_Event_Readable){
-            log("We have events!\n");
+        if(socket.events & Socket_Event_Readable){
+            log("We have events to read!\n");
         }
 
         Event evt;

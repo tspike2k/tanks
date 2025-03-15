@@ -111,7 +111,7 @@ version(linux){
         while(bytes_read < dest.length){
             ssize_t r = pread(fd, &dest[bytes_read], dest.length - bytes_read, offset + bytes_read);
             if(r < 0){
-                assert(0); // TODO: logging
+                //assert(0); // TODO: logging
                 //fprintf(stderr, "Failed to read from file: %s\n", strerror(errno));
                 break;
             }
