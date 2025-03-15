@@ -11,6 +11,10 @@ public import core.stdc.string : memset, memcpy, strlen;
 
 alias String = const(char)[];
 
+void clear_to_zero(T)(ref T t){
+    memset(&t, 0, T.sizeof);
+}
+
 T zero_type(T)(){
     T result = void;
     memset(&result, 0, T.sizeof);

@@ -48,7 +48,7 @@ version(linux){
 
         private:
         int fd;
-        addrinfo* address_info;
+        sockaddr_in address; // TODO: Eventually support IPv6. That uses sockaddr_in6 instead.
     }
 
     bool open_socket(Socket* sock, String address, String port, uint flags){
@@ -58,25 +58,26 @@ version(linux){
         bool is_host = address.length == 0;
         sock.events = 0;
 
-        auto hints = zero_type!addrinfo;
-        hints.ai_family   = AF_UNSPEC;
-        hints.ai_socktype = SOCK_DGRAM;
-        if(is_host)
-            hints.ai_flags = AI_PASSIVE;
+        clear_to_zero(sock.address);
 
         bool success = false;
-        addrinfo* info;
-        if(getaddrinfo(address.ptr, port.ptr, &hints, &info) == 0){
-            assert(info); // TODO: Is this always non-null when getaddrinfo returns 0?
+        short port_number = void;
+        if(to_int(&port_number, port)){
+            sock.address.sin_family = AF_INET;
+            sock.address.sin_port = htons(port_number);
+            if(flags & Socket_Flag_Broadcast){
+                sock.address.sin_addr.s_addr = INADDR_BROADCAST;
+            }
+            else{
+                // TODO: Error handling?
+                inet_pton(sock.address.sin_family, address.ptr, &sock.address.sin_addr);
+            }
 
-            // TODO: We should probably loop through each res node looking for the best fit.
-            // However, I'm not sure how we'd know what would be best.
-            sock.fd = socket(info.ai_family, info.ai_socktype | SOCK_NONBLOCK, info.ai_protocol);
+            sock.fd = socket(sock.address.sin_family, SOCK_DGRAM | SOCK_NONBLOCK, 0);
             if(sock.fd != -1){
                 success           = true;
                 sock.status       = Socket_Status.Opened;
                 sock.flags        = flags;
-                sock.address_info = info;
             }
             else{
                 //log_error("Unable to open socket at address %s:%s\n", address, port);
@@ -88,8 +89,9 @@ version(linux){
             }
         }
         else{
-            //log_error("Unable to get host address information: %s\n", gai_strerror(e));
-            log_error("Unable to get address info for socket.\n");
+            log_error("Unable to convert port '");
+            log(port);
+            log("' to integer.\n");
         }
 
         if(!success){
@@ -110,8 +112,7 @@ version(linux){
 
         bool success = false;
         // Associate the address information filled out above with the socket file descriptor opened earlier.
-        addrinfo *info = sock.address_info;
-        if(bind(sock.fd, info.ai_addr, info.ai_addrlen) == 0){
+        if(bind(sock.fd, cast(sockaddr*)&sock.address, sock.address.sizeof) == 0){
             success = true;
             sock.status = Socket_Status.Listening;
 
@@ -142,8 +143,7 @@ version(linux){
         // Async use of connect adapted from here:
         // https://rigtorp.se/sockets/
         bool failed = false;
-        auto info = sock.address_info;
-        int e = connect(sock.fd, info.ai_addr, info.ai_addrlen);
+        int e = connect(sock.fd, cast(sockaddr*)&sock.address, sock.address.sizeof);
         if(e == 0){
             sock.status = Socket_Status.Connected;
             log("Socket connected!\n");

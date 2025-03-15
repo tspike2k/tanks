@@ -267,13 +267,13 @@ extern(C) int main(int args_count, char** args){
 
     if(is_host){
         log("Starting as host.\n");
-        open_socket(&socket, null, net_port_number, 0);
-        socket_listen(&socket);
+        if(open_socket(&socket, "255.255.255.255", net_port_number, Socket_Flag_Broadcast))
+            socket_listen(&socket);
     }
     else{
         // TODO: Test this!
-        open_socket(&socket, "255.255.255.255", net_port_number, Socket_Flag_Broadcast);
-        socket_connect(&socket);
+        if(open_socket(&socket, "255.255.255.255", net_port_number, Socket_Flag_Broadcast))
+            socket_connect(&socket);
     }
     scope(exit) close_socket(&socket);
 
