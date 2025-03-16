@@ -1,4 +1,4 @@
-# Ark
+# Tanks
 
 An remake of the minigame "Tanks" from the 2006 game Wii Play by Nintendo.
 
