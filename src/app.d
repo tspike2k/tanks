@@ -264,17 +264,12 @@ extern(C) int main(int args_count, char** args){
     /+
         When programming a netplay lobby, clients can send broadcast messages to look for hosts on the network.
     +/
+    String socket_address = null;
+    if(!is_host){
+        socket_address = "255.255.255.255";
+    }
 
-    if(is_host){
-        log("Starting as host.\n");
-        if(open_socket(&socket, "255.255.255.255", net_port_number, Socket_Flag_Broadcast))
-            socket_listen(&socket);
-    }
-    else{
-        // TODO: Test this!
-        if(open_socket(&socket, "255.255.255.255", net_port_number, Socket_Flag_Broadcast))
-            socket_connect(&socket);
-    }
+    open_socket(&socket, socket_address, net_port_number, Socket_Broadcast);
     scope(exit) close_socket(&socket);
 
     while(running){

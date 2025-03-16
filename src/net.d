@@ -18,7 +18,7 @@ enum Socket_Status : uint {
 }
 
 enum{
-    Socket_Flag_Broadcast = (1 << 0),
+    Socket_Broadcast = (1 << 0),
 }
 
 enum{
@@ -53,7 +53,6 @@ version(linux){
 
     bool open_socket(Socket* sock, String address, String port, uint flags){
         assert(sock.status == Socket_Status.Closed);
-        assert(address.length != 0 || address.ptr == null);
 
         bool is_host = address.length == 0;
         sock.events = 0;
@@ -65,19 +64,49 @@ version(linux){
         if(to_int(&port_number, port)){
             sock.address.sin_family = AF_INET;
             sock.address.sin_port = htons(port_number);
-            if(flags & Socket_Flag_Broadcast){
-                sock.address.sin_addr.s_addr = INADDR_BROADCAST;
+            if(is_host){
+                sock.address.sin_addr.s_addr = INADDR_ANY; // Accept connections from any address
             }
             else{
-                // TODO: Error handling?
-                inet_pton(sock.address.sin_family, address.ptr, &sock.address.sin_addr);
+                if(flags & Socket_Broadcast){
+                    sock.address.sin_addr.s_addr = INADDR_BROADCAST;
+                }
+                else{
+                    //TODO: Error handling
+                    inet_pton(sock.address.sin_family, address.ptr, &sock.address.sin_addr);
+                }
             }
 
             sock.fd = socket(sock.address.sin_family, SOCK_DGRAM | SOCK_NONBLOCK, 0);
             if(sock.fd != -1){
-                success           = true;
-                sock.status       = Socket_Status.Opened;
-                sock.flags        = flags;
+                if(flags & Socket_Broadcast){
+                    int value = 1;
+                    if(setsockopt(sock.fd, SOL_SOCKET, SO_BROADCAST, &value, value.sizeof)){
+                        log_error("Unable to configure socket for broadcasting.\n");
+                    }
+                }
+
+                if(is_host){
+                    int value = 1;
+                    if(setsockopt(sock.fd, SOL_SOCKET, SO_REUSEADDR, &value, value.sizeof) == -1){
+                        log_error("Unable to set socket to reuse addresses.\n");
+                    }
+                }
+
+                if(bind(sock.fd, cast(sockaddr*)&sock.address, sock.address.sizeof) == 0){
+                    success           = true;
+                    sock.status       = Socket_Status.Opened;
+                    sock.flags        = flags;
+
+                    if(!is_host){
+                        // TODO: Do we really need this?
+                        socket_connect(sock);
+                    }
+                }
+                else{
+                    log_error("Unable to bind socket fd. Aborting.\n");
+                    close_socket(sock);
+                }
             }
             else{
                 //log_error("Unable to open socket at address %s:%s\n", address, port);
@@ -101,44 +130,8 @@ version(linux){
         return success;
     }
 
-    bool socket_listen(Socket* sock){
-        assert(sock.status == Socket_Status.Opened);
-
-        // Allow the host to reclaim socket number quickly when reconnecting.
-        int value = 1;
-        if(setsockopt(sock.fd, SOL_SOCKET, SO_REUSEADDR, &value, value.sizeof) == -1){
-            log_error("Unable to set socket to reuse addresses.\n");
-        }
-
-        bool success = false;
-        // Associate the address information filled out above with the socket file descriptor opened earlier.
-        if(bind(sock.fd, cast(sockaddr*)&sock.address, sock.address.sizeof) == 0){
-            success = true;
-            sock.status = Socket_Status.Listening;
-
-            // 5 is the typical maximum size of the backlog queue
-            // TODO: Is that even true? Can we get the maximum like in Windows?
-            listen(sock.fd, 5); // TODO: Can listen fail?
-            log("Created host socket\n"); // TODO: Print host IP address and port number.
-        }
-        else{
-            log_error("Unable to bind socket fd. Aborting.\n");
-            close_socket(sock);
-        }
-        return success;
-    }
-
-    bool socket_connect(Socket* sock){
+    private bool socket_connect(Socket* sock){
         assert(sock.status == Socket_Status.Opened || sock.status == Socket_Status.Connecting);
-
-        if(sock.status == Socket_Status.Opened){
-            if(sock.flags & Socket_Flag_Broadcast){
-                int value = 1;
-                if(setsockopt(sock.fd, SOL_SOCKET, SO_BROADCAST, &value, value.sizeof)){
-                    log_error("Unable to configure socket for broadcasting.\n");
-                }
-            }
-        }
 
         // Async use of connect adapted from here:
         // https://rigtorp.se/sockets/
@@ -179,17 +172,19 @@ version(linux){
         push_frame(scratch);
         scope(exit) pop_frame(scratch);
 
+        // TODO: Consider using epoll? It sounds as though poll tends to take longer than
+        // nescissary.
         auto poll_fds     = alloc_array!pollfd(scratch, sockets.length);
         auto poll_sources = alloc_array!(Socket*)(scratch, sockets.length);
         uint poll_fds_count;
 
         foreach(ref socket; sockets){
-            if(socket.status == Socket_Status.Listening
+            if(socket.status == Socket_Status.Opened
             || socket.status == Socket_Status.Connected){
                 auto index = poll_fds_count++;
                 auto entry = &poll_fds[index];
                 entry.fd = socket.fd;
-                entry.revents = POLLIN|POLLOUT;
+                entry.events = POLLIN|POLLOUT;
                 poll_sources[index] = &socket;
             }
             else if(socket.status == Socket_Status.Connecting){
