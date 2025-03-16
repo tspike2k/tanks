@@ -257,61 +257,71 @@ extern(C) int main(int args_count, char** args){
     bool player_move_backward;
     bool send_broadcast;
 
-    Socket socket;
-    Socket broadcast_socket;
+    Socket[2] sockets;
+    uint      sockets_count;
     String net_port_number = "1654";
 
     /+
         When programming a netplay lobby, clients can send broadcast messages to look for hosts on the network.
     +/
+    if(is_host){
+        auto socket = &sockets[sockets_count++];
+        open_socket(socket, null, net_port_number, Socket_Broadcast);
+    }
+    else{
+        auto socket = &sockets[sockets_count++];
+        open_socket(socket, null, net_port_number, 0);
+        socket = &sockets[sockets_count++];
+        open_socket(socket, "255.255.255.255", net_port_number, Socket_Broadcast);
+    }
+    scope(exit){
+        foreach(ref socket; sockets[0 .. sockets_count])
+            close_socket(&socket);
+    }
+
     String socket_address = null;
     if(!is_host){
         socket_address = "255.255.255.255";
     }
-
-    if(open_socket(&socket, socket_address, net_port_number, Socket_Broadcast)){
-        char[64] buffer;
-        auto address = get_address_string(&socket.address, buffer[]);
-        log("Socket bound to address: ");
-        log(address);
-        log("\n");
-    }
-    scope(exit) close_socket(&socket);
 
     while(running){
         begin_frame();
 
         auto window = get_window_info();
 
-        sockets_update((&socket)[0 .. 1], &s.frame_memory);
+        sockets_update(sockets[0 .. sockets_count], &s.frame_memory);
 
         if(!is_host && send_broadcast){
             log("Sending broadcast now!\n");
             auto msg = "Hello.\n";
-            socket_write(&socket, msg.ptr, msg.length, null);
+            auto socket = &sockets[1];
+            assert(socket.flags & Socket_Broadcast);
+            socket_write(socket, msg.ptr, msg.length, null);
             send_broadcast = false;
         }
 
-        if(socket.events & Socket_Event_Readable){
-            log("We have events to read!\n");
-            char[46] address_buffer;
-            char[512] buffer;
-            Socket_Address address = void;
-            auto read = socket_read(&socket, buffer.ptr, buffer.length, &address);
-            auto msg = buffer[0 .. read];
-            if(read > 0){
-                log("Message from ");
-                auto address_string = get_address_string(&address, address_buffer[]);
-                log(address_string);
-                log(":");
-                log(msg);
-                log("\n");
-            }
+        foreach(ref socket; sockets[0 .. sockets_count]){
+            if(socket.events & Socket_Event_Readable){
+                log("We have events to read!\n");
+                char[46] address_buffer;
+                char[512] buffer;
+                Socket_Address address = void;
+                auto read = socket_read(&socket, buffer.ptr, buffer.length, &address);
+                auto msg = buffer[0 .. read];
+                if(read > 0){
+                    log("Message from ");
+                    auto address_string = get_address_string(&address, address_buffer[]);
+                    log(address_string);
+                    log(":");
+                    log(msg);
+                    log("\n");
+                }
 
-            if(is_host){
-                log("Sending reply now!\n");
-                auto reply = "Back at ya!\n";
-                socket_write(&socket, reply.ptr, reply.length, &address);
+                if(is_host){
+                    log("Sending reply now!\n");
+                    auto reply = "Back at ya!\n";
+                    socket_write(&socket, reply.ptr, reply.length, &address);
+                }
             }
         }
 
