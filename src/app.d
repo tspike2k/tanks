@@ -269,7 +269,13 @@ extern(C) int main(int args_count, char** args){
         socket_address = "255.255.255.255";
     }
 
-    open_socket(&socket, socket_address, net_port_number, Socket_Broadcast);
+    if(open_socket(&socket, socket_address, net_port_number, Socket_Broadcast)){
+        char[64] buffer;
+        auto address = get_address_string(&socket.address, buffer[]);
+        log("Socket bound to address: ");
+        log(address);
+        log("\n");
+    }
     scope(exit) close_socket(&socket);
 
     while(running){
@@ -282,12 +288,31 @@ extern(C) int main(int args_count, char** args){
         if(!is_host && send_broadcast){
             log("Sending broadcast now!\n");
             auto msg = "Hello.\n";
-            socket_write(&socket, msg.ptr, msg.length);
+            socket_write(&socket, msg.ptr, msg.length, null);
             send_broadcast = false;
         }
 
         if(socket.events & Socket_Event_Readable){
             log("We have events to read!\n");
+            char[46] address_buffer;
+            char[512] buffer;
+            Socket_Address address = void;
+            auto read = socket_read(&socket, buffer.ptr, buffer.length, &address);
+            auto msg = buffer[0 .. read];
+            if(read > 0){
+                log("Message from ");
+                auto address_string = get_address_string(&address, address_buffer[]);
+                log(address_string);
+                log(":");
+                log(msg);
+                log("\n");
+            }
+
+            if(is_host){
+                log("Sending reply now!\n");
+                auto reply = "Back at ya!\n";
+                socket_write(&socket, reply.ptr, reply.length, &address);
+            }
         }
 
         Event evt;

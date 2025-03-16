@@ -4,6 +4,14 @@ Distributed under the Boost Software License, Version 1.0.
 See accompanying file LICENSE_BOOST.txt or copy at http://www.boost.org/LICENSE_1_0.txt
 */
 
+/+
+    Note: It is reasonable to assume the maximum size of a UDP payload that won't be
+    fragmented during transmission is 508 bytes. That's not too terrible.
+
+    See here for more info:
+    https://stackoverflow.com/a/35697810
++/
+
 // TODO: Better logging!
 
 import memory;
@@ -41,14 +49,16 @@ version(linux){
 
     enum SOCK_NONBLOCK = 2048; // For some reason, this isn't define by the standard D bindings.
 
+    alias Socket_Address = sockaddr_in; // TODO: Eventually support IPv6. That uses sockaddr_in6 instead.
+
     struct Socket{
-        Socket_Status status;
-        uint          events;
-        uint          flags;
+        Socket_Status  status;
+        uint           events;
+        uint           flags;
+        Socket_Address address;
 
         private:
         int fd;
-        sockaddr_in address; // TODO: Eventually support IPv6. That uses sockaddr_in6 instead.
     }
 
     bool open_socket(Socket* sock, String address, String port, uint flags){
@@ -128,6 +138,14 @@ version(linux){
         }
 
         return success;
+    }
+
+    String get_address_string(Socket_Address* address, char[] buffer){
+        assert(buffer.length >= INET6_ADDRSTRLEN);
+
+        auto raw = inet_ntop(address.sin_family, &address.sin_addr, buffer.ptr, cast(uint)buffer.length);
+        auto result = raw[0 .. strlen(raw)];
+        return result;
     }
 
     private bool socket_connect(Socket* sock){
@@ -210,13 +228,14 @@ version(linux){
         }
     }
 
-    uint socket_read(Socket *sock, void* buffer, uint buffer_length){
+    uint socket_read(Socket *sock, void* buffer, uint buffer_length, Socket_Address* address){
         // TODO: More robust reading
         uint result = 0;
         if(sock.status != Socket_Status.Closed){
             assert(sock.events & Socket_Event_Readable);
 
-            auto bytes_read = recv(sock.fd, buffer, buffer_length, 0);
+            socklen_t address_size = sockaddr_in.sizeof;
+            auto bytes_read = recvfrom(sock.fd, buffer, buffer_length, 0, cast(sockaddr*)address, address ? &address_size : null);
             if(bytes_read > 0){
                 result = cast(uint)bytes_read;
             }
@@ -249,9 +268,9 @@ version(linux){
         return result;
     }
 
-    void socket_write(Socket *sock, const(void)* buffer, size_t buffer_length){
+    void socket_write(Socket *sock, const(void)* buffer, size_t buffer_length, Socket_Address* address){
         // TODO: More robust writing
-        auto bytes_written = send(sock.fd, buffer, cast(uint)buffer_length, 0);
+        auto bytes_written = sendto(sock.fd, buffer, cast(uint)buffer_length, 0, cast(sockaddr*)address, sockaddr_in.sizeof);
         if(bytes_written < 0){
             auto msg_raw = strerror(errno);
             auto msg = msg_raw[0 .. strlen(msg_raw)];
