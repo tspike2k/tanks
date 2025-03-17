@@ -308,7 +308,9 @@ extern(C) int main(int args_count, char** args){
                 client_address = src_address;
             }
             else{
-                assert(msg.length > 0);
+                auto cmd = cast(Entity_Message*)msg;
+                s.player_angle = cmd.angle;
+                s.player_pos = Vec3(cmd.pos.x, s.player_pos.y, cmd.pos.y);
             }
         }
 
@@ -316,7 +318,7 @@ extern(C) int main(int args_count, char** args){
             if(is_host && is_valid(&client_address)){
                 Entity_Message msg = void;
                 msg.angle = s.player_angle;
-                msg.pos   = Vec2(s.player_pos.x, s.player_pos.y);
+                msg.pos   = Vec2(s.player_pos.x, s.player_pos.z);
                 socket_write(&socket, &msg, msg.sizeof, &client_address);
             }
         }
