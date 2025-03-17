@@ -241,16 +241,19 @@ version(linux){
         }
     }
 
-    uint socket_read(Socket *sock, void* buffer, uint buffer_length, Socket_Address* address){
+    void[] socket_read(Socket *sock, void* buffer, uint buffer_length, Socket_Address* address){
         // TODO: More robust reading
-        uint result = 0;
+        void[] result;
         if(sock.status != Socket_Status.Closed){
             assert(sock.events & Socket_Event_Readable);
 
             socklen_t address_size = sockaddr_in.sizeof;
             auto bytes_read = recvfrom(sock.fd, buffer, buffer_length, 0, cast(sockaddr*)address, address ? &address_size : null);
             if(bytes_read > 0){
-                result = cast(uint)bytes_read;
+                if(address){
+                    address.size = sockaddr_in.sizeof; // TODO: Or should we remove this field entirely?
+                }
+                result = buffer[0 .. bytes_read];
             }
             else if(bytes_read == 0){
                 // TODO: 0 means EOF. Is it safe to close the socket?

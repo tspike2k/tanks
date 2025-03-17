@@ -166,6 +166,11 @@ bool load_shader(Shader* shader, String name, String path, Allocator* allocator)
     return succeeded;
 }
 
+struct Entity_Message{
+    float angle;
+    Vec2  pos;
+}
+
 extern(C) int main(int args_count, char** args){
     auto app_memory = os_alloc(Main_Memory_Size + Scratch_Memory_Size + Frame_Memory_Size, 0);
     scope(exit) os_dealloc(app_memory);
@@ -263,6 +268,7 @@ extern(C) int main(int args_count, char** args){
     /+
         When programming a netplay lobby, clients can send broadcast messages to look for hosts on the network.
     +/
+    Socket_Address client_address;
     auto broadcast_address = make_socket_address("255.255.255.255", net_port_number);
     if(is_host){
         auto host_address = make_socket_address(null, net_port_number);
@@ -294,25 +300,24 @@ extern(C) int main(int args_count, char** args){
         }
 
         if(socket.events & Socket_Event_Readable){
-            log("We have events to read!\n");
-            char[46] address_buffer;
             char[512] buffer;
             Socket_Address src_address = void;
-            auto read = socket_read(&socket, buffer.ptr, buffer.length, &src_address);
-            auto msg = buffer[0 .. read];
-            if(read > 0){
-                log("Message from ");
-                auto address_string = get_address_string(&src_address, address_buffer[]);
-                log(address_string);
-                log(":");
-                log(msg);
-                log("\n");
-            }
-
+            auto msg = socket_read(&socket, buffer.ptr, buffer.length, &src_address);
             if(is_host){
-                log("Sending reply now!\n");
-                auto reply = "Back at ya!\n";
-                socket_write(&socket, reply.ptr, reply.length, &src_address);
+                log(cast(char[])msg);
+                client_address = src_address;
+            }
+            else{
+                assert(msg.length > 0);
+            }
+        }
+
+        if(socket.events & Socket_Event_Writable){
+            if(is_host && is_valid(&client_address)){
+                Entity_Message msg = void;
+                msg.angle = s.player_angle;
+                msg.pos   = Vec2(s.player_pos.x, s.player_pos.y);
+                socket_write(&socket, &msg, msg.sizeof, &client_address);
             }
         }
 
@@ -328,23 +333,26 @@ extern(C) int main(int args_count, char** args){
 
                 case Event_Type.Key:{
                     auto key = &evt.key;
-                    switch(key.id){
-                        default: break;
+                    if(is_host){
+                        switch(key.id){
+                            default: break;
 
-                        case Key_ID_A:
-                            player_turn_left = key.pressed; break;
+                            case Key_ID_A:
+                                player_turn_left = key.pressed; break;
 
-                        case Key_ID_D:
-                            player_turn_right = key.pressed; break;
+                            case Key_ID_D:
+                                player_turn_right = key.pressed; break;
 
-                        case Key_ID_W:
-                            player_move_forward = key.pressed; break;
+                            case Key_ID_W:
+                                player_move_forward = key.pressed; break;
 
-                        case Key_ID_S:
-                            player_move_backward = key.pressed; break;
-
-                        case Key_ID_Enter:
-                            send_broadcast = key.pressed && !key.is_repeat; break;
+                            case Key_ID_S:
+                                player_move_backward = key.pressed; break;
+                        }
+                    }
+                    else{
+                        if(key.id == Key_ID_Enter)
+                            send_broadcast = key.pressed && !key.is_repeat;
                     }
                 } break;
             }
