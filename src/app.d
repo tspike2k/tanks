@@ -265,14 +265,16 @@ extern(C) int main(int args_count, char** args){
     +/
     auto broadcast_address = make_socket_address("255.255.255.255", net_port_number);
     if(is_host){
+        auto host_address = make_socket_address(null, net_port_number);
         if(open_socket(&socket, Socket_Broadcast|Socket_Reause_Address)
-        && bind_socket(&socket, &broadcast_address)){
+        && bind_socket(&socket, &host_address)){
             log("Opened host socket.\n");
         }
     }
     else{
-        open_socket(&socket, Socket_Broadcast);
-        log("Opened client socket.\n");
+        if(open_socket(&socket, Socket_Broadcast)){
+            log("Opened client socket.\n");
+        }
     }
     scope(exit) close_socket(&socket);
 
