@@ -26,7 +26,8 @@ enum Socket_Status : uint {
 }
 
 enum{
-    Socket_Broadcast = (1 << 0),
+    Socket_Broadcast      = (1 << 0),
+    Socket_Reause_Address = (1 << 1),
 }
 
 enum{
@@ -49,82 +50,40 @@ version(linux){
 
     enum SOCK_NONBLOCK = 2048; // For some reason, this isn't define by the standard D bindings.
 
-    alias Socket_Address = sockaddr_in; // TODO: Eventually support IPv6. That uses sockaddr_in6 instead.
+    struct Socket_Address{
+        union{
+            ushort       sin_family;
+            sockaddr_in  ipv4;
+            sockaddr_in6 ipv6;
+        }
+        uint size;
+    }
 
     struct Socket{
         Socket_Status  status;
         uint           events;
         uint           flags;
-        Socket_Address address;
 
         private:
         int fd;
     }
 
-    bool open_socket(Socket* sock, String address, String port, uint flags){
-        assert(sock.status == Socket_Status.Closed);
+    Socket_Address make_socket_address(String address_string, String port){
+        bool is_host = address_string.length == 0;
 
-        bool is_host = address.length == 0;
-        sock.events = 0;
-
-        clear_to_zero(sock.address);
-
-        bool success = false;
+        auto result = zero_type!Socket_Address;
         short port_number = void;
         if(to_int(&port_number, port)){
-            sock.address.sin_family = AF_INET;
-            sock.address.sin_port = htons(port_number);
+            result.sin_family = AF_INET;
+            result.size = sockaddr_in.sizeof;
+            result.ipv4.sin_port = htons(port_number);
             if(is_host){
-                sock.address.sin_addr.s_addr = INADDR_ANY; // Accept connections from any address
+                result.ipv4.sin_addr.s_addr = INADDR_ANY; // Accept connections from any address
             }
             else{
-                if(flags & Socket_Broadcast){
-                    sock.address.sin_addr.s_addr = INADDR_BROADCAST;
-                }
-                else{
-                    //TODO: Error handling
-                    inet_pton(sock.address.sin_family, address.ptr, &sock.address.sin_addr);
-                }
-            }
-
-            sock.fd = socket(sock.address.sin_family, SOCK_DGRAM | SOCK_NONBLOCK, 0);
-            if(sock.fd != -1){
-                if(flags & Socket_Broadcast){
-                    int value = 1;
-                    if(setsockopt(sock.fd, SOL_SOCKET, SO_BROADCAST, &value, value.sizeof)){
-                        log_error("Unable to configure socket for broadcasting.\n");
-                    }
-                }
-
-                if(is_host){
-                    int value = 1;
-                    if(setsockopt(sock.fd, SOL_SOCKET, SO_REUSEADDR, &value, value.sizeof) == -1){
-                        log_error("Unable to set socket to reuse addresses.\n");
-                    }
-                }
-
-                if(bind(sock.fd, cast(sockaddr*)&sock.address, sock.address.sizeof) == 0){
-                    success           = true;
-                    sock.status       = Socket_Status.Opened;
-                    sock.flags        = flags;
-
-                    if(!is_host){
-                        // TODO: Do we really need this?
-                        socket_connect(sock);
-                    }
-                }
-                else{
-                    log_error("Unable to bind socket fd. Aborting.\n");
-                    close_socket(sock);
-                }
-            }
-            else{
-                //log_error("Unable to open socket at address %s:%s\n", address, port);
-                log_error("Unable to open socket at address ");
-                log(address);
-                log(":");
-                log(port);
-                log("\n");
+                //TODO: Error handling
+                assert(result.sin_family == AF_INET);
+                inet_pton(result.sin_family, address_string.ptr, &result.ipv4.sin_addr);
             }
         }
         else{
@@ -132,22 +91,85 @@ version(linux){
             log(port);
             log("' to integer.\n");
         }
+        return result;
+    }
 
-        if(!success){
-            close_socket(sock);
+    bool open_socket(Socket* sock, uint flags){
+        assert(sock.status == Socket_Status.Closed);
+
+        bool success = false;
+        sock.fd = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, 0);
+        if(sock.fd != -1){
+            if(flags & Socket_Broadcast){
+                sock.flags |= Socket_Broadcast;
+                int value = 1;
+                if(setsockopt(sock.fd, SOL_SOCKET, SO_BROADCAST, &value, value.sizeof)){
+                    log_error("Unable to configure socket for broadcasting.\n");
+                }
+            }
+
+            if(flags & Socket_Reause_Address){
+                sock.flags |= Socket_Reause_Address;
+                int value = 1;
+                if(setsockopt(sock.fd, SOL_SOCKET, SO_REUSEADDR, &value, value.sizeof) == -1){
+                    log_error("Unable to set socket to reuse addresses.\n");
+                }
+            }
+
+            sock.status = Socket_Status.Opened;
+            success = true;
+        }
+        else{
+            // TODO: Get error string!
+            log_error("Unable to open socket: \n");
         }
 
+        return success;
+    }
+
+    void close_socket(Socket* sock){
+        if(sock.status != Socket_Status.Closed){
+            assert(sock.fd != -1);
+            close(sock.fd);
+            sock.fd     = -1;
+            sock.status = Socket_Status.Closed;
+            sock.events = 0;
+        }
+    }
+
+    bool is_valid(Socket_Address* address){
+        bool result = address.size > 0;
+        return result;
+    }
+
+    bool bind_socket(Socket* socket, Socket_Address* address){
+        assert(socket.status != Socket_Status.Closed);
+
+        bool success = false;
+        if(is_valid(address)){
+            success = bind(socket.fd, cast(sockaddr*)address, address.size) == 0;
+            if(!success){
+                log_error("Unable to bind socket fd. Aborting.\n");
+                close_socket(socket);
+
+            }
+        }
+        else{
+            log_error("Unable to bind socket: Invalid address.\n");
+        }
         return success;
     }
 
     String get_address_string(Socket_Address* address, char[] buffer){
         assert(buffer.length >= INET6_ADDRSTRLEN);
 
-        auto raw = inet_ntop(address.sin_family, &address.sin_addr, buffer.ptr, cast(uint)buffer.length);
+        assert(address.sin_family == AF_INET);
+        auto raw = inet_ntop(address.sin_family, &address.ipv4.sin_addr, buffer.ptr, cast(uint)buffer.length);
         auto result = raw[0 .. strlen(raw)];
         return result;
     }
 
+    /+
     private bool socket_connect(Socket* sock){
         assert(sock.status == Socket_Status.Opened || sock.status == Socket_Status.Connecting);
 
@@ -173,17 +195,7 @@ version(linux){
 
 
         return !failed;
-    }
-
-    void close_socket(Socket* sock){
-        if(sock.status != Socket_Status.Closed){
-            assert(sock.fd != -1);
-            close(sock.fd);
-            sock.fd     = -1;
-            sock.status = Socket_Status.Closed;
-            sock.events = 0;
-        }
-    }
+    }+/
 
     void sockets_update(Socket[] sockets, Allocator* allocator){
         auto scratch = allocator.scratch;
@@ -206,7 +218,8 @@ version(linux){
                 poll_sources[index] = &socket;
             }
             else if(socket.status == Socket_Status.Connecting){
-                socket_connect(&socket);
+                assert(0);
+                //socket_connect(&socket);
             }
         }
 
