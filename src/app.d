@@ -302,16 +302,24 @@ extern(C) int main(int args_count, char** args){
         if(socket.events & Socket_Event_Readable){
             char[512] buffer;
             Socket_Address src_address = void;
-            auto msg = socket_read(&socket, buffer.ptr, buffer.length, &src_address);
-            if(is_host){
-                log(cast(char[])msg);
-                client_address = src_address;
+            // TODO: Limit the number of reads we do on a socket at once. This would help
+            // prevent a rogue client from choking out the simulation.
+            while(true){
+                auto msg = socket_read(&socket, buffer.ptr, buffer.length, &src_address);
+                if(msg.length == 0){
+                    break;
+                }
+                else if(is_host){
+                    log(cast(char[])msg);
+                    client_address = src_address;
+                }
+                else{
+                    auto cmd = cast(Entity_Message*)msg;
+                    s.player_angle = cmd.angle;
+                    s.player_pos = Vec3(cmd.pos.x, s.player_pos.y, cmd.pos.y);
+                }
             }
-            else{
-                auto cmd = cast(Entity_Message*)msg;
-                s.player_angle = cmd.angle;
-                s.player_pos = Vec3(cmd.pos.x, s.player_pos.y, cmd.pos.y);
-            }
+
         }
 
         if(socket.events & Socket_Event_Writable){
