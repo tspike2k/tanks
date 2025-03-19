@@ -209,7 +209,9 @@ extern(C) int main(int args_count, char** args){
     }
     scope(exit) render_close();
 
-    auto teapot_mesh = load_mesh_from_obj("./build/teapot.obj", &s.main_memory);
+    //auto teapot_mesh = load_mesh_from_obj("./build/teapot.obj", &s.main_memory);
+    auto tank_base_mesh = load_mesh_from_obj("./build/tank_base.obj", &s.main_memory);
+    auto tank_top_mesh  = load_mesh_from_obj("./build/tank_top.obj", &s.main_memory);
 
     auto shaders_dir = "./build/shaders";
     Shader shader;
@@ -427,8 +429,9 @@ extern(C) int main(int args_count, char** args){
         auto ground_xform = mat4_translate(Vec3(-8.0f, 0, -8.0f))*mat4_scale(Vec3(16.0f, 1.0f, 16.0f));
         render_mesh(&ground_mesh, ground_xform);
 
-        auto pot1_xform = mat4_translate(s.player_pos) * mat4_rot_y(s.player_angle);
-        render_mesh(&teapot_mesh, pot1_xform);
+        auto player_xform = mat4_translate(s.player_pos)*mat4_rot_y(s.player_angle);
+        render_mesh(&tank_base_mesh, player_xform);
+        render_mesh(&tank_top_mesh, mat4_translate(Vec3(0, 3.0f, 0))*player_xform);
 
         render_end_frame();
 
