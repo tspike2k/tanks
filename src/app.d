@@ -319,7 +319,6 @@ extern(C) int main(int args_count, char** args){
                     s.player_pos = Vec3(cmd.pos.x, s.player_pos.y, cmd.pos.y);
                 }
             }
-
         }
 
         if(socket.events & Socket_Event_Writable){
