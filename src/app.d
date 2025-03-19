@@ -221,7 +221,7 @@ extern(C) int main(int args_count, char** args){
 
     ulong current_timestamp = ns_timestamp();
     ulong prev_timestamp    = current_timestamp;
-    auto camera_polar = Vec3(68.0f, -45.0f, 10.0f); // TODO: Make these in radians eventually?
+    auto camera_polar = Vec3(90.0f, -60.0f, 20.0f); // TODO: Make these in radians eventually?
 
     Shader_Light light = void;
     Vec3 light_color = Vec3(1, 1, 1);
