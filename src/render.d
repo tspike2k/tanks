@@ -76,19 +76,44 @@ struct Shader_Light{
 }
 
 Mat4 make_perspective_matrix(float fov_in_degrees, float aspect_ratio){
-    float near        = 0.25;
-    float far         = Z_Far;
+    float n        = 0.25;
+    float f        = Z_Far;
 
     // TODO: Where did we get this matrix from? Was this from Learning Modern Graphics Programming?
     // Aspect ration correction taken from:
     // https://gamedev.stackexchange.com/questions/120338/what-does-a-perspective-projection-matrix-look-like-in-opengl
-    float e = tanf((fov_in_degrees * (PI/180.0f)) / 2.0f);
-    auto result = Mat4([
-        1.0f / (aspect_ratio*e), 0.0f, 0.0f, 0.0f,
-        0.0f, 1.0f / e, 0.0f, 0.0f,
-        0.0f, 0.0f, -((near + far) / (far - near)), -((2.0f*far*near) / (far-near)),
-        0.0f, 0.0f, -1.0f, 0.0f
-    ]);
+    version(all){
+        float e = tanf((fov_in_degrees * (PI/180.0f)) / 2.0f);
+        auto result = Mat4([
+            1.0f / (aspect_ratio*e), 0.0f, 0.0f, 0.0f,
+            0.0f, 1.0f / e, 0.0f, 0.0f,
+            0.0f, 0.0f, -((n + f) / (f - n)), -((2.0f*f*n) / (f-n)),
+            0.0f, 0.0f, -1.0f, 0.0f
+        ]);
+    }
+    else{
+        // Adapted from here:
+        // https://perry.cz/articles/ProjectionMatrix.xhtml
+        //
+        // We are appearently using a right-handed coordinate system. This means z-grows positively
+        // as it approaches the camera. I'm sure this is fine, but I wonder what the pros have to
+        // say about this.
+        float fov = fov_in_degrees * (PI/180.0f);
+        float x = tanf(fov*0.5f);
+        float a = aspect_ratio * (1.0f / x);
+        float b = 1.0f / x;
+        float c = -(f+n)/(f-n);
+        float d = -1;
+        float e = -(2.0f*f*n)/(f-n);
+
+        auto result = Mat4([
+            a, 0, 0, 0,
+            0, b, 0, 0,
+            0, 0, c, e,
+            0, 0, d, 0
+        ]);
+        return result;
+    }
     return result;
 }
 

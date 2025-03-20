@@ -18,6 +18,9 @@ enum Main_Memory_Size    =  4*1024*1024;
 enum Frame_Memory_Size   =  8*1024*1024;
 enum Scratch_Memory_Size = 16*1024*1024;
 
+enum Grid_Width  = 22;
+enum Grid_Height = 16;
+
 struct App_State{
     Allocator main_memory;
     Allocator frame_memory;
@@ -221,20 +224,21 @@ extern(C) int main(int args_count, char** args){
 
     ulong current_timestamp = ns_timestamp();
     ulong prev_timestamp    = current_timestamp;
-    auto camera_polar = Vec3(90.0f, -60.0f, 20.0f); // TODO: Make these in radians eventually?
+    auto camera_polar = Vec3(90.0f, -60.0f, 10.0f); // TODO: Make these in radians eventually?
 
     Shader_Light light = void;
     Vec3 light_color = Vec3(1, 1, 1);
-    light.ambient  = light_color*0.25f;
+    light.ambient  = light_color*0.75f;
     light.diffuse  = light_color;
     light.specular = light_color;
 
     Shader_Material material = void;
     Vec3 material_color = Vec3(0.2f, 0.2f, 0.4f);
-    material.ambient   = material_color*0.25f;
+    material.ambient   = material_color*0.75f;
     material.diffuse   = material_color;
-    material.specular  = Vec3(1, 1, 1);
-    material.shininess = 256.0f;
+    material.specular  = material_color;
+    //material.shininess = 256.0f;
+    material.shininess = 2.0f;
 
     Mesh ground_mesh;
     ground_mesh.vertices = alloc_array!Vertex(&s.main_memory, 6);
@@ -263,6 +267,7 @@ extern(C) int main(int args_count, char** args){
     bool player_move_forward;
     bool player_move_backward;
     bool send_broadcast;
+    bool move_camera;
 
     Socket socket;
     String net_port_number = "1654";
@@ -342,6 +347,28 @@ extern(C) int main(int args_count, char** args){
                     running = false;
                 } break;
 
+                case Event_Type.Button:{
+                    if(evt.button.id == Button_ID.Mouse_Right){
+                        move_camera = evt.button.pressed;
+                    }
+                } break;
+
+                case Event_Type.Mouse_Motion:{
+                    auto motion = &evt.mouse_motion;
+
+                    float speed = 0.12f;
+                    /*if(should_zoom_camera){
+                        auto amount = motion.rel_y*speed;
+                        camera_polar.z = max(camera_polar.z + amount, 0.0001f); // TODO: Clamp the y!
+                    }
+                    else*/ if(move_camera){
+                        camera_polar.x += motion.rel_x*speed;
+
+                        auto amount_y = motion.rel_y*speed;
+                        camera_polar.y = clamp(camera_polar.y + amount_y, -78.75f, 64.0f); // TODO: Clamp the y!
+                    }
+                } break;
+
                 case Event_Type.Key:{
                     auto key = &evt.key;
                     if(is_host){
@@ -380,7 +407,7 @@ extern(C) int main(int args_count, char** args){
             }
 
             auto dir = rotate(Vec2(1, 0), s.player_angle);
-            float speed = 1.0f/16.0f;
+            float speed = 1.0f/8.0f;
             if(player_move_forward){
                 s.player_pos.x += dir.x*speed;
                 s.player_pos.z -= dir.y*speed;
@@ -407,11 +434,19 @@ extern(C) int main(int args_count, char** args){
         clear_target_to_color(Vec4(0, 0.05f, 0.12f, 1));
 
         float aspect_ratio = (cast(float)window.width) / (cast(float)window.height);
-        Mat4 mat_proj = make_perspective_matrix(90.0f, aspect_ratio);
+        Mat4 mat_proj = make_perspective_matrix(60.0f, aspect_ratio);
 
-        auto camera_target_pos = s.player_pos;
-        auto camera_pos = polar_to_world(camera_polar, camera_target_pos);
-        auto mat_lookat = make_lookat_matrix(camera_pos, camera_target_pos, Vec3(0, 1, 0));
+        auto camera_target_pos = Vec3(0, 0, 0);
+        version(none){
+            //auto camera_target_pos = s.player_pos;
+            auto camera_pos = polar_to_world(camera_polar, camera_target_pos);
+            auto mat_lookat = make_lookat_matrix(camera_pos, camera_target_pos, Vec3(0, 1, 0));
+        }
+        else{
+            auto camera_pos = Vec3(0, 0, 0);
+            auto mat_lookat = mat4_rot_x(60.0f*(PI/180.0f))*mat4_translate(Vec3(0, -20, -20));
+        }
+
         auto mat_vp = mat_proj*mat_lookat;
 
         Shader_Constants constants;
@@ -426,12 +461,15 @@ extern(C) int main(int args_count, char** args){
         set_light(&light);
         set_shader(shader);
 
-        auto ground_xform = mat4_translate(Vec3(-8.0f, 0, -8.0f))*mat4_scale(Vec3(16.0f, 1.0f, 16.0f));
+        auto ground_xform = mat4_translate(Vec3(Grid_Width, 0, Grid_Height)*-0.5f)*mat4_scale(Vec3(Grid_Width, 1.0f, Grid_Height));
         render_mesh(&ground_mesh, ground_xform);
 
-        auto player_xform = mat4_translate(s.player_pos)*mat4_rot_y(s.player_angle);
+        auto player_xform = mat4_translate(s.player_pos + Vec3(0, 0.18f, 0))*mat4_rot_y(s.player_angle);
         render_mesh(&tank_base_mesh, player_xform);
-        render_mesh(&tank_top_mesh, mat4_translate(Vec3(0, 3.0f, 0))*player_xform);
+        render_mesh(&tank_top_mesh, player_xform);
+
+        //import core.stdc.stdio;
+        //printf("player.z: %f\n", s.player_pos.z);
 
         render_end_frame();
 

@@ -29,7 +29,8 @@ layout(std140) uniform Light{
 
 void main(){
     vec3 view_dir  = normalize(camera_pos - f_world_pos);
-    vec3 light_dir = normalize(light_pos - f_world_pos);
+    //vec3 light_dir = normalize(light_pos - f_world_pos);
+    vec3 light_dir = vec3(0, -1, -0.75);
     vec3 normal    = normalize(f_normal); // Account for shortened normals thanks to interlolation. Thanks to https://stackoverflow.com/a/29720519
 
     // Phong shading adapted from both learnopengl.com and Tom Dalling's blog on Modern OpenGL.
@@ -39,7 +40,7 @@ void main(){
 
     vec3 ambient = light_ambient * material_ambient;
 
-    float diffuse_intensity = max(dot(normal, light_dir), 0.0);
+    float diffuse_intensity = max(dot(normal, -light_dir), 0.0);
     vec3 diffuse = light_diffuse * (diffuse_intensity * material_diffuse);
 
     // Fixed issue with specular passing through objects by multiplying the diffuse and
