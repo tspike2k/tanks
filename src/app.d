@@ -483,12 +483,13 @@ extern(C) int main(int args_count, char** args){
             auto mat_view = make_lookat_matrix(camera_pos, camera_target_pos, Vec3(0, 1, 0));
         }
         else{
-            auto camera_extents = Vec2((Grid_Width+2), (Grid_Height+2))*0.5f;
+
+            auto camera_extents = Vec2((Grid_Width+2), (aspect_ratio*0.5f)*cast(float)(Grid_Height+2))*0.5f;
             auto camera_bounds = Rect(Vec2(0, 0), camera_extents);
-            auto mat_proj = mat4_orthographic(camera_bounds, aspect_ratio);
+            auto mat_proj = mat4_orthographic(camera_bounds);
 
             auto camera_pos = Vec3(0, 8, 6.5f);
-            auto mat_view = mat4_rot_x(50.0f*(PI/180.0f))*mat4_translate(camera_pos);
+            auto mat_view = mat4_rot_x(45.0f*(PI/180.0f))*mat4_translate(camera_pos);
             //auto mat_view = mat4_translate(Vec3(0, 1, 0));
             //Mat4 mat_view   = Mat4_Identity;
         }
