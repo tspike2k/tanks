@@ -75,7 +75,33 @@ struct Shader_Light{
     Vec3 specular;
 }
 
-Mat4 make_perspective_matrix(float fov_in_degrees, float aspect_ratio){
+Mat4 mat4_orthographic(Rect camera_bounds){
+    // Orthographic adapted from here:
+    // https://songho.ca/opengl/gl_projectionmatrix.html#ortho
+    auto left   = left(camera_bounds);
+    auto right  = right(camera_bounds);
+    auto top    = top(camera_bounds);
+    auto bottom = bottom(camera_bounds);
+    auto near  = -Z_Far;
+    auto far   = Z_Far;
+
+    float a = 2.0f / (right - left);
+    float b = 2.0f / (top - bottom);
+    float c = -2.0f / (far - near);
+    float d = -(right+left) / (right-left);
+    float e = -(top+bottom) / (top-bottom);
+    float f = -(far+near) / (far - near);
+
+    auto result = Mat4([
+        a, 0, 0, d,
+        0, b, 0, e,
+        0, 0, c, f,
+        0, 0, 0, 1,
+    ]);
+    return result;
+}
+
+Mat4 mat4_perspective(float fov_in_degrees, float aspect_ratio){
     float n        = 0.25;
     float f        = Z_Far;
 

@@ -434,23 +434,27 @@ extern(C) int main(int args_count, char** args){
         clear_target_to_color(Vec4(0, 0.05f, 0.12f, 1));
 
         float aspect_ratio = (cast(float)window.width) / (cast(float)window.height);
-        Mat4 mat_proj = make_perspective_matrix(60.0f, aspect_ratio);
-
-        auto camera_target_pos = Vec3(0, 0, 0);
         version(none){
-            //auto camera_target_pos = s.player_pos;
-            auto camera_pos = polar_to_world(camera_polar, camera_target_pos);
-            auto mat_lookat = make_lookat_matrix(camera_pos, camera_target_pos, Vec3(0, 1, 0));
+            auto camera_pos = Vec3(0, 20, 0.001f); // TODO: For some reason, z can't be zero.
+            auto camera_target_pos = Vec3(0, 0, 0);
+
+            auto mat_proj = mat4_perspective(45.0f, aspect_ratio);
+            auto mat_view = make_lookat_matrix(camera_pos, camera_target_pos, Vec3(0, 1, 0));
         }
         else{
-            auto camera_pos = Vec3(0, 0, 0);
-            auto mat_lookat = mat4_rot_x(60.0f*(PI/180.0f))*mat4_translate(Vec3(0, -20, -20));
-        }
+            auto camera_extents = Vec2(Grid_Width+2, Grid_Height+2)*0.5f;
+            auto camera_bounds = Rect(Vec2(0, 0), camera_extents);
+            auto mat_proj = mat4_orthographic(camera_bounds);
 
-        auto mat_vp = mat_proj*mat_lookat;
+            auto camera_pos = Vec3(0, 8, 0);
+            auto mat_view = mat4_rot_x(90.0f*(PI/180.0f))*mat4_translate(camera_pos);
+            //auto mat_view = mat4_translate(Vec3(0, 1, 0));
+            //Mat4 mat_view   = Mat4_Identity;
+        }
+        auto mat_camera = mat_proj*mat_view;
 
         Shader_Constants constants;
-        constants.camera = transpose(mat_vp);
+        constants.camera = transpose(mat_camera);
         constants.camera_pos = camera_pos;
         constants.time = s.t;
 
