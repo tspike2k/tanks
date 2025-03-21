@@ -213,6 +213,7 @@ extern(C) int main(int args_count, char** args){
     scope(exit) render_close();
 
     //auto teapot_mesh = load_mesh_from_obj("./build/teapot.obj", &s.main_memory);
+    auto cube_mesh      = load_mesh_from_obj("./build/cube.obj", &s.main_memory);
     auto tank_base_mesh = load_mesh_from_obj("./build/tank_base.obj", &s.main_memory);
     auto tank_top_mesh  = load_mesh_from_obj("./build/tank_top.obj", &s.main_memory);
 
@@ -233,12 +234,34 @@ extern(C) int main(int args_count, char** args){
     light.specular = light_color;
 
     Shader_Material material = void;
-    Vec3 material_color = Vec3(0.2f, 0.2f, 0.4f);
-    material.ambient   = material_color*0.75f;
-    material.diffuse   = material_color;
-    material.specular  = material_color;
-    //material.shininess = 256.0f;
-    material.shininess = 2.0f;
+    {
+        Vec3 material_color = Vec3(0.2f, 0.2f, 0.4f);
+        material.ambient   = material_color*0.75f;
+        material.diffuse   = material_color;
+        material.specular  = material_color;
+        material.shininess = 256.0f;
+        //material.shininess = 2.0f;
+    }
+
+    auto material_ground = zero_type!Shader_Material;
+    {
+        Vec3 material_color = Vec3(0.50f, 0.42f, 0.30f);
+        material_ground.ambient   = material_color*0.75f;
+        material_ground.diffuse   = material_color;
+        material_ground.specular  = material_color;
+        //material.shininess = 256.0f;
+        material_ground.shininess = 2.0f;
+    }
+
+    auto material_block = zero_type!Shader_Material;
+    {
+        Vec3 material_color = Vec3(0.30f, 0.42f, 0.30f);
+        material_block.ambient   = material_color*0.75f;
+        material_block.diffuse   = material_color;
+        material_block.specular  = material_color;
+        //material.shininess = 256.0f;
+        material_block.shininess = 2.0f;
+    }
 
     Mesh ground_mesh;
     ground_mesh.vertices = alloc_array!Vertex(&s.main_memory, 6);
@@ -407,7 +430,7 @@ extern(C) int main(int args_count, char** args){
             }
 
             auto dir = rotate(Vec2(1, 0), s.player_angle);
-            float speed = 1.0f/8.0f;
+            float speed = 1.0f/16.0f;
             if(player_move_forward){
                 s.player_pos.x += dir.x*speed;
                 s.player_pos.z -= dir.y*speed;
@@ -429,8 +452,9 @@ extern(C) int main(int args_count, char** args){
         }
         prev_timestamp = current_timestamp;
 
-        render_begin_frame(0, 0, &s.frame_memory);
+        render_begin_frame(&s.frame_memory);
 
+        set_viewport(0, 0, window.width, window.height);
         clear_target_to_color(Vec4(0, 0.05f, 0.12f, 1));
 
         float aspect_ratio = (cast(float)window.width) / (cast(float)window.height);
@@ -446,8 +470,8 @@ extern(C) int main(int args_count, char** args){
             auto camera_bounds = Rect(Vec2(0, 0), camera_extents);
             auto mat_proj = mat4_orthographic(camera_bounds);
 
-            auto camera_pos = Vec3(0, 8, 0);
-            auto mat_view = mat4_rot_x(90.0f*(PI/180.0f))*mat4_translate(camera_pos);
+            auto camera_pos = Vec3(0, 8, 6.5f);
+            auto mat_view = mat4_rot_x(60.0f*(PI/180.0f))*mat4_translate(camera_pos);
             //auto mat_view = mat4_translate(Vec3(0, 1, 0));
             //Mat4 mat_view   = Mat4_Identity;
         }
@@ -461,19 +485,20 @@ extern(C) int main(int args_count, char** args){
         light.pos = Vec3(cos(s.t)*18.0f, 2, sin(s.t)*18.0f);
 
         set_constants(0, &constants, constants.sizeof);
-        set_material(&material);
         set_light(&light);
         set_shader(shader);
 
+        set_material(&material_ground);
         auto ground_xform = mat4_translate(Vec3(Grid_Width, 0, Grid_Height)*-0.5f)*mat4_scale(Vec3(Grid_Width, 1.0f, Grid_Height));
         render_mesh(&ground_mesh, ground_xform);
 
+        set_material(&material_block);
+        render_mesh(&cube_mesh, mat4_translate(Vec3(0, 0.5f, 0)));
+
+        set_material(&material);
         auto player_xform = mat4_translate(s.player_pos + Vec3(0, 0.18f, 0))*mat4_rot_y(s.player_angle);
         render_mesh(&tank_base_mesh, player_xform);
         render_mesh(&tank_top_mesh, player_xform);
-
-        //import core.stdc.stdio;
-        //printf("player.z: %f\n", s.player_pos.z);
 
         render_end_frame();
 

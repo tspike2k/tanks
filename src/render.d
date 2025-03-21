@@ -83,7 +83,7 @@ Mat4 mat4_orthographic(Rect camera_bounds){
     auto top    = top(camera_bounds);
     auto bottom = bottom(camera_bounds);
     auto near  = -Z_Far;
-    auto far   = Z_Far;
+    auto far   =  Z_Far;
 
     float a = 2.0f / (right - left);
     float b = 2.0f / (top - bottom);
@@ -456,9 +456,13 @@ version(opengl){
         *shader = 0;
     }
 
-    public void render_begin_frame(float width, float height, Allocator* memory){
-        // TODO: Set viewport and the like.
+    public void render_begin_frame(Allocator* memory){
+        // TODO: Set viewport and the like?
 
+    }
+
+    public void set_viewport(float x, float y, float w, float h){
+        glViewport(cast(int)x, cast(int)y, cast(int)w, cast(int)h);
     }
 
     public void clear_target_to_color(Vec4 color){
