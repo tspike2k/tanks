@@ -75,7 +75,7 @@ struct Shader_Light{
     Vec3 specular;
 }
 
-Mat4 mat4_orthographic(Rect camera_bounds){
+Mat4 mat4_orthographic(Rect camera_bounds, float aspect_ratio){
     // Orthographic adapted from here:
     // https://songho.ca/opengl/gl_projectionmatrix.html#ortho
     auto left   = left(camera_bounds);
@@ -85,7 +85,7 @@ Mat4 mat4_orthographic(Rect camera_bounds){
     auto near  = -Z_Far;
     auto far   =  Z_Far;
 
-    float a = 2.0f / (right - left);
+    float a = 2.0f / ((right - left) * aspect_ratio/2.0f);
     float b = 2.0f / (top - bottom);
     float c = -2.0f / (far - near);
     float d = -(right+left) / (right-left);

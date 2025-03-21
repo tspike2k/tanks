@@ -441,6 +441,23 @@ extern(C) int main(int args_count, char** args){
             }
         }
 
+        // TODO: This is the world's dumbest collision resolution. Do something smarter here that
+        // takes into account the bounds of the entity.
+        Rect world_bounds = Rect(Vec2(0, 0), Vec2(Grid_Width, Grid_Height)*0.5f);
+        if(s.player_pos.x < left(world_bounds)){
+            s.player_pos.x = left(world_bounds);
+        }
+        else if(s.player_pos.x > right(world_bounds)){
+            s.player_pos.x = right(world_bounds);
+        }
+
+        if(s.player_pos.z < bottom(world_bounds)){
+            s.player_pos.z = bottom(world_bounds);
+        }
+        else if(s.player_pos.z > top(world_bounds)){
+            s.player_pos.z = top(world_bounds);
+        }
+
         auto dt = target_dt;
         s.t += dt;
 
@@ -466,12 +483,12 @@ extern(C) int main(int args_count, char** args){
             auto mat_view = make_lookat_matrix(camera_pos, camera_target_pos, Vec3(0, 1, 0));
         }
         else{
-            auto camera_extents = Vec2((Grid_Width+2), aspect_ratio*cast(float)(Grid_Height+2))*0.5f;
+            auto camera_extents = Vec2((Grid_Width+2), (Grid_Height+2))*0.5f;
             auto camera_bounds = Rect(Vec2(0, 0), camera_extents);
-            auto mat_proj = mat4_orthographic(camera_bounds);
+            auto mat_proj = mat4_orthographic(camera_bounds, aspect_ratio);
 
             auto camera_pos = Vec3(0, 8, 6.5f);
-            auto mat_view = mat4_rot_x(60.0f*(PI/180.0f))*mat4_translate(camera_pos);
+            auto mat_view = mat4_rot_x(50.0f*(PI/180.0f))*mat4_translate(camera_pos);
             //auto mat_view = mat4_translate(Vec3(0, 1, 0));
             //Mat4 mat_view   = Mat4_Identity;
         }
@@ -494,6 +511,7 @@ extern(C) int main(int args_count, char** args){
 
         set_material(&material_block);
         render_mesh(&cube_mesh, mat4_translate(Vec3(0, 0.5f, 0)));
+        //render_mesh(&cube_mesh, mat4_translate(Vec3(0, 0.5f, -1)));
 
         set_material(&material);
         auto player_xform = mat4_translate(s.player_pos + Vec3(0, 0.18f, 0))*mat4_rot_y(s.player_angle);
