@@ -466,7 +466,7 @@ extern(C) int main(int args_count, char** args){
             auto mat_view = make_lookat_matrix(camera_pos, camera_target_pos, Vec3(0, 1, 0));
         }
         else{
-            auto camera_extents = Vec2(Grid_Width+2, Grid_Height+2)*0.5f;
+            auto camera_extents = Vec2((Grid_Width+2), aspect_ratio*cast(float)(Grid_Height+2))*0.5f;
             auto camera_bounds = Rect(Vec2(0, 0), camera_extents);
             auto mat_proj = mat4_orthographic(camera_bounds);
 
