@@ -19,6 +19,7 @@ License:   Boost Software License 1.0 (https://www.boost.org/LICENSE_1_0.txt)
     - Temp saves
     - Levels
     - Tanks should be square (a little less than a meter in size)
+    - Level editor
 +/
 
 import display;
@@ -259,6 +260,13 @@ Entity* add_block(World* world, uint x, uint y){
     return e;
 }
 
+Vec2 screen_to_world_pos(Vec2 screen_p, float screen_w, float screen_h, float camera_width_in_meters){
+    float aspect_ratio = screen_w / screen_h;
+    auto n = Vec2(screen_p.x / screen_w, screen_p.y / screen_h);
+    auto result = Vec2(n.x * camera_width_in_meters, n.y * camera_width_in_meters * aspect_ratio);
+    return result;
+}
+
 extern(C) int main(int args_count, char** args){
     auto app_memory = os_alloc(Main_Memory_Size + Scratch_Memory_Size + Frame_Memory_Size, 0);
     scope(exit) os_dealloc(app_memory);
@@ -405,6 +413,10 @@ extern(C) int main(int args_count, char** args){
     }
     add_block(&s.world, 0, 0);
     add_block(&s.world, Grid_Width-1, Grid_Height-1);
+    add_block(&s.world, 0, Grid_Height-1);
+    add_block(&s.world, Grid_Width-1, 0);
+
+    auto mouse_pixel = Vec2(0, 0);
 
     while(running){
         begin_frame();
@@ -473,6 +485,8 @@ version(none){
                 case Event_Type.Mouse_Motion:{
                     auto motion = &evt.mouse_motion;
 
+                    mouse_pixel = Vec2(motion.pixel_x, window.height - motion.pixel_y);
+
                     float speed = 0.12f;
                     /*if(should_zoom_camera){
                         auto amount = motion.rel_y*speed;
@@ -540,6 +554,8 @@ version(none){
 
             e.pos += delta;
 
+            //e.pos = screen_to_world_pos(mouse_pixel, window.width, window.height, );
+
             bool is_dynamic_entity = e.type == Entity_Type.Tank || e.type == Entity_Type.Bullet;
             if(is_dynamic_entity){
                  // TODO: This is the world's dumbest collision resolution. Do something smarter here that
@@ -593,7 +609,7 @@ version(none){
         auto mat_camera = mat_proj*mat_view;
 
         Shader_Constants constants;
-        constants.camera = transpose(mat_camera);
+        constants.camera = transpose(mat_camera); //
         constants.camera_pos = camera_pos;
         constants.time = s.t;
 
@@ -627,7 +643,6 @@ version(none){
         }
 
         render_end_frame();
-
         end_frame();
     }
 
