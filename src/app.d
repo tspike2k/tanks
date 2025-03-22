@@ -245,6 +245,20 @@ Entity[] iterate_entities(World* world){
     return result;
 }
 
+Entity* add_block(World* world, uint x, uint y){
+    // TODO: We should have different types of blocks. We should be able to set height
+    // and if the block is breakable.
+    assert(x < Grid_Width);
+    assert(y < Grid_Height);
+
+
+   // Grid cells are relative to the bottom-left of the grid where y grows upwards.
+    auto grid_extents = Vec2(Grid_Width, Grid_Height)*0.5f;
+    auto p = Vec2(x, y) + Vec2(0.5f, 0.5f) - grid_extents;
+    auto e = add_entity(world, p, Entity_Type.Block);
+    return e;
+}
+
 extern(C) int main(int args_count, char** args){
     auto app_memory = os_alloc(Main_Memory_Size + Scratch_Memory_Size + Frame_Memory_Size, 0);
     scope(exit) os_dealloc(app_memory);
@@ -389,6 +403,8 @@ extern(C) int main(int args_count, char** args){
         auto player = add_entity(&s.world, Vec2(0, 0), Entity_Type.Tank);
         s.player_entity_id = player.id;
     }
+    add_block(&s.world, 0, 0);
+    add_block(&s.world, Grid_Width-1, Grid_Height-1);
 
     while(running){
         begin_frame();
@@ -598,7 +614,7 @@ version(none){
 
                 case Entity_Type.Block:{
                     set_material(&material_block);
-                    render_mesh(&cube_mesh, mat4_translate(Vec3(0, 0.5f, 0)));
+                    render_mesh(&cube_mesh, mat4_translate(p + Vec3(0, 0.5f, 0)));
                 } break;
 
                 case Entity_Type.Tank:{
