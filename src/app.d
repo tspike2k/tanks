@@ -260,10 +260,11 @@ Entity* add_block(World* world, uint x, uint y){
     return e;
 }
 
-Vec2 screen_to_world_pos(Vec2 screen_p, float screen_w, float screen_h, float camera_width_in_meters){
-    float aspect_ratio = screen_w / screen_h;
-    auto n = Vec2(screen_p.x / screen_w, screen_p.y / screen_h);
-    auto result = Vec2(n.x * camera_width_in_meters, n.y * camera_width_in_meters * aspect_ratio);
+Vec2 screen_to_world_pos(Vec2 screen_p, float screen_w, float screen_h, Rect camera_bounds){
+    float nx = (screen_p.x / screen_w)*2.0f - 1.0f;
+    float ny = (screen_p.y / screen_h)*2.0f - 1.0f;
+
+    Vec2 result = camera_bounds.center + Vec2(nx * camera_bounds.extents.x, ny * camera_bounds.extents.y);
     return result;
 }
 
@@ -423,6 +424,14 @@ extern(C) int main(int args_count, char** args){
 
         auto window = get_window_info();
 
+        float aspect_ratio = (cast(float)window.width) / (cast(float)window.height);
+        auto camera_extents = Vec2((Grid_Width+2), (aspect_ratio*0.5f)*cast(float)(Grid_Height+2))*0.5f;
+        auto camera_bounds = Rect(Vec2(0, 0), camera_extents);
+
+        // TODO: This doesn't work quite right. Some of the top and bottom of the screen are not included.
+        // TODO: Rather than do this, use an orthographic unproject function?
+        auto cursor_world_pos = screen_to_world_pos(mouse_pixel, window.width, window.height, camera_bounds);
+
 version(none){
         sockets_update((&socket)[0 .. 1], &s.frame_memory);
 
@@ -542,6 +551,9 @@ version(none){
                     e.angle -= rot_speed;
                 }
 
+                auto turret_dir = cursor_world_pos - e.pos;
+                e.turret_angle = atan2(turret_dir.y, turret_dir.x);
+
                 auto dir = rotate(Vec2(1, 0), e.angle);
                 float speed = 1.0f/16.0f;
                 if(player_move_forward){
@@ -553,8 +565,6 @@ version(none){
             }
 
             e.pos += delta;
-
-            //e.pos = screen_to_world_pos(mouse_pixel, window.width, window.height, );
 
             bool is_dynamic_entity = e.type == Entity_Type.Tank || e.type == Entity_Type.Bullet;
             if(is_dynamic_entity){
@@ -590,22 +600,9 @@ version(none){
         set_viewport(0, 0, window.width, window.height);
         clear_target_to_color(Vec4(0, 0.05f, 0.12f, 1));
 
-        float aspect_ratio = (cast(float)window.width) / (cast(float)window.height);
-        version(none){
-            auto camera_pos = Vec3(0, 20, 0.001f); // TODO: For some reason, z can't be zero.
-            auto camera_target_pos = Vec3(0, 0, 0);
-
-            auto mat_proj = mat4_perspective(45.0f, aspect_ratio);
-            auto mat_view = make_lookat_matrix(camera_pos, camera_target_pos, Vec3(0, 1, 0));
-        }
-        else{
-            auto camera_extents = Vec2((Grid_Width+2), (aspect_ratio*0.5f)*cast(float)(Grid_Height+2))*0.5f;
-            auto camera_bounds = Rect(Vec2(0, 0), camera_extents);
-            auto mat_proj = mat4_orthographic(camera_bounds);
-
-            auto camera_pos = Vec3(0, 0, 0);
-            auto mat_view = mat4_rot_x(45.0f*(PI/180.0f))*mat4_translate(camera_pos);
-        }
+        auto mat_proj = mat4_orthographic(camera_bounds);
+        auto camera_pos = Vec3(0, 0, 0);
+        auto mat_view = mat4_rot_x(45.0f*(PI/180.0f))*mat4_translate(camera_pos);
         auto mat_camera = mat_proj*mat_view;
 
         Shader_Constants constants;
@@ -635,9 +632,9 @@ version(none){
 
                 case Entity_Type.Tank:{
                     set_material(&material);
-                    auto xform = mat4_translate(p + Vec3(0, 0.18f, 0))*mat4_rot_y(e.angle);
-                    render_mesh(&tank_base_mesh, xform);
-                    render_mesh(&tank_top_mesh, xform);
+                    auto mat_tran = mat4_translate(p + Vec3(0, 0.18f, 0));
+                    render_mesh(&tank_base_mesh, mat_tran*mat4_rot_y(e.angle));
+                    render_mesh(&tank_top_mesh, mat_tran*mat4_rot_y(e.turret_angle));
                 } break;
             }
         }
