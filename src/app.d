@@ -4,6 +4,23 @@ Copyright: Copyright (c) 2025
 License:   Boost Software License 1.0 (https://www.boost.org/LICENSE_1_0.txt)
 */
 
+/+
+    - Static Collisions
+    - Dynamic Collisions
+    - Enemies
+    - Bullets
+    - Missiles
+    - Mines
+    - Particles (Explosions, smoke, etc)
+    - Enemy AI
+    - Scoring
+    - Multiplayer
+    - High score tracking
+    - Temp saves
+    - Levels
+    - Tanks should be square (a little less than a meter in size)
++/
+
 import display;
 import memory;
 import logging;
@@ -26,8 +43,44 @@ struct App_State{
     Allocator frame_memory;
 
     float t;
-    float player_angle;
-    Vec3  player_pos;
+    Entity_ID player_entity_id;
+    World world;
+}
+
+alias Entity_ID = ulong;
+enum  Null_Entity_ID = 0;
+
+enum Entity_Type : uint{
+    None,
+    Block,
+    Hole,
+    Tank,
+    Bullet,
+    Mine,
+}
+
+struct Entity{
+    Entity_ID   id;
+    Entity_Type type;
+    Vec2 pos;
+    Vec2 vel;
+    float angle;
+    float turret_angle;
+}
+
+struct World{
+    Entity_ID   next_entity_id;
+    Entity[512] entities;
+    uint        entities_count;
+}
+
+Entity* add_entity(World* world, Vec2 pos, Entity_Type type){
+    Entity* e = &world.entities[world.entities_count++];
+    clear_to_zero(*e);
+    e.id   = world.next_entity_id++;
+    e.type = type;
+    e.pos  = pos;
+    return e;
 }
 
 Mesh obj_to_mesh(Obj_Data* obj, Allocator* allocator){
@@ -174,6 +227,24 @@ struct Entity_Message{
     Vec2  pos;
 }
 
+Entity* get_entity_by_id(World* world, Entity_ID id){
+    Entity* result;
+
+    foreach(ref e; world.entities[0 .. world.entities_count]){
+        if(e.id == id){
+            result = &e;
+            break;
+        }
+    }
+
+    return result;
+}
+
+Entity[] iterate_entities(World* world){
+    auto result = world.entities[0 .. world.entities_count];
+    return result;
+}
+
 extern(C) int main(int args_count, char** args){
     auto app_memory = os_alloc(Main_Memory_Size + Scratch_Memory_Size + Frame_Memory_Size, 0);
     scope(exit) os_dealloc(app_memory);
@@ -314,11 +385,17 @@ extern(C) int main(int args_count, char** args){
     }
     scope(exit) close_socket(&socket);
 
+    {
+        auto player = add_entity(&s.world, Vec2(0, 0), Entity_Type.Tank);
+        s.player_entity_id = player.id;
+    }
+
     while(running){
         begin_frame();
 
         auto window = get_window_info();
 
+version(none){
         sockets_update((&socket)[0 .. 1], &s.frame_memory);
 
         if(!is_host && send_broadcast){
@@ -345,7 +422,7 @@ extern(C) int main(int args_count, char** args){
                 }
                 else{
                     auto cmd = cast(Entity_Message*)msg;
-                    s.player_angle = cmd.angle;
+                    player.angle = cmd.angle;
                     s.player_pos = Vec3(cmd.pos.x, s.player_pos.y, cmd.pos.y);
                 }
             }
@@ -354,11 +431,12 @@ extern(C) int main(int args_count, char** args){
         if(socket.events & Socket_Event_Writable){
             if(is_host && is_valid(&client_address)){
                 Entity_Message msg = void;
-                msg.angle = s.player_angle;
+                msg.angle = player.angle;
                 msg.pos   = Vec2(s.player_pos.x, s.player_pos.z);
                 socket_write(&socket, &msg, msg.sizeof, &client_address);
             }
         }
+}
 
         Event evt;
         while(next_event(&evt)){
@@ -419,47 +497,53 @@ extern(C) int main(int args_count, char** args){
             }
         }
 
-        // Player movement
-        {
-            float rot_speed = (1.0f/4.0f)/(2.0f*PI);
-            if(player_turn_left){
-                s.player_angle += rot_speed;
-            }
-            if(player_turn_right){
-                s.player_angle -= rot_speed;
-            }
-
-            auto dir = rotate(Vec2(1, 0), s.player_angle);
-            float speed = 1.0f/16.0f;
-            if(player_move_forward){
-                s.player_pos.x += dir.x*speed;
-                s.player_pos.z -= dir.y*speed;
-            }
-            if(player_move_backward){
-                s.player_pos.x -= dir.x*speed;
-                s.player_pos.z += dir.y*speed;
-            }
-        }
-
-        // TODO: This is the world's dumbest collision resolution. Do something smarter here that
-        // takes into account the bounds of the entity.
-        Rect world_bounds = Rect(Vec2(0, 0), Vec2(Grid_Width, Grid_Height)*0.5f);
-        if(s.player_pos.x < left(world_bounds)){
-            s.player_pos.x = left(world_bounds);
-        }
-        else if(s.player_pos.x > right(world_bounds)){
-            s.player_pos.x = right(world_bounds);
-        }
-
-        if(s.player_pos.z < bottom(world_bounds)){
-            s.player_pos.z = bottom(world_bounds);
-        }
-        else if(s.player_pos.z > top(world_bounds)){
-            s.player_pos.z = top(world_bounds);
-        }
-
         auto dt = target_dt;
         s.t += dt;
+
+        // Entity simulation
+        foreach(ref e; iterate_entities(&s.world)){
+            Vec2 delta = Vec2(0, 0);
+            if(e.id == s.player_entity_id){
+                float rot_speed = (1.0f/4.0f)/(2.0f*PI);
+                if(player_turn_left){
+                    e.angle += rot_speed;
+                }
+                if(player_turn_right){
+                    e.angle -= rot_speed;
+                }
+
+                auto dir = rotate(Vec2(1, 0), e.angle);
+                float speed = 1.0f/16.0f;
+                if(player_move_forward){
+                    delta = dir*speed;
+                }
+                else if(player_move_backward){
+                    delta = dir*-speed;
+                }
+            }
+
+            e.pos += delta;
+
+            bool is_dynamic_entity = e.type == Entity_Type.Tank || e.type == Entity_Type.Bullet;
+            if(is_dynamic_entity){
+                 // TODO: This is the world's dumbest collision resolution. Do something smarter here that
+                // takes into account the bounds of the entity.
+                Rect world_bounds = Rect(Vec2(0, 0), Vec2(Grid_Width, Grid_Height)*0.5f);
+                if(e.pos.x < left(world_bounds)){
+                    e.pos.x = left(world_bounds);
+                }
+                else if(e.pos.x > right(world_bounds)){
+                    e.pos.x = right(world_bounds);
+                }
+
+                if(e.pos.y < bottom(world_bounds)){
+                    e.pos.y = bottom(world_bounds);
+                }
+                else if(e.pos.y > top(world_bounds)){
+                    e.pos.y = top(world_bounds);
+                }
+            }
+        }
 
         current_timestamp = ns_timestamp();
         ulong frame_time = cast(ulong)(dt*1000000000.0f);
@@ -483,15 +567,12 @@ extern(C) int main(int args_count, char** args){
             auto mat_view = make_lookat_matrix(camera_pos, camera_target_pos, Vec3(0, 1, 0));
         }
         else{
-
             auto camera_extents = Vec2((Grid_Width+2), (aspect_ratio*0.5f)*cast(float)(Grid_Height+2))*0.5f;
             auto camera_bounds = Rect(Vec2(0, 0), camera_extents);
             auto mat_proj = mat4_orthographic(camera_bounds);
 
-            auto camera_pos = Vec3(0, 8, 6.5f);
+            auto camera_pos = Vec3(0, 0, 0);
             auto mat_view = mat4_rot_x(45.0f*(PI/180.0f))*mat4_translate(camera_pos);
-            //auto mat_view = mat4_translate(Vec3(0, 1, 0));
-            //Mat4 mat_view   = Mat4_Identity;
         }
         auto mat_camera = mat_proj*mat_view;
 
@@ -510,14 +591,24 @@ extern(C) int main(int args_count, char** args){
         auto ground_xform = mat4_translate(Vec3(Grid_Width, 0, Grid_Height)*-0.5f)*mat4_scale(Vec3(Grid_Width, 1.0f, Grid_Height));
         render_mesh(&ground_mesh, ground_xform);
 
-        set_material(&material_block);
-        render_mesh(&cube_mesh, mat4_translate(Vec3(0, 0.5f, 0)));
-        //render_mesh(&cube_mesh, mat4_translate(Vec3(0, 0.5f, -1)));
+        foreach(ref e; iterate_entities(&s.world)){
+            Vec3 p = Vec3(e.pos.x, 0, -e.pos.y);
+            switch(e.type){
+                default: assert(0);
 
-        set_material(&material);
-        auto player_xform = mat4_translate(s.player_pos + Vec3(0, 0.18f, 0))*mat4_rot_y(s.player_angle);
-        render_mesh(&tank_base_mesh, player_xform);
-        render_mesh(&tank_top_mesh, player_xform);
+                case Entity_Type.Block:{
+                    set_material(&material_block);
+                    render_mesh(&cube_mesh, mat4_translate(Vec3(0, 0.5f, 0)));
+                } break;
+
+                case Entity_Type.Tank:{
+                    set_material(&material);
+                    auto xform = mat4_translate(p + Vec3(0, 0.18f, 0))*mat4_rot_y(e.angle);
+                    render_mesh(&tank_base_mesh, xform);
+                    render_mesh(&tank_top_mesh, xform);
+                } break;
+            }
+        }
 
         render_end_frame();
 
