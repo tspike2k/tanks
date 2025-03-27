@@ -122,10 +122,9 @@ mixin template Vec_Ops(){
 }
 
 Vec2 rotate(Vec2 v, float radians){
-    auto result = Vec2(
-        v.x * cos(radians) - v.y * sin(radians),
-        v.x * sin(radians) + v.y * cos(radians),
-    );
+    auto c = cos(radians);
+    auto s = sin(radians);
+    auto result = Vec2(v.x*c - v.y*s, v.x*s + v.y*c);
     return result;
 }
 

@@ -70,11 +70,13 @@ struct Entity{
     Entity_ID   id;
     Entity_ID   parent_id;
     Entity_Type type;
-    uint        health;
-    Vec2 pos;
-    Vec2 vel;
+
+    Vec2  pos;
+    Vec2  extents;
+    Vec2  vel;
     float angle;
     float turret_angle;
+    uint  health;
 }
 
 uint get_bullet_count_fired_by_entity(World* world, Entity_ID id){
@@ -279,6 +281,7 @@ Entity* add_block(World* world, uint x, uint y){
     auto grid_extents = Vec2(Grid_Width, Grid_Height)*0.5f;
     auto p = Vec2(x, y) + Vec2(0.5f, 0.5f) - grid_extents;
     auto e = add_entity(world, p, Entity_Type.Block);
+    e.extents = Vec2(0.5f, 0.5f);
     return e;
 }
 
@@ -295,6 +298,7 @@ Entity* spawn_bullet(World* world, Entity_ID parent_id, Vec2 p, float angle){
     e.angle     = angle;
     e.parent_id = parent_id;
     e.health    = 2;
+    e.extents   = Vec2(0.25f, 0.25f)*0.5f;
     return e;
 }
 
@@ -306,27 +310,31 @@ bool is_dynamic_entity(Entity_Type type){
 bool restrict_entity_to_grid(Entity* e, Vec2* hit_normal){
     bool was_hit = false;
 
+    auto aabb = aabb_from_obb(e.pos, e.extents, e.angle);
+    auto min_p = Vec2(left(aabb), bottom(aabb));
+    auto max_p = Vec2(right(aabb), top(aabb));
+
     // TODO: This is the world's dumbest collision resolution. Do something smarter here that
     // takes into account the bounds of the entity.
     Rect world_bounds = Rect(Vec2(0, 0), Vec2(Grid_Width, Grid_Height)*0.5f);
-    if(e.pos.x < left(world_bounds)){
-        e.pos.x = left(world_bounds);
+    if(min_p.x < left(world_bounds)){
+        e.pos.x = left(world_bounds) + aabb.extents.x;
         was_hit = true;
         hit_normal.x = 1;
     }
-    else if(e.pos.x > right(world_bounds)){
-        e.pos.x = right(world_bounds);
+    else if(max_p.x > right(world_bounds)){
+        e.pos.x = right(world_bounds) - aabb.extents.x;
         was_hit = true;
         hit_normal.x = -1;
     }
 
-    if(e.pos.y < bottom(world_bounds)){
-        e.pos.y = bottom(world_bounds);
+    if(min_p.y < bottom(world_bounds)){
+        e.pos.y = bottom(world_bounds) + aabb.extents.y;
         was_hit = true;
         hit_normal.y = 1;
     }
-    else if(e.pos.y > top(world_bounds)){
-        e.pos.y = top(world_bounds);
+    else if(max_p.y > top(world_bounds)){
+        e.pos.y = top(world_bounds) - aabb.extents.y;
         was_hit = true;
         hit_normal.y = -1;
     }
@@ -351,6 +359,20 @@ void remove_destryed_entities(World* world){
             entity_index++;
         }
     }
+}
+
+Rect aabb_from_obb(Vec2 p, Vec2 extents, float angle){
+    // Adapted from:
+    // https://stackoverflow.com/a/71878932
+    float c = abs(cos(angle));
+    float s = abs(sin(angle));
+
+    auto rotated_extents = Vec2(
+        extents.x*c + extents.y*s,
+        extents.x*s + extents.y*c
+    );
+    auto result = Rect(p, rotated_extents);
+    return result;
 }
 
 extern(C) int main(int args_count, char** args){
@@ -502,6 +524,7 @@ extern(C) int main(int args_count, char** args){
     {
         auto player = add_entity(&s.world, Vec2(0, 0), Entity_Type.Tank);
         s.player_entity_id = player.id;
+        player.extents = Vec2(0.55f, 0.324f);
     }
     add_block(&s.world, 0, 0);
     add_block(&s.world, Grid_Width-1, Grid_Height-1);
@@ -747,6 +770,19 @@ version(none){
                     render_mesh(&bullet_mesh, mat_tran*mat4_rot_y(e.angle));
                 } break;
             }
+        }
+
+
+        version(none){
+            // Draw min/max of the bounding box for the player tank for debugging.
+
+            auto e = get_entity_by_id(&s.world, s.player_entity_id);
+            auto aabb = aabb_from_obb(e.pos, e.extents, e.angle);
+            auto min_p = min(aabb);
+            auto max_p = max(aabb);
+
+            render_mesh(&cube_mesh, mat4_translate(Vec3(min_p.x, 0, -min_p.y))*mat4_scale(Vec3(0.25f, 0.25f, 0.25f)));
+            render_mesh(&cube_mesh, mat4_translate(Vec3(max_p.x, 0, -max_p.y))*mat4_scale(Vec3(0.25f, 0.25f, 0.25f)));
         }
 
         render_end_frame();
