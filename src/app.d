@@ -20,6 +20,10 @@ License:   Boost Software License 1.0 (https://www.boost.org/LICENSE_1_0.txt)
     - Levels
     - Tanks should be square (a little less than a meter in size)
     - Level editor
+
+    Interesting article on frequency of packet transmission in multiplayer games
+    used in Source games.
+    https://developer.valvesoftware.com/wiki/Source_Multiplayer_Networking
 +/
 
 import display;
@@ -272,12 +276,17 @@ extern(C) int main(int args_count, char** args){
     auto app_memory = os_alloc(Main_Memory_Size + Scratch_Memory_Size + Frame_Memory_Size, 0);
     scope(exit) os_dealloc(app_memory);
 
-    bool is_host;
-    foreach(s; args[0 .. args_count]){
-        auto arg = s[0 .. strlen(s)];
-        if(arg == "-host"){
-            is_host = true;
+    version(none){
+        bool is_host;
+        foreach(s; args[0 .. args_count]){
+            auto arg = s[0 .. strlen(s)];
+            if(arg == "-host"){
+                is_host = true;
+            }
         }
+    }
+    else{
+        bool is_host = true;
     }
 
     App_State* s;
@@ -310,6 +319,7 @@ extern(C) int main(int args_count, char** args){
     auto cube_mesh      = load_mesh_from_obj("./build/cube.obj", &s.main_memory);
     auto tank_base_mesh = load_mesh_from_obj("./build/tank_base.obj", &s.main_memory);
     auto tank_top_mesh  = load_mesh_from_obj("./build/tank_top.obj", &s.main_memory);
+    auto bullet_mesh  = load_mesh_from_obj("./build/bullet.obj", &s.main_memory);
 
     auto shaders_dir = "./build/shaders";
     Shader shader;
