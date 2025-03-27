@@ -272,6 +272,12 @@ Vec2 screen_to_world_pos(Vec2 screen_p, float screen_w, float screen_h, Rect cam
     return result;
 }
 
+Entity* spawn_bullet(World* world, Vec2 p, float angle){
+    auto e = add_entity(world, p, Entity_Type.Bullet);
+    e.angle = angle;
+    return e;
+}
+
 extern(C) int main(int args_count, char** args){
     auto app_memory = os_alloc(Main_Memory_Size + Scratch_Memory_Size + Frame_Memory_Size, 0);
     scope(exit) os_dealloc(app_memory);
@@ -319,7 +325,7 @@ extern(C) int main(int args_count, char** args){
     auto cube_mesh      = load_mesh_from_obj("./build/cube.obj", &s.main_memory);
     auto tank_base_mesh = load_mesh_from_obj("./build/tank_base.obj", &s.main_memory);
     auto tank_top_mesh  = load_mesh_from_obj("./build/tank_top.obj", &s.main_memory);
-    auto bullet_mesh  = load_mesh_from_obj("./build/bullet.obj", &s.main_memory);
+    auto bullet_mesh    = load_mesh_from_obj("./build/bullet.obj", &s.main_memory);
 
     auto shaders_dir = "./build/shaders";
     Shader shader;
@@ -499,6 +505,16 @@ version(none){
                     if(evt.button.id == Button_ID.Mouse_Right){
                         move_camera = evt.button.pressed;
                     }
+                    else if(evt.button.id == Button_ID.Mouse_Left){
+                        auto player = get_entity_by_id(&s.world, s.player_entity_id);
+                        if(player){
+                            auto angle   = player.turret_angle;
+                            auto dir     = rotate(Vec2(1, 0), angle);
+                            auto p       = player.pos + dir*1.0f;
+                            spawn_bullet(&s.world, p, angle);
+                        }
+                    }
+
                 } break;
 
                 case Event_Type.Mouse_Motion:{
@@ -645,6 +661,12 @@ version(none){
                     auto mat_tran = mat4_translate(p + Vec3(0, 0.18f, 0));
                     render_mesh(&tank_base_mesh, mat_tran*mat4_rot_y(e.angle));
                     render_mesh(&tank_top_mesh, mat_tran*mat4_rot_y(e.turret_angle));
+                } break;
+
+                case Entity_Type.Bullet:{
+                    set_material(&material_block);
+                    auto mat_tran = mat4_translate(p + Vec3(0, 0.5f, 0));
+                    render_mesh(&bullet_mesh, mat_tran*mat4_rot_y(e.angle));
                 } break;
             }
         }
