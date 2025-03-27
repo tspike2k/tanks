@@ -70,6 +70,7 @@ struct Entity{
     Entity_ID   id;
     Entity_ID   parent_id;
     Entity_Type type;
+    uint        health;
     Vec2 pos;
     Vec2 vel;
     float angle;
@@ -97,6 +98,8 @@ struct World{
 Entity* add_entity(World* world, Vec2 pos, Entity_Type type){
     Entity* e = &world.entities[world.entities_count++];
     clear_to_zero(*e);
+    e.health = 1;
+    e.parent_id = Null_Entity_ID;
     e.id   = world.next_entity_id++;
     e.type = type;
     e.pos  = pos;
@@ -287,9 +290,11 @@ Vec2 screen_to_world_pos(Vec2 screen_p, float screen_w, float screen_h, Rect cam
     return result;
 }
 
-Entity* spawn_bullet(World* world, Vec2 p, float angle){
-    auto e = add_entity(world, p, Entity_Type.Bullet);
-    e.angle = angle;
+Entity* spawn_bullet(World* world, Entity_ID parent_id, Vec2 p, float angle){
+    auto e      = add_entity(world, p, Entity_Type.Bullet);
+    e.angle     = angle;
+    e.parent_id = parent_id;
+    e.health    = 2;
     return e;
 }
 
@@ -327,6 +332,25 @@ bool restrict_entity_to_grid(Entity* e, Vec2* hit_normal){
     }
 
     return was_hit;
+}
+
+bool is_destroyed(Entity* e){
+    bool result = e.health == 0;
+    return result;
+}
+
+void remove_destryed_entities(World* world){
+    uint entity_index;
+    while(entity_index < world.entities_count){
+        auto e = &world.entities[entity_index];
+        if(is_destroyed(e)){
+            *e = world.entities[world.entities_count-1];
+            world.entities_count--;
+        }
+        else{
+            entity_index++;
+        }
+    }
 }
 
 extern(C) int main(int args_count, char** args){
@@ -562,11 +586,11 @@ version(none){
                            auto player = get_entity_by_id(&s.world, s.player_entity_id);
                             auto count = get_bullet_count_fired_by_entity(&s.world, player.id);
                             if(player && count < Max_Bullets_Per_Tank){
-                                auto angle   = player.turret_angle;
-                                auto dir     = rotate(Vec2(1, 0), angle);
-                                auto p       = player.pos + dir*1.0f;
-                                auto bullet = spawn_bullet(&s.world, p, angle);
-                                bullet.vel = dir*4.0f;
+                                auto angle  = player.turret_angle;
+                                auto dir    = rotate(Vec2(1, 0), angle);
+                                auto p      = player.pos + dir*1.0f;
+                                auto bullet = spawn_bullet(&s.world, player.id, p, angle);
+                                bullet.vel  = dir*4.0f;
                             }
                         }
                     }
@@ -622,7 +646,7 @@ version(none){
 
         // Entity simulation
         foreach(ref e; iterate_entities(&s.world)){
-            if(is_dynamic_entity(e.type)){
+            if(is_dynamic_entity(e.type) && !is_destroyed(&e)){
                 // TODO: We should only effect acceleration. Delta would be calculated from this below.
                 Vec2 delta = Vec2(0, 0);
                 Vec2 hit_normal = Vec2(0, 0);
@@ -657,12 +681,15 @@ version(none){
                 if(restrict_entity_to_grid(&e, &hit_normal)){ // TODO: Should this return hit normal?
                     // TODO: This should be designed to work on more than just bullets
                     if(e.type == Entity_Type.Bullet){
+                        e.health--;
                         e.vel = reflect(e.vel, hit_normal);
                         e.angle = atan2(e.vel.y, e.vel.x);
                     }
                 }
             }
         }
+
+        remove_destryed_entities(&s.world);
 
         current_timestamp = ns_timestamp();
         ulong frame_time = cast(ulong)(dt*1000000000.0f);
