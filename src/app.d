@@ -40,6 +40,8 @@ enum Main_Memory_Size    =  4*1024*1024;
 enum Frame_Memory_Size   =  8*1024*1024;
 enum Scratch_Memory_Size = 16*1024*1024;
 
+enum Max_Bullets_Per_Tank = 4;
+
 enum Grid_Width  = 22;
 enum Grid_Height = 16;
 
@@ -66,11 +68,24 @@ enum Entity_Type : uint{
 
 struct Entity{
     Entity_ID   id;
+    Entity_ID   parent_id;
     Entity_Type type;
     Vec2 pos;
     Vec2 vel;
     float angle;
     float turret_angle;
+}
+
+uint get_bullet_count_fired_by_entity(World* world, Entity_ID id){
+    uint result;
+
+    foreach(ref e; world.entities){
+        if(e.type == Entity_Type.Bullet && e.parent_id == id){
+            result++;
+        }
+    }
+
+    return result;
 }
 
 struct World{
@@ -276,6 +291,42 @@ Entity* spawn_bullet(World* world, Vec2 p, float angle){
     auto e = add_entity(world, p, Entity_Type.Bullet);
     e.angle = angle;
     return e;
+}
+
+bool is_dynamic_entity(Entity_Type type){
+    bool result = type == Entity_Type.Tank || type == Entity_Type.Bullet;
+    return result;
+}
+
+bool restrict_entity_to_grid(Entity* e, Vec2* hit_normal){
+    bool was_hit = false;
+
+    // TODO: This is the world's dumbest collision resolution. Do something smarter here that
+    // takes into account the bounds of the entity.
+    Rect world_bounds = Rect(Vec2(0, 0), Vec2(Grid_Width, Grid_Height)*0.5f);
+    if(e.pos.x < left(world_bounds)){
+        e.pos.x = left(world_bounds);
+        was_hit = true;
+        hit_normal.x = 1;
+    }
+    else if(e.pos.x > right(world_bounds)){
+        e.pos.x = right(world_bounds);
+        was_hit = true;
+        hit_normal.x = -1;
+    }
+
+    if(e.pos.y < bottom(world_bounds)){
+        e.pos.y = bottom(world_bounds);
+        was_hit = true;
+        hit_normal.y = 1;
+    }
+    else if(e.pos.y > top(world_bounds)){
+        e.pos.y = top(world_bounds);
+        was_hit = true;
+        hit_normal.y = -1;
+    }
+
+    return was_hit;
 }
 
 extern(C) int main(int args_count, char** args){
@@ -502,19 +553,23 @@ version(none){
                 } break;
 
                 case Event_Type.Button:{
-                    if(evt.button.id == Button_ID.Mouse_Right){
-                        move_camera = evt.button.pressed;
-                    }
-                    else if(evt.button.id == Button_ID.Mouse_Left){
-                        auto player = get_entity_by_id(&s.world, s.player_entity_id);
-                        if(player){
-                            auto angle   = player.turret_angle;
-                            auto dir     = rotate(Vec2(1, 0), angle);
-                            auto p       = player.pos + dir*1.0f;
-                            spawn_bullet(&s.world, p, angle);
+                    auto btn = &evt.button;
+                    if(btn.pressed){
+                        if(btn.id == Button_ID.Mouse_Right){
+                            move_camera = evt.button.pressed;
+                        }
+                        else if(btn.id == Button_ID.Mouse_Left){
+                           auto player = get_entity_by_id(&s.world, s.player_entity_id);
+                            auto count = get_bullet_count_fired_by_entity(&s.world, player.id);
+                            if(player && count < Max_Bullets_Per_Tank){
+                                auto angle   = player.turret_angle;
+                                auto dir     = rotate(Vec2(1, 0), angle);
+                                auto p       = player.pos + dir*1.0f;
+                                auto bullet = spawn_bullet(&s.world, p, angle);
+                                bullet.vel = dir*4.0f;
+                            }
                         }
                     }
-
                 } break;
 
                 case Event_Type.Mouse_Motion:{
@@ -567,48 +622,44 @@ version(none){
 
         // Entity simulation
         foreach(ref e; iterate_entities(&s.world)){
-            Vec2 delta = Vec2(0, 0);
-            if(e.id == s.player_entity_id){
-                float rot_speed = (1.0f/4.0f)/(2.0f*PI);
-                if(player_turn_left){
-                    e.angle += rot_speed;
+            if(is_dynamic_entity(e.type)){
+                // TODO: We should only effect acceleration. Delta would be calculated from this below.
+                Vec2 delta = Vec2(0, 0);
+                Vec2 hit_normal = Vec2(0, 0);
+                if(e.id == s.player_entity_id){
+                    float rot_speed = (1.0f/4.0f)/(2.0f*PI);
+                    if(player_turn_left){
+                        e.angle += rot_speed;
+                    }
+                    if(player_turn_right){
+                        e.angle -= rot_speed;
+                    }
+
+                    auto turret_dir = cursor_world_pos - e.pos;
+                    e.turret_angle = atan2(turret_dir.y, turret_dir.x);
+
+                    auto dir = rotate(Vec2(1, 0), e.angle);
+                    float speed = 1.0f/16.0f;
+                    if(player_move_forward){
+                        delta = dir*speed;
+                    }
+                    else if(player_move_backward){
+                        delta = dir*-speed;
+                    }
                 }
-                if(player_turn_right){
-                    e.angle -= rot_speed;
+                else{
+                    // TODO: Better integration
+                    delta = e.vel*dt;
                 }
 
-                auto turret_dir = cursor_world_pos - e.pos;
-                e.turret_angle = atan2(turret_dir.y, turret_dir.x);
+                e.pos += delta;
 
-                auto dir = rotate(Vec2(1, 0), e.angle);
-                float speed = 1.0f/16.0f;
-                if(player_move_forward){
-                    delta = dir*speed;
-                }
-                else if(player_move_backward){
-                    delta = dir*-speed;
-                }
-            }
-
-            e.pos += delta;
-
-            bool is_dynamic_entity = e.type == Entity_Type.Tank || e.type == Entity_Type.Bullet;
-            if(is_dynamic_entity){
-                 // TODO: This is the world's dumbest collision resolution. Do something smarter here that
-                // takes into account the bounds of the entity.
-                Rect world_bounds = Rect(Vec2(0, 0), Vec2(Grid_Width, Grid_Height)*0.5f);
-                if(e.pos.x < left(world_bounds)){
-                    e.pos.x = left(world_bounds);
-                }
-                else if(e.pos.x > right(world_bounds)){
-                    e.pos.x = right(world_bounds);
-                }
-
-                if(e.pos.y < bottom(world_bounds)){
-                    e.pos.y = bottom(world_bounds);
-                }
-                else if(e.pos.y > top(world_bounds)){
-                    e.pos.y = top(world_bounds);
+                if(restrict_entity_to_grid(&e, &hit_normal)){ // TODO: Should this return hit normal?
+                    // TODO: This should be designed to work on more than just bullets
+                    if(e.type == Entity_Type.Bullet){
+                        e.vel = reflect(e.vel, hit_normal);
+                        e.angle = atan2(e.vel.y, e.vel.x);
+                    }
                 }
             }
         }
