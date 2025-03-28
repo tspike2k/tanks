@@ -40,7 +40,7 @@ enum Main_Memory_Size    =  4*1024*1024;
 enum Frame_Memory_Size   =  8*1024*1024;
 enum Scratch_Memory_Size = 16*1024*1024;
 
-enum Max_Bullets_Per_Tank = 4;
+enum Max_Bullets_Per_Tank = 5;
 
 enum Grid_Width  = 22;
 enum Grid_Height = 16;
@@ -82,7 +82,7 @@ struct Entity{
 uint get_bullet_count_fired_by_entity(World* world, Entity_ID id){
     uint result;
 
-    foreach(ref e; world.entities){
+    foreach(ref e; iterate_entities(world)){
         if(e.type == Entity_Type.Bullet && e.parent_id == id){
             result++;
         }
@@ -265,8 +265,8 @@ Entity* get_entity_by_id(World* world, Entity_ID id){
     return result;
 }
 
-Entity[] iterate_entities(World* world){
-    auto result = world.entities[0 .. world.entities_count];
+Entity[] iterate_entities(World* world, size_t starting_index = 0){
+    auto result = world.entities[starting_index .. world.entities_count];
     return result;
 }
 
@@ -372,6 +372,12 @@ Rect aabb_from_obb(Vec2 p, Vec2 extents, float angle){
         extents.x*s + extents.y*c
     );
     auto result = Rect(p, rotated_extents);
+    return result;
+}
+
+ulong make_collision_id(Entity_Type a, Entity_Type b){
+    assert(a <= b);
+    ulong result = (cast(ulong)b) | ((cast(ulong)a) << 24);
     return result;
 }
 
@@ -606,14 +612,16 @@ version(none){
                             move_camera = evt.button.pressed;
                         }
                         else if(btn.id == Button_ID.Mouse_Left){
-                           auto player = get_entity_by_id(&s.world, s.player_entity_id);
-                            auto count = get_bullet_count_fired_by_entity(&s.world, player.id);
-                            if(player && count < Max_Bullets_Per_Tank){
-                                auto angle  = player.turret_angle;
-                                auto dir    = rotate(Vec2(1, 0), angle);
-                                auto p      = player.pos + dir*1.0f;
-                                auto bullet = spawn_bullet(&s.world, player.id, p, angle);
-                                bullet.vel  = dir*4.0f;
+                            auto player = get_entity_by_id(&s.world, s.player_entity_id);
+                            if(player){
+                                auto count = get_bullet_count_fired_by_entity(&s.world, player.id);
+                                if(player && count < Max_Bullets_Per_Tank){
+                                    auto angle  = player.turret_angle;
+                                    auto dir    = rotate(Vec2(1, 0), angle);
+                                    auto p      = player.pos + dir*1.0f;
+                                    auto bullet = spawn_bullet(&s.world, player.id, p, angle);
+                                    bullet.vel  = dir*4.0f;
+                                }
                             }
                         }
                     }
@@ -701,12 +709,35 @@ version(none){
 
                 e.pos += delta;
 
-                if(restrict_entity_to_grid(&e, &hit_normal)){ // TODO: Should this return hit normal?
+                if(restrict_entity_to_grid(&e, &hit_normal)){
                     // TODO: This should be designed to work on more than just bullets
                     if(e.type == Entity_Type.Bullet){
                         e.health--;
                         e.vel = reflect(e.vel, hit_normal);
                         e.angle = atan2(e.vel.y, e.vel.x);
+                    }
+                }
+            }
+        }
+
+        // Entity Collisions handling
+        // TODO: Should this be part of the simulation loop?
+        foreach(ref a; iterate_entities(&s.world, 0)){
+            foreach(ref b; iterate_entities(&s.world, 1)){
+                if(a.type > b.type)
+                    swap(a, b);
+
+                auto a_radius = min(a.extents.x, a.extents.y);
+                auto b_radius = min(b.extents.x, b.extents.y);
+                if(circles_overlap(a.pos, a_radius, b.pos, b_radius)){
+                    auto collision_id = make_collision_id(a.type, b.type);
+                    switch(collision_id){
+                        default: break;
+
+                        case make_collision_id(Entity_Type.Tank, Entity_Type.Bullet):{
+                            a.health = 0;
+                            b.health = 0;
+                        } break;
                     }
                 }
             }
@@ -771,7 +802,6 @@ version(none){
                 } break;
             }
         }
-
 
         version(none){
             // Draw min/max of the bounding box for the player tank for debugging.

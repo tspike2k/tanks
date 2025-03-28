@@ -15,6 +15,12 @@ void clear_to_zero(T)(ref T t){
     memset(&t, 0, T.sizeof);
 }
 
+void swap(T)(ref T a, ref T b){
+    auto temp = b;
+    b = a;
+    a = temp;
+}
+
 T zero_type(T)(){
     T result = void;
     memset(&result, 0, T.sizeof);
