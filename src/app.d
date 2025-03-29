@@ -302,23 +302,6 @@ Entity* add_block(World* world, uint x, uint y){
     return e;
 }
 
-// TODO: This doesn't work correctly due to the camera being at an angle. The best way to fix this is to
-// use an "unproject" function. We can do that by passing the view-projection matrix and its inverse
-// to this function. See here for more information:
-// https://antongerdelan.net/opengl/raycasting.html
-// https://guide.handmadehero.org/code/day373/#2978
-// https://www.opengl-tutorial.org/miscellaneous/clicking-on-objects/picking-with-a-physics-library/
-//
-// Possibly useful:
-// https://www.reddit.com/r/gamemaker/comments/c6684w/3d_converting_a_screenspace_mouse_position_into_a/
-Vec2 screen_to_world_pos(Vec2 screen_p, float screen_w, float screen_h, Rect camera_bounds){
-    float nx = (screen_p.x / screen_w)*2.0f - 1.0f;
-    float ny = (screen_p.y / screen_h)*2.0f - 1.0f;
-
-    Vec2 result = camera_bounds.center + Vec2(nx * camera_bounds.extents.x, ny * camera_bounds.extents.y);
-    return result;
-}
-
 Entity* spawn_bullet(World* world, Entity_ID parent_id, Vec2 p, float angle){
     auto e      = add_entity(world, p, Entity_Type.Bullet);
     e.angle     = angle;
@@ -406,13 +389,51 @@ ulong make_collision_id(Entity_Type a, Entity_Type b){
     return result;
 }
 
-Vec3 unproject(Vec3 clip_p, Mat4_Pair* proj, Mat4_Pair* view){
-    auto eye = proj.inv*Vec4(clip_p.x, clip_p.y, clip_p.z, 0);
+version(none){
+    // TODO: This doesn't work correctly due to the camera being at an angle. The best way to fix this is to
+    // use an "unproject" function. We can do that by passing the view-projection matrix and its inverse
+    // to this function. See here for more information:
+    // https://antongerdelan.net/opengl/raycasting.html
+    // https://guide.handmadehero.org/code/day373/#2978
+    // https://www.opengl-tutorial.org/miscellaneous/clicking-on-objects/picking-with-a-physics-library/
+    //
+    // Possibly useful:
+    // https://www.reddit.com/r/gamemaker/comments/c6684w/3d_converting_a_screenspace_mouse_position_into_a/
+    Vec2 screen_to_world_pos(Vec2 screen_p, float screen_w, float screen_h, Rect camera_bounds){
+        float nx = (screen_p.x / screen_w)*2.0f - 1.0f;
+        float ny = (screen_p.y / screen_h)*2.0f - 1.0f;
+
+        Vec2 result = camera_bounds.center + Vec2(nx * camera_bounds.extents.x, ny * camera_bounds.extents.y);
+        return result;
+    }
+}
+
+Vec3 screen_to_world_pos(Vec2 screen_p, float screen_w, float screen_h, Mat4_Pair* proj, Mat4_Pair* view){
+    auto ndc = Vec2(
+        2.0f*(screen_p.x / screen_w) - 1.0f,
+        2.0f*((screen_h - screen_p.y) / screen_h) - 1.0f
+    );
+
+    auto eye_p = proj.inv*Vec4(ndc.x, ndc.y, -1, 1);
+    eye_p.z = -1.0f;
+    eye_p.w =  0.0f;
+
+    auto origin = view.inv*Vec4(0, 0, 0, 1);
+    auto view_p = view.inv*eye_p;
+
+    auto result = view_p.xyz() + origin.xyz();
+    return result;
+}
+
+/+
+Vec3 unproject(Vec2 screen_pixel, float screen_width, float screen_height, Mat4_Pair* proj, Mat4_Pair* view){
+    auto eye = proj.inv*Vec4(ndc.x, ndc.y, -1.0f, 1.0f);
     eye.z = -1.0f;
+    eye.w =  0.0f;
     auto world_p = view.inv * eye;
     auto result = Vec3(world_p.x, world_p.y, world_p.z);
     return result;
-}
+}+/
 
 extern(C) int main(int args_count, char** args){
     auto app_memory = os_alloc(Main_Memory_Size + Scratch_Memory_Size + Frame_Memory_Size, 0);
@@ -585,21 +606,14 @@ extern(C) int main(int args_count, char** args){
 
         auto mat_proj = orthographic_projection(camera_bounds);
 
-        auto camera_pos = Vec3(0, 0, 0);
+        auto camera_pos = Vec3(8, 0, -8);
         Mat4_Pair mat_view = void;
         mat_view.mat = mat4_rot_x(45.0f*(PI/180.0f))*mat4_translate(camera_pos);
         mat_view.inv = invert_view_matrix(mat_view.mat);
         auto mat_camera = mat_proj.mat*mat_view.mat;
 
-        auto mouse_clip = Vec2(
-            2.0f*(mouse_pixel.x / cast(float)window.width) - 1.0f,
-            2.0f*(mouse_pixel.y / cast(float)window.height) - 1.0f
-
-        );
-        import core.stdc.stdio : printf;
-        printf("Clip: %f, %f\n", mouse_clip.x, mouse_clip.y);
-        auto cursor_world_pos_3d = unproject(Vec3(mouse_clip.x, mouse_clip.y, 1), &mat_proj, &mat_view);
-        auto cursor_world_pos = Vec2(cursor_world_pos_3d.x, -cursor_world_pos_3d.z);
+        auto cursor_3d = screen_to_world_pos(mouse_pixel, window.width, window.height, &mat_proj, &mat_view);
+        auto cursor_world_pos = Vec2(cursor_3d.x, -cursor_3d.z);
 
 version(none){
         sockets_update((&socket)[0 .. 1], &s.frame_memory);
@@ -679,7 +693,7 @@ version(none){
                 case Event_Type.Mouse_Motion:{
                     auto motion = &evt.mouse_motion;
 
-                    mouse_pixel = Vec2(motion.pixel_x, window.height - motion.pixel_y);
+                    mouse_pixel = Vec2(motion.pixel_x, motion.pixel_y);
 
                     float speed = 0.12f;
                     /*if(should_zoom_camera){

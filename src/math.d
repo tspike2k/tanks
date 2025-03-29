@@ -54,6 +54,11 @@ union Vec4{
     struct{float h; float s; float v;}
     float[4] c;
 
+    Vec3 xyz(){
+        auto result = Vec3(x, y, z);
+        return result;
+    }
+
     mixin Vec_Ops;
 }
 
@@ -667,6 +672,11 @@ float length(in Vec2 v)
 float dot(Vec2 a, Vec2 b)
 {
     return a.x * b.x + a.y * b.y;
+}
+
+float dot(Vec3 a, Vec3 b)
+{
+    return a.x * b.x + a.y * b.y + a.z*b.z;
 }
 
 float distanceBetween(Vec2 a, Vec2 b)

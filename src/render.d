@@ -25,6 +25,9 @@ private{
     import logging;
 }
 
+enum Z_Far  =  1000.0f;
+enum Z_Near = -Z_Far;
+
 alias Shader  = ulong;
 alias Texture = ulong;
 
@@ -83,8 +86,8 @@ Mat4_Pair orthographic_projection(Rect camera_bounds){
     auto r = right(camera_bounds);
     auto t = top(camera_bounds);
     auto b = bottom(camera_bounds);
-    auto n = -Z_Far;
-    auto f =  Z_Far;
+    auto n = Z_Near;
+    auto f = Z_Far;
 
     Mat4_Pair proj = void;
     proj.mat = Mat4([
@@ -105,7 +108,8 @@ Mat4_Pair orthographic_projection(Rect camera_bounds){
 
 Mat4 invert_view_matrix(Mat4 view){
     auto result = Mat4([
-        // Transpose 3x3 rotation portion of the view by transposing it.
+        // Transpose 3x3 rotation portion of the view to invert it.
+        // Negate the translation portion of the view to invert it.
         view.m[0][0], view.m[1][0], view.m[2][0], -view.m[0][3],
         view.m[0][1], view.m[1][1], view.m[2][1], -view.m[1][3],
         view.m[0][2], view.m[1][2], view.m[2][2], -view.m[2][3],
@@ -121,8 +125,8 @@ Mat4 mat4_orthographic(Rect camera_bounds){
     auto right  = right(camera_bounds);
     auto top    = top(camera_bounds);
     auto bottom = bottom(camera_bounds);
-    auto near  = -Z_Far;
-    auto far   =  Z_Far;
+    auto near   = Z_Near;
+    auto far    = Z_Far;
 
     float a = 2.0f / (right - left);
     float b = 2.0f / (top - bottom);
@@ -230,8 +234,6 @@ Rect calc_scaling_viewport(float res_x, float res_y, float window_w, float windo
 }
 
 private:
-
-enum Z_Far = 1000.0f;
 
 version(linux){
     version = opengl;
