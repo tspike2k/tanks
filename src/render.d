@@ -75,6 +75,38 @@ struct Shader_Light{
     Vec3 specular;
 }
 
+// TODO: Put this in a camera data type?
+struct Camera_Matrix{
+    Mat4 mat;
+    Mat4 inv;
+}
+
+void orthographic_camera(Camera_Matrix* camera, Rect camera_bounds){
+    // Orthographic adapted from here:
+    // https://songho.ca/opengl/gl_projectionmatrix.html#ortho
+
+    auto l = left(camera_bounds);
+    auto r = right(camera_bounds);
+    auto t = top(camera_bounds);
+    auto b = bottom(camera_bounds);
+    auto n = -Z_Far;
+    auto f =  Z_Far;
+
+    camera.mat = Mat4([
+        2.0f / (r-l), 0,            0,            -(r+l)/(r-l),
+        0,            2.0f / (t-b), 0,            -(t+b)/(t-b),
+        0,            0,            2.0f / (f-n), -(f+n)/(f-n),
+        0,            0,            0,            1,
+    ]);
+
+    camera.inv = Mat4([
+        (r-l) / 2.0f, 0,            0,              (l+r)/2.0f,
+        0,            (t-b) / 2.0f, 0,              (t+b)/2.0f,
+        0,            0,            (f-n) / -2.0f, -(f+n)/2.0f,
+        0,            0,            0,             1,
+    ]);
+}
+
 Mat4 mat4_orthographic(Rect camera_bounds){
     // Orthographic adapted from here:
     // https://songho.ca/opengl/gl_projectionmatrix.html#ortho

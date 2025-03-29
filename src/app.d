@@ -5,6 +5,7 @@ License:   Boost Software License 1.0 (https://www.boost.org/LICENSE_1_0.txt)
 */
 
 /+
+TODO:
     - Static Collisions
     - Dynamic Collisions
     - Enemies
@@ -41,6 +42,7 @@ enum Frame_Memory_Size   =  8*1024*1024;
 enum Scratch_Memory_Size = 16*1024*1024;
 
 enum Max_Bullets_Per_Tank = 5;
+enum Max_Mines_Per_Tank   = 3;
 
 enum Grid_Width  = 22;
 enum Grid_Height = 16;
@@ -79,11 +81,11 @@ struct Entity{
     uint  health;
 }
 
-uint get_bullet_count_fired_by_entity(World* world, Entity_ID id){
+uint get_child_entity_count(World* world, Entity_ID parent_id, Entity_Type type){
     uint result;
 
     foreach(ref e; iterate_entities(world)){
-        if(e.type == Entity_Type.Bullet && e.parent_id == id){
+        if((type == Entity_Type.None || e.type == type) && e.parent_id == parent_id){
             result++;
         }
     }
@@ -105,6 +107,23 @@ Entity* add_entity(World* world, Vec2 pos, Entity_Type type){
     e.id   = world.next_entity_id++;
     e.type = type;
     e.pos  = pos;
+
+    final switch(type){
+        case Entity_Type.Mine:
+        case Entity_Type.None:
+            assert(0);
+
+        case Entity_Type.Tank:
+            e.extents = Vec2(0.55f, 0.324f); break;
+
+        case Entity_Type.Block:
+        case Entity_Type.Hole:
+            e.extents = Vec2(0.5f, 0.5f); break;
+
+        case Entity_Type.Bullet:
+            e.extents = Vec2(0.25f, 0.25f)*0.5f; break;
+    }
+
     return e;
 }
 
@@ -276,15 +295,22 @@ Entity* add_block(World* world, uint x, uint y){
     assert(x < Grid_Width);
     assert(y < Grid_Height);
 
-
-   // Grid cells are relative to the bottom-left of the grid where y grows upwards.
+    // Grid cells are relative to the bottom-left of the grid where y grows upwards.
     auto grid_extents = Vec2(Grid_Width, Grid_Height)*0.5f;
     auto p = Vec2(x, y) + Vec2(0.5f, 0.5f) - grid_extents;
     auto e = add_entity(world, p, Entity_Type.Block);
-    e.extents = Vec2(0.5f, 0.5f);
     return e;
 }
 
+// TODO: This doesn't work correctly due to the camera being at an angle. The best way to fix this is to
+// use an "unproject" function. We can do that by passing the view-projection matrix and its inverse
+// to this function. See here for more information:
+// https://antongerdelan.net/opengl/raycasting.html
+// https://guide.handmadehero.org/code/day373/#2978
+// https://www.opengl-tutorial.org/miscellaneous/clicking-on-objects/picking-with-a-physics-library/
+//
+// Possibly useful:
+// https://www.reddit.com/r/gamemaker/comments/c6684w/3d_converting_a_screenspace_mouse_position_into_a/
 Vec2 screen_to_world_pos(Vec2 screen_p, float screen_w, float screen_h, Rect camera_bounds){
     float nx = (screen_p.x / screen_w)*2.0f - 1.0f;
     float ny = (screen_p.y / screen_h)*2.0f - 1.0f;
@@ -298,7 +324,6 @@ Entity* spawn_bullet(World* world, Entity_ID parent_id, Vec2 p, float angle){
     e.angle     = angle;
     e.parent_id = parent_id;
     e.health    = 2;
-    e.extents   = Vec2(0.25f, 0.25f)*0.5f;
     return e;
 }
 
@@ -410,6 +435,16 @@ extern(C) int main(int args_count, char** args){
 
         s.main_memory.scratch  = &scratch_memory;
         s.frame_memory.scratch = &scratch_memory;
+    }
+
+    {
+        auto v = Vec4(2, 2, 2, 1);
+        Mat4 m = Mat4_Identity;
+        auto v0 = m*v;
+
+        m = mat4_scale(Vec3(2, 3, 4));
+        auto v1 = m*v;
+        auto t = 42;
     }
 
     if(!open_display("Tanks", 1920, 1080, 0)){
@@ -530,8 +565,10 @@ extern(C) int main(int args_count, char** args){
     {
         auto player = add_entity(&s.world, Vec2(0, 0), Entity_Type.Tank);
         s.player_entity_id = player.id;
-        player.extents = Vec2(0.55f, 0.324f);
     }
+
+    add_entity(&s.world, Vec2(-4, -4), Entity_Type.Tank);
+
     add_block(&s.world, 0, 0);
     add_block(&s.world, Grid_Width-1, Grid_Height-1);
     add_block(&s.world, 0, Grid_Height-1);
@@ -614,7 +651,7 @@ version(none){
                         else if(btn.id == Button_ID.Mouse_Left){
                             auto player = get_entity_by_id(&s.world, s.player_entity_id);
                             if(player){
-                                auto count = get_bullet_count_fired_by_entity(&s.world, player.id);
+                                auto count = get_child_entity_count(&s.world, player.id, Entity_Type.Bullet);
                                 if(player && count < Max_Bullets_Per_Tank){
                                     auto angle  = player.turret_angle;
                                     auto dir    = rotate(Vec2(1, 0), angle);
@@ -803,16 +840,8 @@ version(none){
             }
         }
 
-        version(none){
-            // Draw min/max of the bounding box for the player tank for debugging.
-
-            auto e = get_entity_by_id(&s.world, s.player_entity_id);
-            auto aabb = aabb_from_obb(e.pos, e.extents, e.angle);
-            auto min_p = min(aabb);
-            auto max_p = max(aabb);
-
-            render_mesh(&cube_mesh, mat4_translate(Vec3(min_p.x, 0, -min_p.y))*mat4_scale(Vec3(0.25f, 0.25f, 0.25f)));
-            render_mesh(&cube_mesh, mat4_translate(Vec3(max_p.x, 0, -max_p.y))*mat4_scale(Vec3(0.25f, 0.25f, 0.25f)));
+        version(all){
+            render_mesh(&cube_mesh, mat4_translate(Vec3(cursor_world_pos.x, 0, -cursor_world_pos.y))*mat4_scale(Vec3(0.25f, 0.25f, 0.25f)));
         }
 
         render_end_frame();

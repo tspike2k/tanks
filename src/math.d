@@ -153,9 +153,24 @@ union Mat4{
         static foreach(r; 0 .. 4){
             static foreach(c; 0 .. 4){
                 result.m[r][c] = m[r][0] * rhs.m[0][c]
-                             + m[r][1] * rhs.m[1][c]
-                             + m[r][2] * rhs.m[2][c]
-                             + m[r][3] * rhs.m[3][c];
+                               + m[r][1] * rhs.m[1][c]
+                               + m[r][2] * rhs.m[2][c]
+                               + m[r][3] * rhs.m[3][c];
+            }
+        }
+
+        return result;
+    }
+
+    Vec4 opBinary(string op)(auto ref Vec4 rhs){
+        Vec4 result = void;
+
+        static foreach(r; 0 .. 4){
+            static foreach(c; 0 .. 4){
+                result.c[r] = m[r][0] * rhs.c[0]
+                            + m[r][1] * rhs.c[1]
+                            + m[r][2] * rhs.c[2]
+                            + m[r][3] * rhs.c[3];
             }
         }
 
