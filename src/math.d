@@ -178,6 +178,12 @@ union Mat4{
     }
 }
 
+// Idea of bundling matrix with it's inverse thanks to Casey Muratori and Handmade Hero.
+struct Mat4_Pair{
+    Mat4 mat;
+    Mat4 inv;
+}
+
 immutable Mat4 Mat4_Identity = Mat4([
     1.0f, 0.0f, 0.0f, 0.0f,
     0.0f, 1.0f, 0.0f, 0.0f,
@@ -272,7 +278,7 @@ Mat4 make_lookat_matrix(Vec3 camera_pos, Vec3 look_pos, Vec3 up_pos){
     return result;
 }
 
-Mat4 make_inverse_lookat_matrix(Mat4 m){
+Mat4 make_inverse_lookat_matrix(Mat4 m){ // TODO: Where did we get this from?
     Mat4 result = void;
 
     result.c[0 + 0*4] = m.c[0 + 0*4];

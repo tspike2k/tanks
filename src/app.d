@@ -406,6 +406,14 @@ ulong make_collision_id(Entity_Type a, Entity_Type b){
     return result;
 }
 
+Vec3 unproject(Vec3 clip_p, Mat4_Pair* proj, Mat4_Pair* view){
+    auto eye = proj.inv*Vec4(clip_p.x, clip_p.y, clip_p.z, 0);
+    eye.z = -1.0f;
+    auto world_p = view.inv * eye;
+    auto result = Vec3(world_p.x, world_p.y, world_p.z);
+    return result;
+}
+
 extern(C) int main(int args_count, char** args){
     auto app_memory = os_alloc(Main_Memory_Size + Scratch_Memory_Size + Frame_Memory_Size, 0);
     scope(exit) os_dealloc(app_memory);
@@ -435,16 +443,6 @@ extern(C) int main(int args_count, char** args){
 
         s.main_memory.scratch  = &scratch_memory;
         s.frame_memory.scratch = &scratch_memory;
-    }
-
-    {
-        auto v = Vec4(2, 2, 2, 1);
-        Mat4 m = Mat4_Identity;
-        auto v0 = m*v;
-
-        m = mat4_scale(Vec3(2, 3, 4));
-        auto v1 = m*v;
-        auto t = 42;
     }
 
     if(!open_display("Tanks", 1920, 1080, 0)){
@@ -585,9 +583,23 @@ extern(C) int main(int args_count, char** args){
         auto camera_extents = Vec2((Grid_Width+2), (aspect_ratio*0.5f)*cast(float)(Grid_Height+2))*0.5f;
         auto camera_bounds = Rect(Vec2(0, 0), camera_extents);
 
-        // TODO: This doesn't work quite right. Some of the top and bottom of the screen are not included.
-        // TODO: Rather than do this, use an orthographic unproject function?
-        auto cursor_world_pos = screen_to_world_pos(mouse_pixel, window.width, window.height, camera_bounds);
+        auto mat_proj = orthographic_projection(camera_bounds);
+
+        auto camera_pos = Vec3(0, 0, 0);
+        Mat4_Pair mat_view = void;
+        mat_view.mat = mat4_rot_x(45.0f*(PI/180.0f))*mat4_translate(camera_pos);
+        mat_view.inv = invert_view_matrix(mat_view.mat);
+        auto mat_camera = mat_proj.mat*mat_view.mat;
+
+        auto mouse_clip = Vec2(
+            2.0f*(mouse_pixel.x / cast(float)window.width) - 1.0f,
+            2.0f*(mouse_pixel.y / cast(float)window.height) - 1.0f
+
+        );
+        import core.stdc.stdio : printf;
+        printf("Clip: %f, %f\n", mouse_clip.x, mouse_clip.y);
+        auto cursor_world_pos_3d = unproject(Vec3(mouse_clip.x, mouse_clip.y, 1), &mat_proj, &mat_view);
+        auto cursor_world_pos = Vec2(cursor_world_pos_3d.x, -cursor_world_pos_3d.z);
 
 version(none){
         sockets_update((&socket)[0 .. 1], &s.frame_memory);
@@ -794,11 +806,6 @@ version(none){
 
         set_viewport(0, 0, window.width, window.height);
         clear_target_to_color(Vec4(0, 0.05f, 0.12f, 1));
-
-        auto mat_proj = mat4_orthographic(camera_bounds);
-        auto camera_pos = Vec3(0, 0, 0);
-        auto mat_view = mat4_rot_x(45.0f*(PI/180.0f))*mat4_translate(camera_pos);
-        auto mat_camera = mat_proj*mat_view;
 
         Shader_Constants constants;
         constants.camera = transpose(mat_camera); //
