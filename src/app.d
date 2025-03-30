@@ -408,7 +408,34 @@ version(none){
     }
 }
 
+struct Ray{
+    Vec3 pos;
+    Vec3 dir;
+}
+
+Ray screen_to_ray(Vec2 screen_p, float screen_w, float screen_h, Mat4_Pair* proj, Mat4_Pair* view){
+    auto ndc = Vec2(
+        2.0f*(screen_p.x / screen_w) - 1.0f,
+        2.0f*(screen_p.y / screen_h) - 1.0f
+    );
+
+    auto eye_p = proj.inv*Vec4(ndc.x, -ndc.y, -1, 0);
+    eye_p.z = -1.0f;
+    eye_p.w =  0.0f;
+
+    auto origin     = Vec4(view.mat.m[0][3], view.mat.m[1][3], view.mat.m[2][3], 1);
+    auto world_dir  = view.inv*eye_p;
+    auto camera_dir = normalize(Vec3(view.mat.m[2][0], view.mat.m[2][1], view.mat.m[2][2]));
+
+    auto result = Ray(
+        world_dir.xyz() - origin.xyz(),
+        normalize(camera_dir),
+    );
+    return result;
+}
+
 // Based on the following sources:
+// https://antongerdelan.net/opengl/raycasting.html
 // https://stackoverflow.com/questions/45882951/mouse-picking-miss/45883624#45883624
 // https://stackoverflow.com/questions/46749675/opengl-mouse-coordinates-to-space-coordinates/46752492#46752492
 Vec3 screen_to_world_pos(Vec2 screen_p, float screen_w, float screen_h, Mat4_Pair* proj, Mat4_Pair* view){
@@ -417,30 +444,15 @@ Vec3 screen_to_world_pos(Vec2 screen_p, float screen_w, float screen_h, Mat4_Pai
         2.0f*(screen_p.y / screen_h) - 1.0f
     );
 
-    version(all){
-        auto eye_p = proj.inv*Vec4(ndc.x, -ndc.y, -1, 1);
-        eye_p.z = -1.0f;
-        eye_p.w =  0.0f;
+    auto eye_p = proj.inv*Vec4(ndc.x, -ndc.y, -1, 0);
+    eye_p.z = -1.0f;
+    eye_p.w =  0.0f;
 
-        auto origin  = view.inv*Vec4(0, 0, 0, 1);
-        auto world_p = view.inv*eye_p;
+    auto origin  = view.inv*Vec4(0, 0, 0, 1);
+    auto world_p = view.inv*eye_p;
 
-        auto result = world_p.xyz() + origin.xyz();
-        return result;
-    }
-    else{
-        auto forward = proj.mat*view.mat;
-        auto inverse = view.inv*proj.inv;
-
-        auto probe = forward*Vec4(0, 0, 0, 1);
-        Vec4 clip = Vec4(ndc.x, -ndc.y, probe.z / probe.w, probe.w);
-        clip.x *= probe.w;
-        clip.y *= probe.w;
-
-        auto world_p = inverse*clip;
-        auto result = world_p.xyz() + (inverse*Vec4(0, 0, 0, 1)).xyz();
-        return result;
-    }
+    auto result = world_p.xyz() + origin.xyz();
+    return result;
 }
 
 /+
@@ -452,6 +464,23 @@ Vec3 unproject(Vec2 screen_pixel, float screen_width, float screen_height, Mat4_
     auto result = Vec3(world_p.x, world_p.y, world_p.z);
     return result;
 }+/
+
+Vec3 project_onto_plane(Vec3 p, Vec3 plane_p, Vec3 plane_n){
+    auto result = p - dot(p - plane_p, plane_n)*plane_n;
+    return result;
+}
+
+bool ray_vs_plane(Ray ray, Vec3 plane_p, Vec3 plane_n, Vec3* hit_p){
+    auto denom = dot(ray.dir, plane_n);
+    bool result = false;
+    if(denom != 0.0f){
+        auto t = dot(ray.pos - plane_p, plane_n) / denom;
+        *hit_p = ray.pos + ray.dir*t;
+        result = true;
+    }
+    float ray_angle = atan2(ray.dir.y, ray.dir.z)*(180.0f/PI);
+    return result;
+}
 
 extern(C) int main(int args_count, char** args){
     auto app_memory = os_alloc(Main_Memory_Size + Scratch_Memory_Size + Frame_Memory_Size, 0);
@@ -624,16 +653,16 @@ extern(C) int main(int args_count, char** args){
 
         auto mat_proj = orthographic_projection(camera_bounds);
 
-        auto camera_pos = Vec3(4, 5, 7);
+        auto camera_pos = Vec3(0, 0, 0);
         Mat4_Pair mat_view = void;
-        mat_view.mat = mat4_rot_x(90.0f*(PI/180.0f))*mat4_translate(camera_pos);
+        mat_view.mat = mat4_rot_x(45.0f*(PI/180.0f))*mat4_translate(camera_pos);
         mat_view.inv = invert_view_matrix(mat_view.mat);
         auto mat_camera = mat_proj.mat*mat_view.mat;
 
-        auto m0 = mat_view.mat*mat_view.inv;
-
-        auto cursor_3d = screen_to_world_pos(mouse_pixel, window.width, window.height, &mat_proj, &mat_view);
-        auto cursor_world_pos = Vec2(cursor_3d.x, -cursor_3d.z);
+        auto mouse_picker_ray = screen_to_ray(mouse_pixel, window.width, window.height, &mat_proj, &mat_view);
+        Vec3 cursor_3d = void;
+        bool cursor_on_plane = ray_vs_plane(mouse_picker_ray, Vec3(0, 0, 0), Vec3(0, 1, 0), &cursor_3d);
+        auto cursor_world_pos = Vec2(cursor_3d.x, cursor_3d.y);
 
 version(none){
         sockets_update((&socket)[0 .. 1], &s.frame_memory);
@@ -882,7 +911,11 @@ version(none){
         }
 
         version(all){
-            render_mesh(&cube_mesh, mat4_translate(cursor_3d));
+            if(cursor_on_plane){
+                Vec3 p = Vec3(cursor_world_pos.x, 0.25f, -cursor_world_pos.y);
+                //Vec3 p = cursor_3d;
+                render_mesh(&cube_mesh, mat4_translate(p)*mat4_scale(Vec3(0.25f, 0.25f, 0.25f)));
+            }
         }
 
         render_end_frame();
