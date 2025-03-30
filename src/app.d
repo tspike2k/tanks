@@ -424,13 +424,11 @@ Ray screen_to_ray(Vec2 screen_p, float screen_w, float screen_h, Mat4_Pair* proj
     eye_p.w =  0.0f;
 
     auto origin     = Vec4(view.mat.m[0][3], view.mat.m[1][3], view.mat.m[2][3], 1);
+    //auto origin     = view.inv*Vec4(0, 0, 0, 1);
     auto world_dir  = view.inv*eye_p;
-    auto camera_dir = normalize(Vec3(view.mat.m[2][0], view.mat.m[2][1], view.mat.m[2][2]));
+    auto camera_dir = -1.0f*normalize(Vec3(view.mat.m[2][0], view.mat.m[2][1], view.mat.m[2][2]));
 
-    auto result = Ray(
-        world_dir.xyz() - origin.xyz(),
-        normalize(camera_dir),
-    );
+    auto result = Ray(world_dir.xyz() - origin.xyz(), camera_dir);
     return result;
 }
 
@@ -471,14 +469,15 @@ Vec3 project_onto_plane(Vec3 p, Vec3 plane_p, Vec3 plane_n){
 }
 
 bool ray_vs_plane(Ray ray, Vec3 plane_p, Vec3 plane_n, Vec3* hit_p){
+    // Ray vs plane formula thanks to:
+    // https://lousodrome.net/blog/light/2020/07/03/intersection-of-a-ray-and-a-plane/
     auto denom = dot(ray.dir, plane_n);
     bool result = false;
     if(denom != 0.0f){
-        auto t = dot(ray.pos - plane_p, plane_n) / denom;
+        auto t = dot(plane_p - ray.pos, plane_n) / denom;
         *hit_p = ray.pos + ray.dir*t;
         result = true;
     }
-    float ray_angle = atan2(ray.dir.y, ray.dir.z)*(180.0f/PI);
     return result;
 }
 
@@ -653,6 +652,7 @@ extern(C) int main(int args_count, char** args){
 
         auto mat_proj = orthographic_projection(camera_bounds);
 
+        //auto camera_pos = Vec3(7, 0, 3);
         auto camera_pos = Vec3(0, 0, 0);
         Mat4_Pair mat_view = void;
         mat_view.mat = mat4_rot_x(45.0f*(PI/180.0f))*mat4_translate(camera_pos);
@@ -660,9 +660,9 @@ extern(C) int main(int args_count, char** args){
         auto mat_camera = mat_proj.mat*mat_view.mat;
 
         auto mouse_picker_ray = screen_to_ray(mouse_pixel, window.width, window.height, &mat_proj, &mat_view);
-        Vec3 cursor_3d = void;
-        bool cursor_on_plane = ray_vs_plane(mouse_picker_ray, Vec3(0, 0, 0), Vec3(0, 1, 0), &cursor_3d);
-        auto cursor_world_pos = Vec2(cursor_3d.x, cursor_3d.y);
+        Vec3 cursor_3d = Vec3(0, 0, 0);
+        ray_vs_plane(mouse_picker_ray, Vec3(0, 0, 0), Vec3(0, 1, 0), &cursor_3d);
+        auto cursor_world_pos = Vec2(cursor_3d.x, -cursor_3d.z);
 
 version(none){
         sockets_update((&socket)[0 .. 1], &s.frame_memory);
@@ -904,18 +904,16 @@ version(none){
 
                 case Entity_Type.Bullet:{
                     set_material(&material_block);
-                    auto mat_tran = mat4_translate(p + Vec3(0, 0.5f, 0));
+                    auto mat_tran = mat4_translate(p);
+                    //auto mat_tran = mat4_translate(p + Vec3(0, 0.5f, 0)); // TODO: Use this offset when we're done testing the camera
                     render_mesh(&bullet_mesh, mat_tran*mat4_rot_y(e.angle));
                 } break;
             }
         }
 
         version(all){
-            if(cursor_on_plane){
-                Vec3 p = Vec3(cursor_world_pos.x, 0.25f, -cursor_world_pos.y);
-                //Vec3 p = cursor_3d;
-                render_mesh(&cube_mesh, mat4_translate(p)*mat4_scale(Vec3(0.25f, 0.25f, 0.25f)));
-            }
+            Vec3 p = Vec3(cursor_world_pos.x, 0, -cursor_world_pos.y);
+            render_mesh(&cube_mesh, mat4_translate(p)*mat4_scale(Vec3(0.25f, 0.25f, 0.25f)));
         }
 
         render_end_frame();
