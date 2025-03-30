@@ -413,6 +413,10 @@ struct Ray{
     Vec3 dir;
 }
 
+// Based on the following sources:
+// https://antongerdelan.net/opengl/raycasting.html
+// https://stackoverflow.com/questions/45882951/mouse-picking-miss/45883624#45883624
+// https://stackoverflow.com/questions/46749675/opengl-mouse-coordinates-to-space-coordinates/46752492#46752492
 Ray screen_to_ray(Vec2 screen_p, float screen_w, float screen_h, Mat4_Pair* proj, Mat4_Pair* view){
     auto ndc = Vec2(
         2.0f*(screen_p.x / screen_w) - 1.0f,
@@ -423,33 +427,11 @@ Ray screen_to_ray(Vec2 screen_p, float screen_w, float screen_h, Mat4_Pair* proj
     eye_p.z = -1.0f;
     eye_p.w =  0.0f;
 
-    auto origin     = Vec4(view.mat.m[0][3], view.mat.m[1][3], view.mat.m[2][3], 1);
-    //auto origin     = view.inv*Vec4(0, 0, 0, 1);
+    auto origin     = view.inv*Vec4(0, 0, 0, 1);
     auto world_dir  = view.inv*eye_p;
-    auto camera_dir = -1.0f*normalize(Vec3(view.mat.m[2][0], view.mat.m[2][1], view.mat.m[2][2]));
+    auto camera_dir = normalize(Vec3(view.mat.m[2][0], view.mat.m[2][1], view.mat.m[2][2]));
 
-    auto result = Ray(world_dir.xyz() - origin.xyz(), camera_dir);
-    return result;
-}
-
-// Based on the following sources:
-// https://antongerdelan.net/opengl/raycasting.html
-// https://stackoverflow.com/questions/45882951/mouse-picking-miss/45883624#45883624
-// https://stackoverflow.com/questions/46749675/opengl-mouse-coordinates-to-space-coordinates/46752492#46752492
-Vec3 screen_to_world_pos(Vec2 screen_p, float screen_w, float screen_h, Mat4_Pair* proj, Mat4_Pair* view){
-    auto ndc = Vec2(
-        2.0f*(screen_p.x / screen_w) - 1.0f,
-        2.0f*(screen_p.y / screen_h) - 1.0f
-    );
-
-    auto eye_p = proj.inv*Vec4(ndc.x, -ndc.y, -1, 0);
-    eye_p.z = -1.0f;
-    eye_p.w =  0.0f;
-
-    auto origin  = view.inv*Vec4(0, 0, 0, 1);
-    auto world_p = view.inv*eye_p;
-
-    auto result = world_p.xyz() + origin.xyz();
+    auto result = Ray(world_dir.xyz() + origin.xyz(), camera_dir);
     return result;
 }
 
