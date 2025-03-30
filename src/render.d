@@ -107,14 +107,20 @@ Mat4_Pair orthographic_projection(Rect camera_bounds){
 }
 
 Mat4 invert_view_matrix(Mat4 view){
-    auto result = Mat4([
+    auto x = view.m[0][3];
+    auto y = view.m[1][3];
+    auto z = view.m[2][3];
+
+    auto rot = Mat4([
         // Transpose 3x3 rotation portion of the view to invert it.
         // Negate the translation portion of the view to invert it.
-        view.m[0][0], view.m[1][0], view.m[2][0], -view.m[0][3],
-        view.m[0][1], view.m[1][1], view.m[2][1], -view.m[1][3],
-        view.m[0][2], view.m[1][2], view.m[2][2], -view.m[2][3],
+        view.m[0][0], view.m[1][0], view.m[2][0], 0,
+        view.m[0][1], view.m[1][1], view.m[2][1], 0,
+        view.m[0][2], view.m[1][2], view.m[2][2], 0,
         0,            0,            0,            1,
     ]);
+
+    auto result = rot*mat4_translate(Vec3(-x, -y, -z));
     return result;
 }
 

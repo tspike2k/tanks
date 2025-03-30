@@ -408,21 +408,39 @@ version(none){
     }
 }
 
+// Based on the following sources:
+// https://stackoverflow.com/questions/45882951/mouse-picking-miss/45883624#45883624
+// https://stackoverflow.com/questions/46749675/opengl-mouse-coordinates-to-space-coordinates/46752492#46752492
 Vec3 screen_to_world_pos(Vec2 screen_p, float screen_w, float screen_h, Mat4_Pair* proj, Mat4_Pair* view){
     auto ndc = Vec2(
         2.0f*(screen_p.x / screen_w) - 1.0f,
-        2.0f*((screen_h - screen_p.y) / screen_h) - 1.0f
+        2.0f*(screen_p.y / screen_h) - 1.0f
     );
 
-    auto eye_p = proj.inv*Vec4(ndc.x, ndc.y, -1, 1);
-    eye_p.z = -1.0f;
-    eye_p.w =  0.0f;
+    version(all){
+        auto eye_p = proj.inv*Vec4(ndc.x, -ndc.y, -1, 1);
+        eye_p.z = -1.0f;
+        eye_p.w =  0.0f;
 
-    auto origin = view.inv*Vec4(0, 0, 0, 1);
-    auto view_p = view.inv*eye_p;
+        auto origin  = view.inv*Vec4(0, 0, 0, 1);
+        auto world_p = view.inv*eye_p;
 
-    auto result = view_p.xyz() + origin.xyz();
-    return result;
+        auto result = world_p.xyz() + origin.xyz();
+        return result;
+    }
+    else{
+        auto forward = proj.mat*view.mat;
+        auto inverse = view.inv*proj.inv;
+
+        auto probe = forward*Vec4(0, 0, 0, 1);
+        Vec4 clip = Vec4(ndc.x, -ndc.y, probe.z / probe.w, probe.w);
+        clip.x *= probe.w;
+        clip.y *= probe.w;
+
+        auto world_p = inverse*clip;
+        auto result = world_p.xyz() + (inverse*Vec4(0, 0, 0, 1)).xyz();
+        return result;
+    }
 }
 
 /+
@@ -606,11 +624,13 @@ extern(C) int main(int args_count, char** args){
 
         auto mat_proj = orthographic_projection(camera_bounds);
 
-        auto camera_pos = Vec3(8, 0, -8);
+        auto camera_pos = Vec3(4, 5, 7);
         Mat4_Pair mat_view = void;
-        mat_view.mat = mat4_rot_x(45.0f*(PI/180.0f))*mat4_translate(camera_pos);
+        mat_view.mat = mat4_rot_x(90.0f*(PI/180.0f))*mat4_translate(camera_pos);
         mat_view.inv = invert_view_matrix(mat_view.mat);
         auto mat_camera = mat_proj.mat*mat_view.mat;
+
+        auto m0 = mat_view.mat*mat_view.inv;
 
         auto cursor_3d = screen_to_world_pos(mouse_pixel, window.width, window.height, &mat_proj, &mat_view);
         auto cursor_world_pos = Vec2(cursor_3d.x, -cursor_3d.z);
@@ -862,7 +882,7 @@ version(none){
         }
 
         version(all){
-            render_mesh(&cube_mesh, mat4_translate(Vec3(cursor_world_pos.x, 0, -cursor_world_pos.y))*mat4_scale(Vec3(0.25f, 0.25f, 0.25f)));
+            render_mesh(&cube_mesh, mat4_translate(cursor_3d));
         }
 
         render_end_frame();

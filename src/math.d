@@ -76,41 +76,33 @@ mixin template Vec_Ops(){
     }
 
     This opBinary(string op)(This rhs)
-    if(op == "+" || op == "-")
-    {
+    if(op == "+" || op == "-" || op == "*"){
         This result = void;
-        static foreach(i; 0 .. c.length)
-        {
+        static foreach(i; 0 .. c.length){
             result.c[i] = mixin("c[i] " ~ op ~ " rhs.c[i]");
         }
         return result;
     }
 
     void opOpAssign(string op)(This rhs)
-    if(op == "+" || op == "-")
-    {
-        static foreach(i; 0 .. c.length)
-        {
+    if(op == "+" || op == "-" || op == "*"){
+        static foreach(i; 0 .. c.length){
             mixin("c[i] " ~ op ~ "= rhs.c[i];");
         }
     }
 
     This opBinary(string op)(float rhs)
-    if(op == "*")
-    {
+    if(op == "*"){
         This result = void;
-        static foreach(i; 0 .. c.length)
-        {
+        static foreach(i; 0 .. c.length){
             result.c[i] = mixin("c[i] " ~ op ~ "rhs");
         }
         return result;
     }
 
     void opOpAssign(string op)(float rhs)
-    if(op == "*")
-    {
-        static foreach(i; 0 .. c.length)
-        {
+    if(op == "*"){
+        static foreach(i; 0 .. c.length){
             mixin("c[i] " ~ op ~ "= rhs;");
         }
     }
