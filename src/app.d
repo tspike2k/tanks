@@ -47,6 +47,56 @@ enum Max_Mines_Per_Tank   = 3;
 enum Grid_Width  = 22;
 enum Grid_Height = 16;
 
+alias Serialize = void function(ref void[] stream, void[] data);
+
+void stream_write(ref void[] stream, void[] data){
+    copy(data, stream[0 .. data.length]);
+    stream = stream[data.length .. $];
+}
+
+void stream_read(ref void[] stream, void[] data){
+    copy(stream[0 .. data.length], data);
+    stream = stream[data.length .. $];
+}
+
+void[] to_void(T)(T* t){
+    auto result = t[0 .. 1];
+    return result;
+}
+
+void serialize_level_element(alias serialize)(Entity* e, ref void[] stream){
+    ubyte stored_type = void;
+    ubyte stored_p    = void;
+
+    enum is_reading = __traits(isSame, serialize, stream_read);
+    static if(!is_reading){
+        assert(e.type == Entity_Type.Block || e.type == Entity_Type.Hole);
+        assert(e.type != Entity_Type.Hole || e.block_height == 0);
+        uint x = cast(uint)e.pos.x;
+        uint y = cast(uint)e.pos.y;
+
+        stored_type = cast(ubyte)e.block_height;
+        stored_p    = cast(ubyte)((x << 4) | y);
+    }
+
+    serialize(stream, to_void(&stored_type));
+    serialize(stream, to_void(&stored_p));
+
+    static if(is_reading){
+        if(stored_type == 0){
+            e.type = Entity_Type.Hole;
+        }
+        else{
+            e.type = Entity_Type.Block;
+        }
+        e.block_height = stored_type;
+
+        uint x = ((cast(uint)stored_p) >> 4) & 0x0f;
+        uint y = ((cast(uint)stored_p))      & 0x0f;
+        e.pos = Vec2(x, y) + Vec2(0.5, 0.5f);
+    }
+}
+
 struct App_State{
     Allocator main_memory;
     Allocator frame_memory;
@@ -79,6 +129,7 @@ struct Entity{
     float angle;
     float turret_angle;
     uint  health;
+    uint  block_height;
 }
 
 uint get_child_entity_count(World* world, Entity_ID parent_id, Entity_Type type){
@@ -389,25 +440,6 @@ ulong make_collision_id(Entity_Type a, Entity_Type b){
     return result;
 }
 
-version(none){
-    // TODO: This doesn't work correctly due to the camera being at an angle. The best way to fix this is to
-    // use an "unproject" function. We can do that by passing the view-projection matrix and its inverse
-    // to this function. See here for more information:
-    // https://antongerdelan.net/opengl/raycasting.html
-    // https://guide.handmadehero.org/code/day373/#2978
-    // https://www.opengl-tutorial.org/miscellaneous/clicking-on-objects/picking-with-a-physics-library/
-    //
-    // Possibly useful:
-    // https://www.reddit.com/r/gamemaker/comments/c6684w/3d_converting_a_screenspace_mouse_position_into_a/
-    Vec2 screen_to_world_pos(Vec2 screen_p, float screen_w, float screen_h, Rect camera_bounds){
-        float nx = (screen_p.x / screen_w)*2.0f - 1.0f;
-        float ny = (screen_p.y / screen_h)*2.0f - 1.0f;
-
-        Vec2 result = camera_bounds.center + Vec2(nx * camera_bounds.extents.x, ny * camera_bounds.extents.y);
-        return result;
-    }
-}
-
 struct Ray{
     Vec3 pos;
     Vec3 dir;
@@ -417,12 +449,18 @@ struct Ray{
 // https://antongerdelan.net/opengl/raycasting.html
 // https://stackoverflow.com/questions/45882951/mouse-picking-miss/45883624#45883624
 // https://stackoverflow.com/questions/46749675/opengl-mouse-coordinates-to-space-coordinates/46752492#46752492
+//
+// Other sources on this topic that were helpful in figuring out how to do this:
+// https://guide.handmadehero.org/code/day373/#2978
+// https://www.opengl-tutorial.org/miscellaneous/clicking-on-objects/picking-with-a-physics-library/
+// https://www.reddit.com/r/gamemaker/comments/c6684w/3d_converting_a_screenspace_mouse_position_into_a/
 Ray screen_to_ray(Vec2 screen_p, float screen_w, float screen_h, Mat4_Pair* proj, Mat4_Pair* view){
     auto ndc = Vec2(
         2.0f*(screen_p.x / screen_w) - 1.0f,
         2.0f*(screen_p.y / screen_h) - 1.0f
     );
 
+    // TODO: Account for perspective in case of a perspective view matrix?
     auto eye_p = proj.inv*Vec4(ndc.x, -ndc.y, -1, 0);
     eye_p.z = -1.0f;
     eye_p.w =  0.0f;
@@ -505,6 +543,31 @@ extern(C) int main(int args_count, char** args){
         return 2;
     }
     scope(exit) render_close();
+
+
+    {
+        // Test level
+        Entity block;
+        block.type = Entity_Type.Block;
+        block.block_height = 7;
+        block.pos = Vec2(12, 4);
+
+        Entity hole;
+        hole.type = Entity_Type.Hole;
+        hole.pos = Vec2(0, 10);
+
+        ubyte[4] data;
+        void[] writer = data;
+        serialize_level_element!stream_write(&block, writer);
+        serialize_level_element!stream_write(&hole, writer);
+
+        Entity a, b;
+        void[] reader = data;
+        serialize_level_element!stream_read(&a, reader);
+        serialize_level_element!stream_read(&b, reader);
+        //assert(a == block);
+        //assert(b == hole);
+    }
 
     //auto teapot_mesh = load_mesh_from_obj("./build/teapot.obj", &s.main_memory);
     auto cube_mesh      = load_mesh_from_obj("./build/cube.obj", &s.main_memory);
