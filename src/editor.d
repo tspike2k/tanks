@@ -4,9 +4,11 @@ Distributed under the Boost Software License, Version 1.0.
 See accompanying file LICENSE_BOOST.txt or copy at http://www.boost.org/LICENSE_1_0.txt
 */
 
-import display;
 import app;
+import display;
+import math;
 import logging;
+import render;
 
 bool editor_is_open;
 
@@ -38,8 +40,7 @@ void editor_simulate(App_State* s, float dt){
 
             case Event_Type.Mouse_Motion:{
                 auto motion = &evt.mouse_motion;
-
-                //mouse_pixel = Vec2(motion.pixel_x, motion.pixel_y);
+                s.mouse_pixel = Vec2(motion.pixel_x, motion.pixel_y);
             } break;
 
             case Event_Type.Key:{
@@ -49,7 +50,7 @@ void editor_simulate(App_State* s, float dt){
                         default: break;
 
                         case Key_ID_F2:
-                            editor_toggle(); break;
+                            editor_toggle(s); break;
                     }
                 }
             } break;
@@ -57,11 +58,25 @@ void editor_simulate(App_State* s, float dt){
     }
 }
 
-void editor_render(){
-
+bool inside_grid(Vec2 p){
+    bool result = p.x >= 0.0f && p.x <= Grid_Width && p.y > 0.0f && p.y < Grid_Height;
+    return result;
 }
 
-void editor_toggle(){
+void editor_render(App_State* s){
+    if(inside_grid(s.mouse_world)){
+        set_material(&s.material_block);
+        Vec2 world_p = floor(s.mouse_world) + Vec2(0.5f, 0.5f);
+        auto p = world_to_render_pos(world_p) + Vec3(0, 0.5f, 0);
+        render_mesh(&s.cube_mesh, mat4_translate(p));
+    }
+}
+
+void editor_toggle(App_State* s){
+    if(!editor_is_open){
+        s.world.entities_count = 0;
+    }
+
     editor_is_open = !editor_is_open;
 }
 

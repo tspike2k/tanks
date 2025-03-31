@@ -106,6 +106,18 @@ struct App_State{
     float t;
     Entity_ID player_entity_id;
     World world;
+    Vec2 mouse_pixel;
+    Vec2 mouse_world;
+
+    Mesh cube_mesh;
+    Mesh tank_base_mesh;
+    Mesh tank_top_mesh;
+    Mesh bullet_mesh;
+    Mesh ground_mesh;
+
+    Material material_tank;
+    Material material_block;
+    Material material_ground;
 }
 
 alias Entity_ID = ulong;
@@ -501,6 +513,18 @@ bool ray_vs_plane(Ray ray, Vec3 plane_p, Vec3 plane_n, Vec3* hit_p){
     return result;
 }
 
+void setup_basic_material(Material* m, Vec3 color, float shininess){
+    m.ambient   = color*0.75f;
+    m.diffuse   = color;
+    m.specular  = color;
+    m.shininess = 256.0f;
+}
+
+Vec3 world_to_render_pos(Vec2 p){
+    auto result = Vec3(p.x, 0, -p.y);
+    return result;
+}
+
 extern(C) int main(int args_count, char** args){
     auto app_memory = os_alloc(Main_Memory_Size + Scratch_Memory_Size + Frame_Memory_Size, 0);
     scope(exit) os_dealloc(app_memory);
@@ -570,11 +594,11 @@ extern(C) int main(int args_count, char** args){
     }
 
     //auto teapot_mesh = load_mesh_from_obj("./build/teapot.obj", &s.main_memory);
-    auto cube_mesh      = load_mesh_from_obj("./build/cube.obj", &s.main_memory);
-    auto tank_base_mesh = load_mesh_from_obj("./build/tank_base.obj", &s.main_memory);
-    auto tank_top_mesh  = load_mesh_from_obj("./build/tank_top.obj", &s.main_memory);
-    auto bullet_mesh    = load_mesh_from_obj("./build/bullet.obj", &s.main_memory);
-    auto ground_mesh    = load_mesh_from_obj("./build/ground.obj", &s.main_memory);
+    s.cube_mesh      = load_mesh_from_obj("./build/cube.obj", &s.main_memory);
+    s.tank_base_mesh = load_mesh_from_obj("./build/tank_base.obj", &s.main_memory);
+    s.tank_top_mesh  = load_mesh_from_obj("./build/tank_top.obj", &s.main_memory);
+    s.bullet_mesh    = load_mesh_from_obj("./build/bullet.obj", &s.main_memory);
+    s.ground_mesh    = load_mesh_from_obj("./build/ground.obj", &s.main_memory);
 
     auto shaders_dir = "./build/shaders";
     Shader shader;
@@ -591,35 +615,9 @@ extern(C) int main(int args_count, char** args){
     light.diffuse  = light_color;
     light.specular = light_color;
 
-    Shader_Material material = void;
-    {
-        Vec3 material_color = Vec3(0.2f, 0.2f, 0.4f);
-        material.ambient   = material_color*0.75f;
-        material.diffuse   = material_color;
-        material.specular  = material_color;
-        material.shininess = 256.0f;
-        //material.shininess = 2.0f;
-    }
-
-    auto material_ground = zero_type!Shader_Material;
-    {
-        Vec3 material_color = Vec3(0.50f, 0.42f, 0.30f);
-        material_ground.ambient   = material_color*0.75f;
-        material_ground.diffuse   = material_color;
-        material_ground.specular  = material_color;
-        //material.shininess = 256.0f;
-        material_ground.shininess = 2.0f;
-    }
-
-    auto material_block = zero_type!Shader_Material;
-    {
-        Vec3 material_color = Vec3(0.30f, 0.42f, 0.30f);
-        material_block.ambient   = material_color*0.75f;
-        material_block.diffuse   = material_color;
-        material_block.specular  = material_color;
-        //material.shininess = 256.0f;
-        material_block.shininess = 2.0f;
-    }
+    setup_basic_material(&s.material_tank, Vec3(0.2f, 0.2f, 0.4f), 256);
+    setup_basic_material(&s.material_ground, Vec3(0.50f, 0.42f, 0.30f), 2);
+    setup_basic_material(&s.material_block, Vec3(0.30f, 0.42f, 0.30f), 2);
 
     s.running = true;
 
@@ -664,7 +662,7 @@ extern(C) int main(int args_count, char** args){
     add_block(&s.world, 0, Grid_Height-1);
     add_block(&s.world, Grid_Width-1, 0);
 
-    auto mouse_pixel = Vec2(0, 0);
+    s.mouse_pixel = Vec2(0, 0);
 
     Vec3 player_center = Vec3(0, 0, 0);
 
@@ -688,10 +686,10 @@ extern(C) int main(int args_count, char** args){
         mat_view.inv = invert_view_matrix(mat_view.mat);
         auto mat_camera = mat_proj.mat*mat_view.mat;
 
-        auto mouse_picker_ray = screen_to_ray(mouse_pixel, window.width, window.height, &mat_proj, &mat_view);
+        auto mouse_picker_ray = screen_to_ray(s.mouse_pixel, window.width, window.height, &mat_proj, &mat_view);
         Vec3 cursor_3d = Vec3(0, 0, 0);
         ray_vs_plane(mouse_picker_ray, Vec3(0, 0, 0), Vec3(0, 1, 0), &cursor_3d);
-        auto cursor_world_pos = Vec2(cursor_3d.x, -cursor_3d.z);
+        s.mouse_world = Vec2(cursor_3d.x, -cursor_3d.z);
 
         auto dt = target_dt;
 
@@ -700,7 +698,7 @@ extern(C) int main(int args_count, char** args){
         }
         else{
             //import core.stdc.stdio;
-            //printf("cursor: %f, %f\n", cursor_world_pos.x, cursor_world_pos.y);
+            //printf("cursor: %f, %f\n", s.mouse_world.x, s.mouse_world.y);
 
     version(none){
             sockets_update((&socket)[0 .. 1], &s.frame_memory);
@@ -780,7 +778,7 @@ extern(C) int main(int args_count, char** args){
                     case Event_Type.Mouse_Motion:{
                         auto motion = &evt.mouse_motion;
 
-                        mouse_pixel = Vec2(motion.pixel_x, motion.pixel_y);
+                        s.mouse_pixel = Vec2(motion.pixel_x, motion.pixel_y);
                         /*float speed = 0.12f;
                         if(should_zoom_camera){
                             auto amount = motion.rel_y*speed;
@@ -814,7 +812,7 @@ extern(C) int main(int args_count, char** args){
 
                                 case Key_ID_F2:
                                     if(!key.is_repeat && key.pressed)
-                                        editor_toggle();
+                                        editor_toggle(s);
                                     break;
                             }
                         }
@@ -845,7 +843,7 @@ extern(C) int main(int args_count, char** args){
                             e.angle -= rot_speed;
                         }
 
-                        auto turret_dir = cursor_world_pos - e.pos;
+                        auto turret_dir = s.mouse_world - e.pos;
                         e.turret_angle = atan2(turret_dir.y, turret_dir.x);
 
                         auto dir = rotate(Vec2(1, 0), e.angle);
@@ -927,39 +925,44 @@ extern(C) int main(int args_count, char** args){
         set_light(&light);
         set_shader(shader);
 
-        set_material(&material_ground);
+        set_material(&s.material_ground);
         auto ground_xform = mat4_translate(grid_center)*mat4_scale(Vec3(grid_extents.x, 1.0f, grid_extents.y));
-        render_mesh(&ground_mesh, ground_xform);
+        render_mesh(&s.ground_mesh, ground_xform);
 
         foreach(ref e; iterate_entities(&s.world)){
-            Vec3 p = Vec3(e.pos.x, 0, -e.pos.y);
+            Vec3 p = world_to_render_pos(e.pos);
             switch(e.type){
                 default: assert(0);
 
                 case Entity_Type.Block:{
-                    set_material(&material_block);
-                    render_mesh(&cube_mesh, mat4_translate(p + Vec3(0, 0.5f, 0)));
+                    set_material(&s.material_block);
+                    render_mesh(&s.cube_mesh, mat4_translate(p + Vec3(0, 0.5f, 0)));
                 } break;
 
                 case Entity_Type.Tank:{
-                    set_material(&material);
+                    set_material(&s.material_tank);
                     auto mat_tran = mat4_translate(p + Vec3(0, 0.18f, 0));
-                    render_mesh(&tank_base_mesh, mat_tran*mat4_rot_y(e.angle));
-                    render_mesh(&tank_top_mesh, mat_tran*mat4_rot_y(e.turret_angle));
+                    render_mesh(&s.tank_base_mesh, mat_tran*mat4_rot_y(e.angle));
+                    render_mesh(&s.tank_top_mesh, mat_tran*mat4_rot_y(e.turret_angle));
                 } break;
 
                 case Entity_Type.Bullet:{
-                    set_material(&material_block);
+                    set_material(&s.material_block);
                     auto mat_tran = mat4_translate(p);
                     //auto mat_tran = mat4_translate(p + Vec3(0, 0.5f, 0)); // TODO: Use this offset when we're done testing the camera
-                    render_mesh(&bullet_mesh, mat_tran*mat4_rot_y(e.angle));
+                    render_mesh(&s.bullet_mesh, mat_tran*mat4_rot_y(e.angle));
                 } break;
             }
         }
 
         version(all){
-            Vec3 p = Vec3(cursor_world_pos.x, 0, -cursor_world_pos.y);
-            render_mesh(&cube_mesh, mat4_translate(p)*mat4_scale(Vec3(0.25f, 0.25f, 0.25f)));
+            Vec3 p = Vec3(s.mouse_world.x, 0, -s.mouse_world.y);
+            set_material(&s.material_block);
+            render_mesh(&s.cube_mesh, mat4_translate(p)*mat4_scale(Vec3(0.25f, 0.25f, 0.25f)));
+        }
+
+        if(editor_is_open){
+            editor_render(s);
         }
 
         render_end_frame();

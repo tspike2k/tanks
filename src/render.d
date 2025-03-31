@@ -61,7 +61,7 @@ struct Shader_Constants{
     float time;
 }
 
-struct Shader_Material{
+struct Material{
     Vec3  ambient;
     float pad_0;
     Vec3  diffuse;
@@ -382,7 +382,7 @@ version(opengl){
         }
 
         init_uniform_buffer(&g_shader_constants_buffer, Constants_Uniform_Binding, Shader_Constants.sizeof);
-        init_uniform_buffer(&g_shader_material_buffer, Material_Uniform_Binding, Shader_Material.sizeof);
+        init_uniform_buffer(&g_shader_material_buffer, Material_Uniform_Binding, Material.sizeof);
         init_uniform_buffer(&g_shader_light_buffer, Light_Uniform_Binding, Shader_Light.sizeof);
 
         /*
@@ -522,9 +522,9 @@ version(opengl){
         glBufferSubData(GL_UNIFORM_BUFFER, offset, size, data);
     }
 
-    public void set_material(Shader_Material* material){
+    public void set_material(Material* material){
         glBindBuffer(GL_UNIFORM_BUFFER, g_shader_material_buffer);
-        glBufferSubData(GL_UNIFORM_BUFFER, 0, Shader_Material.sizeof, material);
+        glBufferSubData(GL_UNIFORM_BUFFER, 0, Material.sizeof, material);
     }
 
     public void set_light(Shader_Light* light){
