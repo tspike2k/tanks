@@ -346,9 +346,7 @@ Entity* add_block(World* world, uint x, uint y){
     assert(x < Grid_Width);
     assert(y < Grid_Height);
 
-    // Grid cells are relative to the bottom-left of the grid where y grows upwards.
-    auto grid_extents = Vec2(Grid_Width, Grid_Height)*0.5f;
-    auto p = Vec2(x, y) + Vec2(0.5f, 0.5f) - grid_extents;
+    auto p = Vec2(x, y) + Vec2(0.5f, 0.5f);
     auto e = add_entity(world, p, Entity_Type.Block);
     return e;
 }
@@ -375,7 +373,7 @@ bool restrict_entity_to_grid(Entity* e, Vec2* hit_normal){
 
     // TODO: This is the world's dumbest collision resolution. Do something smarter here that
     // takes into account the bounds of the entity.
-    Rect world_bounds = Rect(Vec2(0, 0), Vec2(Grid_Width, Grid_Height)*0.5f);
+    Rect world_bounds = rect_from_min_max(Vec2(0, 0), Vec2(Grid_Width, Grid_Height));
     if(min_p.x < left(world_bounds)){
         e.pos.x = left(world_bounds) + aabb.extents.x;
         was_hit = true;
@@ -574,6 +572,7 @@ extern(C) int main(int args_count, char** args){
     auto tank_base_mesh = load_mesh_from_obj("./build/tank_base.obj", &s.main_memory);
     auto tank_top_mesh  = load_mesh_from_obj("./build/tank_top.obj", &s.main_memory);
     auto bullet_mesh    = load_mesh_from_obj("./build/bullet.obj", &s.main_memory);
+    auto ground_mesh    = load_mesh_from_obj("./build/ground.obj", &s.main_memory);
 
     auto shaders_dir = "./build/shaders";
     Shader shader;
@@ -621,26 +620,6 @@ extern(C) int main(int args_count, char** args){
         material_block.shininess = 2.0f;
     }
 
-    Mesh ground_mesh;
-    ground_mesh.vertices = alloc_array!Vertex(&s.main_memory, 6);
-    {
-        auto n = Vec3(0, 1, 0);
-        auto v = ground_mesh.vertices;
-        auto bounds = Rect(Vec2(0.5f, 0.5f), Vec2(0.5f, 0.5f));
-
-        v[0].pos = Vec3(left(bounds), 0, bottom(bounds));
-        v[1].pos = Vec3(left(bounds), 0, top(bounds));
-        v[2].pos = Vec3(right(bounds), 0, top(bounds));
-
-        v[3].pos = Vec3(right(bounds), 0, top(bounds));
-        v[4].pos = Vec3(right(bounds), 0, bottom(bounds));
-        v[5].pos = Vec3(left(bounds), 0, bottom(bounds));
-
-        static foreach(i; 0 .. 6){
-            v[i].normal = n;
-        }
-    }
-
     bool running = true;
 
     bool player_turn_left;
@@ -686,6 +665,11 @@ extern(C) int main(int args_count, char** args){
 
     auto mouse_pixel = Vec2(0, 0);
 
+    Vec3 player_center = Vec3(0, 0, 0);
+
+    auto grid_extents = Vec2(Grid_Width, Grid_Height)*0.5f;
+    auto grid_center  = Vec3(grid_extents.x, 0, -grid_extents.y);
+
     while(running){
         begin_frame();
 
@@ -697,10 +681,9 @@ extern(C) int main(int args_count, char** args){
 
         auto mat_proj = orthographic_projection(camera_bounds);
 
-        //auto camera_pos = Vec3(7, 0, 3);
-        auto camera_pos = Vec3(0, 0, 0);
+        auto camera_pos = grid_center;
         Mat4_Pair mat_view = void;
-        mat_view.mat = mat4_rot_x(45.0f*(PI/180.0f))*mat4_translate(camera_pos);
+        mat_view.mat = mat4_rot_x(45.0f*(PI/180.0f))*mat4_translate(-1.0f*camera_pos);
         mat_view.inv = invert_view_matrix(mat_view.mat);
         auto mat_camera = mat_proj.mat*mat_view.mat;
 
@@ -708,6 +691,9 @@ extern(C) int main(int args_count, char** args){
         Vec3 cursor_3d = Vec3(0, 0, 0);
         ray_vs_plane(mouse_picker_ray, Vec3(0, 0, 0), Vec3(0, 1, 0), &cursor_3d);
         auto cursor_world_pos = Vec2(cursor_3d.x, -cursor_3d.z);
+
+        //import core.stdc.stdio;
+        //printf("cursor: %f, %f\n", cursor_world_pos.x, cursor_world_pos.y);
 
 version(none){
         sockets_update((&socket)[0 .. 1], &s.frame_memory);
@@ -839,6 +825,8 @@ version(none){
                 Vec2 delta = Vec2(0, 0);
                 Vec2 hit_normal = Vec2(0, 0);
                 if(e.id == s.player_entity_id){
+                    player_center = Vec3(e.pos.x, 0, -e.pos.y);
+
                     float rot_speed = (1.0f/4.0f)/(2.0f*PI);
                     if(player_turn_left){
                         e.angle += rot_speed;
@@ -927,7 +915,7 @@ version(none){
         set_shader(shader);
 
         set_material(&material_ground);
-        auto ground_xform = mat4_translate(Vec3(Grid_Width, 0, Grid_Height)*-0.5f)*mat4_scale(Vec3(Grid_Width, 1.0f, Grid_Height));
+        auto ground_xform = mat4_translate(grid_center)*mat4_scale(Vec3(grid_extents.x, 1.0f, grid_extents.y));
         render_mesh(&ground_mesh, ground_xform);
 
         foreach(ref e; iterate_entities(&s.world)){
