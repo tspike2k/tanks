@@ -36,6 +36,7 @@ import assets;
 import files;
 import os;
 import net;
+import editor;
 
 enum Main_Memory_Size    =  4*1024*1024;
 enum Frame_Memory_Size   =  8*1024*1024;
@@ -101,6 +102,7 @@ struct App_State{
     Allocator main_memory;
     Allocator frame_memory;
 
+    bool running;
     float t;
     Entity_ID player_entity_id;
     World world;
@@ -582,7 +584,6 @@ extern(C) int main(int args_count, char** args){
 
     ulong current_timestamp = ns_timestamp();
     ulong prev_timestamp    = current_timestamp;
-    auto camera_polar = Vec3(90.0f, -60.0f, 10.0f); // TODO: Make these in radians eventually?
 
     Shader_Light light = void;
     Vec3 light_color = Vec3(1, 1, 1);
@@ -620,7 +621,7 @@ extern(C) int main(int args_count, char** args){
         material_block.shininess = 2.0f;
     }
 
-    bool running = true;
+    s.running = true;
 
     bool player_turn_left;
     bool player_turn_right;
@@ -670,7 +671,7 @@ extern(C) int main(int args_count, char** args){
     auto grid_extents = Vec2(Grid_Width, Grid_Height)*0.5f;
     auto grid_center  = Vec3(grid_extents.x, 0, -grid_extents.y);
 
-    while(running){
+    while(s.running){
         begin_frame();
 
         auto window = get_window_info();
@@ -692,203 +693,215 @@ extern(C) int main(int args_count, char** args){
         ray_vs_plane(mouse_picker_ray, Vec3(0, 0, 0), Vec3(0, 1, 0), &cursor_3d);
         auto cursor_world_pos = Vec2(cursor_3d.x, -cursor_3d.z);
 
-        //import core.stdc.stdio;
-        //printf("cursor: %f, %f\n", cursor_world_pos.x, cursor_world_pos.y);
+        auto dt = target_dt;
 
-version(none){
-        sockets_update((&socket)[0 .. 1], &s.frame_memory);
-
-        if(!is_host && send_broadcast){
-            log("Sending broadcast now!\n");
-            auto msg = "Hello.\n";
-            assert(socket.flags & Socket_Broadcast);
-            socket_write(&socket, msg.ptr, msg.length, &broadcast_address);
-            send_broadcast = false;
+        if(editor_is_open){
+            editor_simulate(s, target_dt);
         }
+        else{
+            //import core.stdc.stdio;
+            //printf("cursor: %f, %f\n", cursor_world_pos.x, cursor_world_pos.y);
 
-        if(socket.events & Socket_Event_Readable){
-            char[512] buffer;
-            Socket_Address src_address = void;
-            // TODO: Limit the number of reads we do on a socket at once. This would help
-            // prevent a rogue client from choking out the simulation.
-            while(true){
-                auto msg = socket_read(&socket, buffer.ptr, buffer.length, &src_address);
-                if(msg.length == 0){
-                    break;
-                }
-                else if(is_host){
-                    log(cast(char[])msg);
-                    client_address = src_address;
-                }
-                else{
-                    auto cmd = cast(Entity_Message*)msg;
-                    player.angle = cmd.angle;
-                    s.player_pos = Vec3(cmd.pos.x, s.player_pos.y, cmd.pos.y);
+    version(none){
+            sockets_update((&socket)[0 .. 1], &s.frame_memory);
+
+            if(!is_host && send_broadcast){
+                log("Sending broadcast now!\n");
+                auto msg = "Hello.\n";
+                assert(socket.flags & Socket_Broadcast);
+                socket_write(&socket, msg.ptr, msg.length, &broadcast_address);
+                send_broadcast = false;
+            }
+
+            if(socket.events & Socket_Event_Readable){
+                char[512] buffer;
+                Socket_Address src_address = void;
+                // TODO: Limit the number of reads we do on a socket at once. This would help
+                // prevent a rogue client from choking out the simulation.
+                while(true){
+                    auto msg = socket_read(&socket, buffer.ptr, buffer.length, &src_address);
+                    if(msg.length == 0){
+                        break;
+                    }
+                    else if(is_host){
+                        log(cast(char[])msg);
+                        client_address = src_address;
+                    }
+                    else{
+                        auto cmd = cast(Entity_Message*)msg;
+                        player.angle = cmd.angle;
+                        s.player_pos = Vec3(cmd.pos.x, s.player_pos.y, cmd.pos.y);
+                    }
                 }
             }
-        }
 
-        if(socket.events & Socket_Event_Writable){
-            if(is_host && is_valid(&client_address)){
-                Entity_Message msg = void;
-                msg.angle = player.angle;
-                msg.pos   = Vec2(s.player_pos.x, s.player_pos.z);
-                socket_write(&socket, &msg, msg.sizeof, &client_address);
+            if(socket.events & Socket_Event_Writable){
+                if(is_host && is_valid(&client_address)){
+                    Entity_Message msg = void;
+                    msg.angle = player.angle;
+                    msg.pos   = Vec2(s.player_pos.x, s.player_pos.z);
+                    socket_write(&socket, &msg, msg.sizeof, &client_address);
+                }
             }
-        }
-}
+    }
 
-        Event evt;
-        while(next_event(&evt)){
-            switch(evt.type){
-                default: break;
+            Event evt;
+            while(next_event(&evt)){
+                switch(evt.type){
+                    default: break;
 
-                case Event_Type.Window_Close:{
-                    // TODO: Save state before exit in a temp/suspend file.
-                    running = false;
-                } break;
+                    case Event_Type.Window_Close:{
+                        // TODO: Save state before exit in a temp/suspend file.
+                        s.running = false;
+                    } break;
 
-                case Event_Type.Button:{
-                    auto btn = &evt.button;
-                    if(btn.pressed){
-                        if(btn.id == Button_ID.Mouse_Right){
-                            move_camera = evt.button.pressed;
-                        }
-                        else if(btn.id == Button_ID.Mouse_Left){
-                            auto player = get_entity_by_id(&s.world, s.player_entity_id);
-                            if(player){
-                                auto count = get_child_entity_count(&s.world, player.id, Entity_Type.Bullet);
-                                if(player && count < Max_Bullets_Per_Tank){
-                                    auto angle  = player.turret_angle;
-                                    auto dir    = rotate(Vec2(1, 0), angle);
-                                    auto p      = player.pos + dir*1.0f;
-                                    auto bullet = spawn_bullet(&s.world, player.id, p, angle);
-                                    bullet.vel  = dir*4.0f;
+                    case Event_Type.Button:{
+                        auto btn = &evt.button;
+                        if(btn.pressed){
+                            if(btn.id == Button_ID.Mouse_Right){
+                                move_camera = evt.button.pressed;
+                            }
+                            else if(btn.id == Button_ID.Mouse_Left){
+                                auto player = get_entity_by_id(&s.world, s.player_entity_id);
+                                if(player){
+                                    auto count = get_child_entity_count(&s.world, player.id, Entity_Type.Bullet);
+                                    if(player && count < Max_Bullets_Per_Tank){
+                                        auto angle  = player.turret_angle;
+                                        auto dir    = rotate(Vec2(1, 0), angle);
+                                        auto p      = player.pos + dir*1.0f;
+                                        auto bullet = spawn_bullet(&s.world, player.id, p, angle);
+                                        bullet.vel  = dir*4.0f;
+                                    }
                                 }
                             }
                         }
-                    }
-                } break;
+                    } break;
 
-                case Event_Type.Mouse_Motion:{
-                    auto motion = &evt.mouse_motion;
+                    case Event_Type.Mouse_Motion:{
+                        auto motion = &evt.mouse_motion;
 
-                    mouse_pixel = Vec2(motion.pixel_x, motion.pixel_y);
+                        mouse_pixel = Vec2(motion.pixel_x, motion.pixel_y);
+                        /*float speed = 0.12f;
+                        if(should_zoom_camera){
+                            auto amount = motion.rel_y*speed;
+                            camera_polar.z = max(camera_polar.z + amount, 0.0001f); // TODO: Clamp the y!
+                        }
+                        else if(move_camera){
+                            camera_polar.x += motion.rel_x*speed;
 
-                    float speed = 0.12f;
-                    /*if(should_zoom_camera){
-                        auto amount = motion.rel_y*speed;
-                        camera_polar.z = max(camera_polar.z + amount, 0.0001f); // TODO: Clamp the y!
-                    }
-                    else*/ if(move_camera){
-                        camera_polar.x += motion.rel_x*speed;
+                            auto amount_y = motion.rel_y*speed;
+                            camera_polar.y = clamp(camera_polar.y + amount_y, -78.75f, 64.0f); // TODO: Clamp the y!
+                        }*/
+                    } break;
 
-                        auto amount_y = motion.rel_y*speed;
-                        camera_polar.y = clamp(camera_polar.y + amount_y, -78.75f, 64.0f); // TODO: Clamp the y!
-                    }
-                } break;
+                    case Event_Type.Key:{
+                        auto key = &evt.key;
+                        if(is_host){
+                            switch(key.id){
+                                default: break;
 
-                case Event_Type.Key:{
-                    auto key = &evt.key;
-                    if(is_host){
-                        switch(key.id){
-                            default: break;
+                                case Key_ID_A:
+                                    player_turn_left = key.pressed; break;
 
-                            case Key_ID_A:
-                                player_turn_left = key.pressed; break;
+                                case Key_ID_D:
+                                    player_turn_right = key.pressed; break;
 
-                            case Key_ID_D:
-                                player_turn_right = key.pressed; break;
+                                case Key_ID_W:
+                                    player_move_forward = key.pressed; break;
 
-                            case Key_ID_W:
-                                player_move_forward = key.pressed; break;
+                                case Key_ID_S:
+                                    player_move_backward = key.pressed; break;
 
-                            case Key_ID_S:
-                                player_move_backward = key.pressed; break;
+                                case Key_ID_F2:
+                                    if(!key.is_repeat && key.pressed)
+                                        editor_toggle();
+                                    break;
+                            }
+                        }
+                        else{
+                            if(key.id == Key_ID_Enter)
+                                send_broadcast = key.pressed && !key.is_repeat;
+                        }
+                    } break;
+                }
+            }
+
+            s.t += dt;
+
+            // Entity simulation
+            foreach(ref e; iterate_entities(&s.world)){
+                if(is_dynamic_entity(e.type) && !is_destroyed(&e)){
+                    // TODO: We should only effect acceleration. Delta would be calculated from this below.
+                    Vec2 delta = Vec2(0, 0);
+                    Vec2 hit_normal = Vec2(0, 0);
+                    if(e.id == s.player_entity_id){
+                        player_center = Vec3(e.pos.x, 0, -e.pos.y);
+
+                        float rot_speed = (1.0f/4.0f)/(2.0f*PI);
+                        if(player_turn_left){
+                            e.angle += rot_speed;
+                        }
+                        if(player_turn_right){
+                            e.angle -= rot_speed;
+                        }
+
+                        auto turret_dir = cursor_world_pos - e.pos;
+                        e.turret_angle = atan2(turret_dir.y, turret_dir.x);
+
+                        auto dir = rotate(Vec2(1, 0), e.angle);
+                        float speed = 1.0f/16.0f;
+                        if(player_move_forward){
+                            delta = dir*speed;
+                        }
+                        else if(player_move_backward){
+                            delta = dir*-speed;
                         }
                     }
                     else{
-                        if(key.id == Key_ID_Enter)
-                            send_broadcast = key.pressed && !key.is_repeat;
-                    }
-                } break;
-            }
-        }
-
-        auto dt = target_dt;
-        s.t += dt;
-
-        // Entity simulation
-        foreach(ref e; iterate_entities(&s.world)){
-            if(is_dynamic_entity(e.type) && !is_destroyed(&e)){
-                // TODO: We should only effect acceleration. Delta would be calculated from this below.
-                Vec2 delta = Vec2(0, 0);
-                Vec2 hit_normal = Vec2(0, 0);
-                if(e.id == s.player_entity_id){
-                    player_center = Vec3(e.pos.x, 0, -e.pos.y);
-
-                    float rot_speed = (1.0f/4.0f)/(2.0f*PI);
-                    if(player_turn_left){
-                        e.angle += rot_speed;
-                    }
-                    if(player_turn_right){
-                        e.angle -= rot_speed;
+                        // TODO: Better integration
+                        delta = e.vel*dt;
                     }
 
-                    auto turret_dir = cursor_world_pos - e.pos;
-                    e.turret_angle = atan2(turret_dir.y, turret_dir.x);
+                    e.pos += delta;
 
-                    auto dir = rotate(Vec2(1, 0), e.angle);
-                    float speed = 1.0f/16.0f;
-                    if(player_move_forward){
-                        delta = dir*speed;
-                    }
-                    else if(player_move_backward){
-                        delta = dir*-speed;
-                    }
-                }
-                else{
-                    // TODO: Better integration
-                    delta = e.vel*dt;
-                }
-
-                e.pos += delta;
-
-                if(restrict_entity_to_grid(&e, &hit_normal)){
-                    // TODO: This should be designed to work on more than just bullets
-                    if(e.type == Entity_Type.Bullet){
-                        e.health--;
-                        e.vel = reflect(e.vel, hit_normal);
-                        e.angle = atan2(e.vel.y, e.vel.x);
+                    if(restrict_entity_to_grid(&e, &hit_normal)){
+                        // TODO: This should be designed to work on more than just bullets
+                        if(e.type == Entity_Type.Bullet){
+                            e.health--;
+                            e.vel = reflect(e.vel, hit_normal);
+                            e.angle = atan2(e.vel.y, e.vel.x);
+                        }
                     }
                 }
             }
-        }
 
-        // Entity Collisions handling
-        // TODO: Should this be part of the simulation loop?
-        foreach(ref a; iterate_entities(&s.world, 0)){
-            foreach(ref b; iterate_entities(&s.world, 1)){
-                if(a.type > b.type)
-                    swap(a, b);
+            // Entity Collisions handling
+            // TODO: Should this be part of the simulation loop?
+            foreach(ref a; iterate_entities(&s.world, 0)){
+                foreach(ref b; iterate_entities(&s.world, 1)){
+                    if(a.type > b.type)
+                        swap(a, b);
 
-                auto a_radius = min(a.extents.x, a.extents.y);
-                auto b_radius = min(b.extents.x, b.extents.y);
-                if(circles_overlap(a.pos, a_radius, b.pos, b_radius)){
-                    auto collision_id = make_collision_id(a.type, b.type);
-                    switch(collision_id){
-                        default: break;
+                    auto a_radius = min(a.extents.x, a.extents.y);
+                    auto b_radius = min(b.extents.x, b.extents.y);
+                    if(circles_overlap(a.pos, a_radius, b.pos, b_radius)){
+                        auto collision_id = make_collision_id(a.type, b.type);
+                        switch(collision_id){
+                            default: break;
 
-                        case make_collision_id(Entity_Type.Tank, Entity_Type.Bullet):{
-                            a.health = 0;
-                            b.health = 0;
-                        } break;
+                            case make_collision_id(Entity_Type.Tank, Entity_Type.Bullet):{
+                                a.health = 0;
+                                b.health = 0;
+                            } break;
+                        }
                     }
                 }
             }
+
+            remove_destryed_entities(&s.world);
+
         }
 
-        remove_destryed_entities(&s.world);
 
         current_timestamp = ns_timestamp();
         ulong frame_time = cast(ulong)(dt*1000000000.0f);

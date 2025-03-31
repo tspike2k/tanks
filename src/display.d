@@ -644,9 +644,9 @@ version(linux){
 
             case KeyPress:
             case KeyRelease:{
-                KeySym keycode = XLookupKeysym(&xevt.xkey, 0);
+                KeySym keycode    = XLookupKeysym(&xevt.xkey, 0);
+                auto is_repeat    = consume_weird_key_repeat_events(xevt, keycode);
                 bool just_pressed = xevt.type == KeyPress;
-                bool is_repeat    = is_key_event_repeat(xevt, keycode);
 
                 // NOTE: Enter fullscreen.
                 if (xevt.xkey.state & Mod1Mask && keycode == XK_Return){
@@ -835,31 +835,31 @@ version(linux){
                         evt.key.id = Key_ID_Escape; break;
                 }
             } break;
-
-            // Skip the next event due to the way Xlib handles key repeats. When a user holds down a key,
-            // a repeat event is generated. Sane systems only send additional key press events for key
-            // repeat. Not here. For some reason, Xlib will add a synthetic key release event, even though
-            // the user certainly didn't release the key. Here we consume those extra key release events.
-            if(evt.key.is_repeat){
-                XEvent temp_evt;
-                XNextEvent(g_x11_display, &temp_evt);
-            }
         }
         return event_translated;
     }
 
-    bool is_key_event_repeat(XEvent *evt, KeySym keycode){
-        // NOTE(tspike): When a key is a keyrepeat X11 will send out a KeyRelease followed by a KeyPress event.
-        // To ignore keyrepeats, one has to perform the following gymnastics. See here for details:
+    bool consume_weird_key_repeat_events(XEvent *evt, KeySym keycode){
+        // When a keyboard key is first pressed, a Key Press event is generated. If the key is held
+        // down, Operating Systems will typically generate additional Key Press events at regular
+        // intervals. Xlib does this, as most users would expect. Before each repeat Key Press
+        // event, however, a Key Release event is misleadingly generated.
+        //
+        // Calling this function will check for these events, returning true if one was found. It
+        // will then consume the Key Release event, replacing the "evt" parameter with the repeat
+        // Key Press event.
+        //
+        // See here for more info:
         // https://groups.google.com/forum/#!topic/pyglet-users/KaF8RQb-ifc
         // https://stackoverflow.com/questions/2100654/ignore-auto-repeat-in-x11-applications
         // https://github.com/glfw/glfw/blob/master/src/x11_window.c
         assert(evt.type == KeyPress || evt.type == KeyRelease);
         bool result = false;
-        if (evt.type == KeyRelease && XEventsQueued(g_x11_display, QueuedAlready)){ // TODO: Use QueuedAlready instead?
+        if(evt.type == KeyRelease && XEventsQueued(g_x11_display, QueuedAlready)){
             XEvent peek_evt;
             XPeekEvent(g_x11_display, &peek_evt);
-            if (peek_evt.type == KeyPress && XLookupKeysym(&peek_evt.xkey, 0) == keycode && (peek_evt.xkey.time - evt.xkey.time) < 20){
+            if(peek_evt.type == KeyPress && XLookupKeysym(&peek_evt.xkey, 0) == keycode && (peek_evt.xkey.time - evt.xkey.time) < 20){
+                XNextEvent(g_x11_display, evt);
                 result = true;
             }
         }
