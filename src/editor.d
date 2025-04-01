@@ -33,7 +33,7 @@ void editor_simulate(App_State* s, float dt){
                 auto btn = &evt.button;
                 if(btn.pressed){
                     if(btn.id == Button_ID.Mouse_Left){
-
+                        add_block(&s.world, floor(s.mouse_world), 1);
                     }
                 }
             } break;
@@ -56,11 +56,6 @@ void editor_simulate(App_State* s, float dt){
             } break;
         }
     }
-}
-
-bool inside_grid(Vec2 p){
-    bool result = p.x >= 0.0f && p.x <= Grid_Width && p.y > 0.0f && p.y < Grid_Height;
-    return result;
 }
 
 void editor_render(App_State* s){

@@ -354,14 +354,19 @@ Entity[] iterate_entities(World* world, size_t starting_index = 0){
     return result;
 }
 
-Entity* add_block(World* world, uint x, uint y){
+bool inside_grid(Vec2 p){
+    bool result = p.x >= 0.0f && p.x < cast(float)Grid_Width
+                  && p.y >= 0.0f && p.y < cast(float)Grid_Height;
+    return result;
+}
+
+Entity* add_block(World* world, Vec2 p, uint block_height){
     // TODO: We should have different types of blocks. We should be able to set height
     // and if the block is breakable.
-    assert(x < Grid_Width);
-    assert(y < Grid_Height);
+    assert(inside_grid(p));
 
-    auto p = Vec2(x, y) + Vec2(0.5f, 0.5f);
-    auto e = add_entity(world, p, Entity_Type.Block);
+    auto e = add_entity(world, p + Vec2(0.5f, 0.5f), Entity_Type.Block);
+    e.block_height = block_height;
     return e;
 }
 
@@ -657,10 +662,10 @@ extern(C) int main(int args_count, char** args){
 
     add_entity(&s.world, Vec2(-4, -4), Entity_Type.Tank);
 
-    add_block(&s.world, 0, 0);
-    add_block(&s.world, Grid_Width-1, Grid_Height-1);
-    add_block(&s.world, 0, Grid_Height-1);
-    add_block(&s.world, Grid_Width-1, 0);
+    add_block(&s.world, Vec2(0, 0), 1);
+    add_block(&s.world, Vec2(Grid_Width-1, Grid_Height-1), 1);
+    add_block(&s.world, Vec2(0, Grid_Height-1), 1);
+    add_block(&s.world, Vec2(Grid_Width-1, 0), 1);
 
     s.mouse_pixel = Vec2(0, 0);
 
