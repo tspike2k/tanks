@@ -48,59 +48,90 @@ enum Max_Mines_Per_Tank   = 3;
 enum Grid_Width  = 22;
 enum Grid_Height = 16;
 
-alias Serialize = void function(ref void[] stream, void[] data);
-
-void stream_write(ref void[] stream, void[] data){
-    copy(data, stream[0 .. data.length]);
-    stream = stream[data.length .. $];
+enum Difficuly : uint{
+    Easy,
+    Normal,
+    Hard,
+    Extreme,
+    Impossible,
 }
 
-void stream_read(ref void[] stream, void[] data){
-    copy(stream[0 .. data.length], data);
-    stream = stream[data.length .. $];
+// The main campaign is made up of distinct levels. Levels are constructed and transmitted
+// using a command buffer. This simplifies a lot of things.
+
+struct Cmd_Make_Map{
+    align(1):
+    uint map_id;
+    uint blocks_count;
 }
 
-void[] to_void(T)(T* t){
-    auto result = t[0 .. 1];
-    return result;
+struct Cmd_Make_Block{
+    align(1):
+    ubyte info;
+    ubyte pos;
 }
 
-void serialize_level_element(alias serialize)(Entity* e, ref void[] stream){
-    ubyte stored_type = void;
-    ubyte stored_p    = void;
+struct Cmd_Make_Level{
+    align(1):
+    uint map_id;
+    uint entity_count;
+}
 
-    enum is_reading = __traits(isSame, serialize, stream_read);
-    static if(!is_reading){
-        assert(e.type == Entity_Type.Block || e.type == Entity_Type.Hole);
-        assert(e.type != Entity_Type.Hole || e.block_height == 0);
-        uint x = cast(uint)e.pos.x;
-        uint y = cast(uint)e.pos.y;
+struct Cmd_Make_Entity{
+    align(1):
+    ubyte  info; // Contains both type and player id. Type should usually be Tank
+    Vec2  pos;
+    float angle;
+}
 
-        stored_type = cast(ubyte)e.block_height;
-        stored_p    = cast(ubyte)((x << 4) | y);
-    }
+struct Campaign_Info{
+    String    name;
+    String    author;
+    String    date;
+    String    description;
+    Difficuly difficulty;
+    uint      players_count;
+    uint      levels_count;
+    uint      maps_count;
+    uint      next_map_id;
+}
 
-    serialize(stream, to_void(&stored_type));
-    serialize(stream, to_void(&stored_p));
+struct Map{
+    uint map_id;
+    Cmd_Make_Block[] blocks;
+}
 
-    static if(is_reading){
-        if(stored_type == 0){
-            e.type = Entity_Type.Hole;
-        }
-        else{
-            e.type = Entity_Type.Block;
-        }
-        e.block_height = stored_type;
+struct Level{
+    uint map_id;
+    Cmd_Make_Entity[] entities;
+}
 
-        uint x = ((cast(uint)stored_p) >> 4) & 0x0f;
-        uint y = ((cast(uint)stored_p))      & 0x0f;
-        e.pos = Vec2(x, y) + Vec2(0.5, 0.5f);
-    }
+struct Campaign{
+    Campaign_Info info;
+    Map[]         maps;
+    Level[]       levels;
+}
+
+void encode(Cmd_Make_Block* cmd, uint block_height, Vec2 pos){
+    uint x = cast(uint)pos.x;
+    uint y = cast(uint)pos.y;
+
+    cmd.info = cast(ubyte)block_height;
+    cmd.pos   = cast(ubyte)((x << 4) | y);
+}
+
+void decode(Cmd_Make_Block* cmd, uint* block_height, Vec2* pos){
+    *block_height= cmd.info;
+
+    uint x = ((cast(uint)cmd.pos) >> 4) & 0x0f;
+    uint y = ((cast(uint)cmd.pos))      & 0x0f;
+    *pos   = Vec2(x, y);
 }
 
 struct App_State{
     Allocator main_memory;
     Allocator frame_memory;
+    Allocator campaign_memory;
 
     bool running;
     float t;
@@ -108,6 +139,8 @@ struct App_State{
     World world;
     Vec2 mouse_pixel;
     Vec2 mouse_world;
+
+    Campaign campaign;
 
     Mesh cube_mesh;
     Mesh tank_base_mesh;
@@ -572,31 +605,6 @@ extern(C) int main(int args_count, char** args){
         return 2;
     }
     scope(exit) render_close();
-
-
-    {
-        // Test level
-        Entity block;
-        block.type = Entity_Type.Block;
-        block.block_height = 7;
-        block.pos = Vec2(12, 4);
-
-        Entity hole;
-        hole.type = Entity_Type.Hole;
-        hole.pos = Vec2(0, 10);
-
-        ubyte[4] data;
-        void[] writer = data;
-        serialize_level_element!stream_write(&block, writer);
-        serialize_level_element!stream_write(&hole, writer);
-
-        Entity a, b;
-        void[] reader = data;
-        serialize_level_element!stream_read(&a, reader);
-        serialize_level_element!stream_read(&b, reader);
-        //assert(a == block);
-        //assert(b == hole);
-    }
 
     //auto teapot_mesh = load_mesh_from_obj("./build/teapot.obj", &s.main_memory);
     s.cube_mesh      = load_mesh_from_obj("./build/cube.obj", &s.main_memory);

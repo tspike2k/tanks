@@ -9,11 +9,69 @@ import display;
 import math;
 import logging;
 import render;
+import memory;
+import files;
+import assets;
 
 bool editor_is_open;
 
 private{
+    enum Default_File_Name = "./build/main.camp";
+}
 
+void save_campaign_file(App_State* s){
+    auto scratch = s.frame_memory.scratch;
+    push_frame(scratch);
+    scope(exit) pop_frame(scratch);
+
+    auto file = open_file(Default_File_Name, File_Flag_Write);
+    if(is_open(&file)){
+        Campaign_Header header;
+        header.magic        = Campaign_File_Magic;
+        header.file_version = Campaign_File_Version;
+
+        auto buffer = alloc_array!void(scratch, 2*1024*1024);
+        auto writer = buffer;
+        stream_write(writer, to_void(&header));
+
+        auto world = &s.world;
+
+        stream_write(writer, to_void(&world.entities_count));
+        foreach(ref e; world.entities[0 .. world.entities_count]){
+            assert(e.type == Entity_Type.Block);
+            Cmd_Make_Block cmd;
+            encode(&cmd, e.block_height, e.pos);
+            stream_write(writer, to_void(&cmd));
+        }
+
+        write_file(&file, 0, buffer[0 .. writer.ptr - buffer.ptr]);
+        close_file(&file);
+    }
+}
+
+void load_campaign_file(App_State* s){
+    auto scratch = s.frame_memory.scratch;
+    push_frame(scratch);
+    scope(exit) pop_frame(scratch);
+
+    auto world = &s.world;
+
+    auto memory = read_file_into_memory(Default_File_Name, scratch);
+    auto reader = memory;
+    // TODO: More robust reading code
+    // TODO: Validate header
+    auto header = stream_read!Campaign_Header(reader);
+    if(header){
+        world.entities_count = 0;
+        auto count = *stream_read!uint(reader);
+        foreach(i; 0 .. count){
+            auto cmd = stream_read!Cmd_Make_Block(reader);
+            uint block_height;
+            Vec2 pos;
+            decode(cmd, &block_height, &pos);
+            add_block(world, pos, block_height);
+        }
+    }
 }
 
 void editor_simulate(App_State* s, float dt){
@@ -48,6 +106,19 @@ void editor_simulate(App_State* s, float dt){
                 if(!key.is_repeat && key.pressed){
                     switch(key.id){
                         default: break;
+
+                        case Key_ID_S:{
+                            if(key.modifier & Key_Modifier_Ctrl){
+                                save_campaign_file(s);
+                            }
+                        } break;
+
+                        case Key_ID_L:{
+                            if(key.modifier & Key_Modifier_Ctrl){
+                                load_campaign_file(s);
+                            }
+                        } break;
+
 
                         case Key_ID_F2:
                             editor_toggle(s); break;

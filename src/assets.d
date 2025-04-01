@@ -12,6 +12,155 @@ private{
     import logging;
 }
 
+////
+//
+// Campaign files
+//
+////
+
+enum Campaign_File_Magic = ('T' << 0 | 'a' << 8 | 'n' << 16 | 'k' << 24);
+enum Campaign_File_Version = 0;
+
+struct Campaign_Header{
+    align(1):
+
+    uint     magic;
+    uint     file_version;
+    uint[14] reserved;
+}
+
+enum Campaign_Section_Type: uint{
+    None,
+    Info,
+    Levels,
+}
+
+struct Campaign_Section{
+    Campaign_Section_Type type;
+    uint                  size;
+}
+
+////
+//
+// Obj Files
+//
+////
+
+struct Obj_Face_Point{
+    uint v;
+    uint n;
+    uint uv;
+}
+
+struct Obj_Face{
+    Obj_Face_Point[3] points;
+}
+
+struct Obj_Data{
+    Vec3[]     vertices; // TODO: Rename this positions/ or something like that.
+    Vec3[]     normals;
+    Vec4[]     colors;
+    Vec2[]     uvs;
+    Obj_Face[] faces;
+}
+
+Obj_Data parse_obj_file(String source, Allocator* allocator){
+    Obj_Data result;
+
+    //
+    // First-pass counts all the elements.
+    // TODO: Should we use an expandable array instead?
+    //
+    {
+        uint vertex_count, normals_count, uvs_count, faces_count;
+
+        auto reader = source;
+        while(reader.length){
+            auto line = eat_line(reader);
+
+            auto cmd = eat_obj_line_command(line);
+            switch(cmd){
+                default: break;
+
+                case "v":{
+                    vertex_count++;
+                } break;
+
+                case "vn":{
+                    normals_count++;
+                } break;
+
+                case "vt":{
+                    uvs_count++;
+                } break;
+
+                case "f":{
+                    faces_count++;
+                } break;
+            }
+        }
+
+        result.vertices = alloc_array!Vec3(allocator, vertex_count);
+        result.faces    = alloc_array!Obj_Face(allocator, faces_count);
+        result.normals =  alloc_array!Vec3(allocator, normals_count);
+    }
+
+    uint v_index, f_index, n_index;
+
+    auto reader = source;
+    while(reader.length){
+        auto line = eat_line(reader);
+
+        auto cmd = eat_obj_line_command(line);
+        switch(cmd){
+            default: break;
+
+            case "v":{
+                auto v = &result.vertices[v_index++];
+                to_float(&v.x, eat_between_whitespace(line));
+                to_float(&v.y, eat_between_whitespace(line));
+                to_float(&v.z, eat_between_whitespace(line));
+            } break;
+
+            case "vn":{
+                auto n = &result.normals[n_index++];
+                to_float(&n.x, eat_between_whitespace(line));
+                to_float(&n.y, eat_between_whitespace(line));
+                to_float(&n.z, eat_between_whitespace(line));
+            } break;
+
+            case "vt":{
+
+            } break;
+
+            case "f":{
+                auto f = &result.faces[f_index++];
+                if(result.normals.length == 0 && result.uvs.length == 0){
+                    to_int(&f.points[0].v, eat_between_whitespace(line));
+                    to_int(&f.points[1].v, eat_between_whitespace(line));
+                    to_int(&f.points[2].v, eat_between_whitespace(line));
+                }
+                else{
+                    // TODO: Handle face entries that bundle normal and uvs indeces.
+                    foreach(i; 0 .. 3){
+                        auto entry = eat_between_whitespace(line);
+                        auto p = &f.points[i];
+                        to_int(&p.v, eat_between_char(entry, '/'));
+                        to_int(&p.uv, eat_between_char(entry, '/'));
+                        to_int(&p.n, eat_between_char(entry, '/'));
+                    }
+                }
+            } break;
+        }
+    }
+
+    return result;
+}
+
+
+version(none):
+
+
 enum Asset_File_Version = 1;
 enum uint Asset_File_Magic = ('a' << 0 | 's' << 8 | 'e' << 16 | 't' << 24);
 
@@ -20,6 +169,7 @@ enum Compression_Type_None = 0;
 enum{
     Asset_Type_Font   = 1,
     Asset_Type_Sprite = 2,
+    Asset_Type_Level  = 3,
 }
 
 enum{
@@ -164,115 +314,4 @@ bool load_font_from_file(const(char)[] file_name, Asset_Font* font, Allocator* a
     }
 
     return succeeded;
-}
-
-struct Obj_Face_Point{
-    uint v;
-    uint n;
-    uint uv;
-}
-
-struct Obj_Face{
-    Obj_Face_Point[3] points;
-}
-
-struct Obj_Data{
-    Vec3[]     vertices; // TODO: Rename this positions/ or something like that.
-    Vec3[]     normals;
-    Vec4[]     colors;
-    Vec2[]     uvs;
-    Obj_Face[] faces;
-}
-
-Obj_Data parse_obj_file(String source, Allocator* allocator){
-    Obj_Data result;
-
-    //
-    // First-pass counts all the elements.
-    // TODO: Should we use an expandable array instead?
-    //
-    {
-        uint vertex_count, normals_count, uvs_count, faces_count;
-
-        auto reader = source;
-        while(reader.length){
-            auto line = eat_line(reader);
-
-            auto cmd = eat_obj_line_command(line);
-            switch(cmd){
-                default: break;
-
-                case "v":{
-                    vertex_count++;
-                } break;
-
-                case "vn":{
-                    normals_count++;
-                } break;
-
-                case "vt":{
-                    uvs_count++;
-                } break;
-
-                case "f":{
-                    faces_count++;
-                } break;
-            }
-        }
-
-        result.vertices = alloc_array!Vec3(allocator, vertex_count);
-        result.faces    = alloc_array!Obj_Face(allocator, faces_count);
-        result.normals =  alloc_array!Vec3(allocator, normals_count);
-    }
-
-    uint v_index, f_index, n_index;
-
-    auto reader = source;
-    while(reader.length){
-        auto line = eat_line(reader);
-
-        auto cmd = eat_obj_line_command(line);
-        switch(cmd){
-            default: break;
-
-            case "v":{
-                auto v = &result.vertices[v_index++];
-                to_float(&v.x, eat_between_whitespace(line));
-                to_float(&v.y, eat_between_whitespace(line));
-                to_float(&v.z, eat_between_whitespace(line));
-            } break;
-
-            case "vn":{
-                auto n = &result.normals[n_index++];
-                to_float(&n.x, eat_between_whitespace(line));
-                to_float(&n.y, eat_between_whitespace(line));
-                to_float(&n.z, eat_between_whitespace(line));
-            } break;
-
-            case "vt":{
-
-            } break;
-
-            case "f":{
-                auto f = &result.faces[f_index++];
-                if(result.normals.length == 0 && result.uvs.length == 0){
-                    to_int(&f.points[0].v, eat_between_whitespace(line));
-                    to_int(&f.points[1].v, eat_between_whitespace(line));
-                    to_int(&f.points[2].v, eat_between_whitespace(line));
-                }
-                else{
-                    // TODO: Handle face entries that bundle normal and uvs indeces.
-                    foreach(i; 0 .. 3){
-                        auto entry = eat_between_whitespace(line);
-                        auto p = &f.points[i];
-                        to_int(&p.v, eat_between_char(entry, '/'));
-                        to_int(&p.uv, eat_between_char(entry, '/'));
-                        to_int(&p.n, eat_between_char(entry, '/'));
-                    }
-                }
-            } break;
-        }
-    }
-
-    return result;
 }

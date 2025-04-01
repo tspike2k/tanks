@@ -111,7 +111,7 @@ version(linux){
         while(bytes_read < dest.length){
             ssize_t r = pread(fd, &dest[bytes_read], dest.length - bytes_read, offset + bytes_read);
             if(r < 0){
-                //assert(0); // TODO: logging
+                // TODO: logging
                 //fprintf(stderr, "Failed to read from file: %s\n", strerror(errno));
                 break;
             }
@@ -121,6 +121,29 @@ version(linux){
             bytes_read += cast(size_t)r;
         }
         return bytes_read;
+    }
+
+    size_t write_file(File *file, size_t offset, void[] data){
+        assert(file.flags & File_Flag_Write);
+        assert(file.flags & File_Flag_Is_Open);
+        int fd = *fd_from_file(file);
+
+        size_t bytes_written = 0;
+        // TODO: Are we supposed to offset the subsequent calls to write by bytes_read?
+        // Some example code doesn't do this, which seems suspect.
+        while(bytes_written < data.length){
+            ssize_t r = pwrite(fd, &data[bytes_written], data.length - bytes_written, offset + bytes_written);
+            if(r < 0){
+                // TODO: Logging
+                //fprintf(stderr, "Failed to write to file: %s\n", strerror(errno));
+                break;
+            }
+            else if(r == 0){
+                break;
+            }
+            bytes_written += cast(size_t)r;
+        }
+        return bytes_written;
     }
 
     private:
@@ -302,25 +325,6 @@ Cyu_API size_t get_file_size(File* file){
         log(Cyu_Err "Unable to get file size.\n");
     }
     return result;
-}
-
-Cyu_API void write_file(File *file, size_t offset, const void *source, size_t source_size){
-    int fd = *cyu__fd_from_file(file);
-
-    size_t bytes_written = 0;
-    // TODO: Are we supposed to offset the subsequent calls to read by bytes_read?
-    // Some example code doesn't do this, which seems suspect.
-    while(bytes_written < source_size){
-        ssize_t r = pwrite(fd, (source + bytes_written), source_size - bytes_written, offset + bytes_written);
-        if(r < 0){
-            fprintf(stderr, "Failed to write to file: %s\n", strerror(errno));
-            break;
-        }
-        else if(r == 0){
-            break;
-        }
-        bytes_written += (size_t)r;
-    }
 }
 
 Cyu_API void close_file(File *file){

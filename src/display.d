@@ -5,7 +5,7 @@ License:   Boost Software License 1.0 (https://www.boost.org/LICENSE_1_0.txt)
 */
 
 enum{
-    Key_Modifier_Ctrl = (1 << 1),
+    Key_Modifier_Ctrl = (1 << 0),
 };
 
 enum {

@@ -44,7 +44,7 @@ struct Mesh{
     Vertex[] vertices;
 }
 
-struct Font{
+version(none) struct Font{
     Font_Metrics metrics;
     Font_Glyph[] glyphs; // TODO: Make this a hash table?
     Texture      texture;

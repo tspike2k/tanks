@@ -15,6 +15,11 @@ void clear_to_zero(T)(ref T t){
     memset(&t, 0, T.sizeof);
 }
 
+void[] to_void(T)(T* t){
+    auto result = t[0 .. 1];
+    return result;
+}
+
 void swap(T)(ref T a, ref T b){
     auto temp = b;
     b = a;
@@ -335,6 +340,72 @@ String eat_between_char(ref String reader, char delimiter){
     }
     return result;
 }
+
+
+////
+//
+// Serialization
+//
+///
+
+alias Serialize = void function(ref void[] stream, void[] data);
+
+void stream_write(ref void[] stream, void[] data){
+    copy(data, stream[0 .. data.length]);
+    stream = stream[data.length .. $];
+}
+
+void stream_read(ref void[] stream, void[] data){
+    copy(stream[0 .. data.length], data);
+    stream = stream[data.length .. $];
+}
+
+T* stream_read(T)(ref void[] stream){
+    T* result;
+    if(stream.length >= T.sizeof){
+        result = cast(T*)stream;
+        stream = stream[T.sizeof .. $];
+    }
+
+    return result;
+}
+
+version(none){
+    void serialize_level_element(alias serialize)(Entity* e, ref void[] stream){
+        ubyte stored_type = void;
+        ubyte stored_p    = void;
+
+        enum is_reading = __traits(isSame, serialize, stream_read);
+        static if(!is_reading){
+            assert(e.type == Entity_Type.Block || e.type == Entity_Type.Hole);
+            assert(e.type != Entity_Type.Hole || e.block_height == 0);
+            uint x = cast(uint)e.pos.x;
+            uint y = cast(uint)e.pos.y;
+
+            stored_type = cast(ubyte)e.block_height;
+            stored_p    = cast(ubyte)((x << 4) | y);
+        }
+
+        serialize(stream, to_void(&stored_type));
+        serialize(stream, to_void(&stored_p));
+
+        static if(is_reading){
+            if(stored_type == 0){
+                e.type = Entity_Type.Hole;
+            }
+            else{
+                e.type = Entity_Type.Block;
+            }
+            e.block_height = stored_type;
+
+            uint x = ((cast(uint)stored_p) >> 4) & 0x0f;
+            uint y = ((cast(uint)stored_p))      & 0x0f;
+            e.pos = Vec2(x, y) + Vec2(0.5, 0.5f);
+        }
+    }
+}
+
+
 
 /+
 
