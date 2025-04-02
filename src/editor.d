@@ -39,6 +39,7 @@ private{
     Material g_eraser_material;
     Edit_Catagory g_edit_catagory;
     Edit_Mode g_edit_mode;
+    Entity_ID g_selected_entity_id;
 }
 
 void save_campaign_file(App_State* s){
@@ -107,80 +108,156 @@ bool block_exists_on_tile(World* world, Vec2 tile){
     return result;
 }
 
+Entity* get_entity_under_cursor(World* world, Vec2 cursor_world){
+    Entity* result;
+
+    float closest_dist_sq = float.max;
+    foreach(ref e; iterate_entities(world)){
+        auto dsq = dist_sq(e.pos, cursor_world);
+        if(dsq < closest_dist_sq && dsq < squared(0.5f)){
+            closest_dist_sq = dsq;
+            result = &e;
+        }
+    }
+
+    return result;
+}
+
+bool config_mode_handle_event(App_State* s, Event* evt){
+    bool consumed = false;
+
+    switch(evt.type){
+        default: break;
+
+        case Event_Type.Button:{
+            auto btn = &evt.button;
+
+            switch(btn.id){
+                default: break;
+
+                case Button_ID.Mouse_Left:{
+                    if(g_selected_entity_id == Null_Entity_ID){
+                        auto e = get_entity_under_cursor(&s.world, s.mouse_world);
+                        if(e)
+                            g_selected_entity_id = e.id;
+                    }
+                } break;
+
+                case Button_ID.Mouse_Right:{
+                    g_selected_entity_id = Null_Entity_ID;
+                } break;
+            }
+        } break;
+
+        case Event_Type.Key:{
+            auto key = &evt.key;
+            auto e = get_entity_by_id(&s.world, g_selected_entity_id);
+            if(e){
+                if(e.type == Entity_Type.Block){
+                    if(key.id == Key_ID_Arrow_Up){
+                        e.block_height++;
+                    }
+                    else if(key.id == Key_ID_Arrow_Down){
+                        e.block_height--;
+                    }
+                }
+            }
+        } break;
+    }
+
+    return consumed;
+}
+
 void editor_simulate(App_State* s, float dt){
     assert(editor_is_open);
 
     Event evt;
     while(next_event(&evt)){
-        switch(evt.type){
+        bool event_consumed = false;
+        switch(g_edit_mode){
             default: break;
 
-            case Event_Type.Window_Close:{
-                // TODO: Save state before exit in a temp/suspend file.
-                s.running = false;
-            } break;
+            case Edit_Mode.Config:
+                event_consumed = config_mode_handle_event(s, &evt); break;
+        }
 
-            case Event_Type.Button:{
-                auto btn = &evt.button;
+        if(!event_consumed){
+            switch(evt.type){
+                default: break;
 
-                switch(btn.id){
-                    default: break;
+                case Event_Type.Window_Close:{
+                    // TODO: Save state before exit in a temp/suspend file.
+                    s.running = false;
+                } break;
 
-                    case Button_ID.Mouse_Left:{
-                        g_mouse_left_is_down = btn.pressed;
-                    } break;
+                case Event_Type.Button:{
+                    auto btn = &evt.button;
 
-                    case Button_ID.Mouse_Right:{
-                        g_mouse_right_is_down = btn.pressed;
-                    } break;
-                }
-            } break;
-
-            case Event_Type.Mouse_Motion:{
-                auto motion = &evt.mouse_motion;
-                s.mouse_pixel = Vec2(motion.pixel_x, motion.pixel_y);
-            } break;
-
-            case Event_Type.Key:{
-                auto key = &evt.key;
-                if(!key.is_repeat && key.pressed){
-                    switch(key.id){
+                    switch(btn.id){
                         default: break;
 
-                        case Key_ID_C:{
-                            g_edit_mode = Edit_Mode.Config;
+                        case Button_ID.Mouse_Left:{
+                            g_mouse_left_is_down = btn.pressed;
                         } break;
 
-                        case Key_ID_P:{
-                            g_edit_mode = Edit_Mode.Place;
+                        case Button_ID.Mouse_Right:{
+                            g_mouse_right_is_down = btn.pressed;
                         } break;
-
-                        case Key_ID_E:{
-                            g_edit_mode = Edit_Mode.Erase;
-                        } break;
-
-                        case Key_ID_S:{
-                            if(key.modifier & Key_Modifier_Ctrl){
-                                save_campaign_file(s);
-                            }
-                        } break;
-
-                        case Key_ID_L:{
-                            if(key.modifier & Key_Modifier_Ctrl){
-                                load_campaign_file(s);
-                            }
-                        } break;
-
-                        case Key_ID_F2:
-                            editor_toggle(s); break;
                     }
-                }
-            } break;
+                } break;
+
+                case Event_Type.Mouse_Motion:{
+                    auto motion = &evt.mouse_motion;
+                    s.mouse_pixel = Vec2(motion.pixel_x, motion.pixel_y);
+                } break;
+
+                case Event_Type.Key:{
+                    auto key = &evt.key;
+                    if(!key.is_repeat && key.pressed){
+                        switch(key.id){
+                            default: break;
+
+                            case Key_ID_C:{
+                                g_edit_mode = Edit_Mode.Config;
+                            } break;
+
+                            case Key_ID_P:{
+                                g_edit_mode = Edit_Mode.Place;
+                            } break;
+
+                            case Key_ID_E:{
+                                g_edit_mode = Edit_Mode.Erase;
+                            } break;
+
+                            case Key_ID_S:{
+                                if(key.modifier & Key_Modifier_Ctrl){
+                                    save_campaign_file(s);
+                                }
+                            } break;
+
+                            case Key_ID_L:{
+                                if(key.modifier & Key_Modifier_Ctrl){
+                                    load_campaign_file(s);
+                                }
+                            } break;
+
+                            case Key_ID_F2:
+                                editor_toggle(s); break;
+                        }
+                    }
+                } break;
+            }
         }
+
     }
 
     switch(g_edit_mode){
         default: break;
+
+        case Edit_Mode.Config:{
+            s.highlight_entity_id = g_selected_entity_id;
+            s.highlight_material = &s.material_eraser;
+        } break;
 
         case Edit_Mode.Place:{
             if(g_mouse_left_is_down){
@@ -192,19 +269,18 @@ void editor_simulate(App_State* s, float dt){
         } break;
 
         case Edit_Mode.Erase:{
-            auto tile = floor(s.mouse_world);
+            auto hover_e = get_entity_under_cursor(&s.world, s.mouse_world);
 
-            s.to_erase_id = Null_Entity_ID;
-            Entity* hover_e;
-            foreach(ref e; iterate_entities(&s.world)){
-                if(floor(e.pos) == tile){
-                    hover_e = &e;
-                    s.to_erase_id = e.id;
+            if(hover_e){
+                s.highlight_entity_id = hover_e.id;
+                s.highlight_material  = &s.material_eraser;
+
+                if(g_mouse_left_is_down && hover_e){
+                    hover_e.health = 0;
                 }
             }
-
-            if(g_mouse_left_is_down && hover_e){
-                hover_e.health = 0;
+            else{
+                s.highlight_entity_id = Null_Entity_ID;
             }
         } break;
     }

@@ -139,7 +139,8 @@ struct App_State{
     Vec2 mouse_pixel;
     Vec2 mouse_world;
 
-    Entity_ID to_erase_id;
+    Entity_ID highlight_entity_id;
+    Material* highlight_material;
 
     Campaign campaign;
 
@@ -567,8 +568,8 @@ Vec3 world_to_render_pos(Vec2 p){
 
 Material* choose_material(App_State*s, Entity_Type type, Entity_ID id){
     Material* result;
-    if(id == s.to_erase_id){
-        result = &s.material_eraser;
+    if(id == s.highlight_entity_id){
+        result = s.highlight_material;
     }
     else{
         switch(type){
