@@ -4,6 +4,10 @@ Distributed under the Boost Software License, Version 1.0.
 See accompanying file LICENSE_BOOST.txt or copy at http://www.boost.org/LICENSE_1_0.txt
 */
 
+/+
+    TODO: Use an actual GUI for the editor.
++/
+
 import app;
 import display;
 import math;
