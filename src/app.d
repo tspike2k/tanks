@@ -455,7 +455,7 @@ bool is_destroyed(Entity* e){
     return result;
 }
 
-void remove_destryed_entities(World* world){
+void remove_destroyed_entities(World* world){
     uint entity_index;
     while(entity_index < world.entities_count){
         auto e = &world.entities[entity_index];
@@ -907,11 +907,9 @@ extern(C) int main(int args_count, char** args){
                     }
                 }
             }
-
-            remove_destryed_entities(&s.world);
-
         }
 
+        remove_destroyed_entities(&s.world);
 
         current_timestamp = ns_timestamp();
         ulong frame_time = cast(ulong)(dt*1000000000.0f);

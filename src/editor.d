@@ -18,6 +18,7 @@ bool editor_is_open;
 private{
     enum Default_File_Name = "./build/main.camp";
     bool mouse_left_is_down;
+    bool mouse_right_is_down;
 }
 
 void save_campaign_file(App_State* s){
@@ -102,8 +103,16 @@ void editor_simulate(App_State* s, float dt){
             case Event_Type.Button:{
                 auto btn = &evt.button;
 
-                if(btn.id == Button_ID.Mouse_Left){
-                    mouse_left_is_down = btn.pressed;
+                switch(btn.id){
+                    default: break;
+
+                    case Button_ID.Mouse_Left:{
+                        mouse_left_is_down = btn.pressed;
+                    } break;
+
+                    case Button_ID.Mouse_Right:{
+                        mouse_right_is_down = btn.pressed;
+                    } break;
                 }
             } break;
 
@@ -144,10 +153,18 @@ void editor_simulate(App_State* s, float dt){
             add_block(&s.world, tile, 1);
         }
     }
+    else if(mouse_right_is_down){
+        auto tile = floor(s.mouse_world);
+        foreach(ref e; iterate_entities(&s.world)){
+            if(floor(e.pos) == tile){
+                e.health = 0;
+            }
+        }
+    }
 }
 
 void editor_render(App_State* s){
-    if(inside_grid(s.mouse_world)){
+    if(inside_grid(s.mouse_world) && !mouse_right_is_down){
         set_material(&s.material_block);
         Vec2 world_p = floor(s.mouse_world) + Vec2(0.5f, 0.5f);
         auto p = world_to_render_pos(world_p) + Vec3(0, 0.5f, 0);
@@ -158,7 +175,8 @@ void editor_render(App_State* s){
 void editor_toggle(App_State* s){
     if(!editor_is_open){
         s.world.entities_count = 0;
-        mouse_left_is_down   = false;
+        mouse_left_is_down  = false;
+        mouse_right_is_down = false;
     }
 
     editor_is_open = !editor_is_open;
