@@ -139,6 +139,8 @@ struct App_State{
     Vec2 mouse_pixel;
     Vec2 mouse_world;
 
+    Entity_ID to_erase_id;
+
     Campaign campaign;
 
     Mesh cube_mesh;
@@ -150,6 +152,7 @@ struct App_State{
     Material material_tank;
     Material material_block;
     Material material_ground;
+    Material material_eraser;
 }
 
 alias Entity_ID = ulong;
@@ -562,6 +565,29 @@ Vec3 world_to_render_pos(Vec2 p){
     return result;
 }
 
+Material* choose_material(App_State*s, Entity_Type type, Entity_ID id){
+    Material* result;
+    if(id == s.to_erase_id){
+        result = &s.material_eraser;
+    }
+    else{
+        switch(type){
+            default: {
+                result = &s.material_block;
+            } break;
+
+            case Entity_Type.Tank: {
+                result = &s.material_tank;
+            } break;
+
+            case Entity_Type.Block: {
+                result = &s.material_block;
+            } break;
+        }
+    }
+    return result;
+}
+
 extern(C) int main(int args_count, char** args){
     auto app_memory = os_alloc(Main_Memory_Size + Scratch_Memory_Size + Frame_Memory_Size, 0);
     scope(exit) os_dealloc(app_memory);
@@ -630,6 +656,7 @@ extern(C) int main(int args_count, char** args){
     setup_basic_material(&s.material_tank, Vec3(0.2f, 0.2f, 0.4f), 256);
     setup_basic_material(&s.material_ground, Vec3(0.50f, 0.42f, 0.30f), 2);
     setup_basic_material(&s.material_block, Vec3(0.30f, 0.42f, 0.30f), 2);
+    setup_basic_material(&s.material_eraser, Vec3(0.8f, 0.2f, 0.2f), 128);
 
     s.running = true;
 
@@ -661,6 +688,8 @@ extern(C) int main(int args_count, char** args){
         }
     }
     scope(exit) close_socket(&socket);
+
+    s.world.next_entity_id = Null_Entity_ID+1;
 
     {
         auto player = add_entity(&s.world, Vec2(0, 0), Entity_Type.Tank);
@@ -945,30 +974,24 @@ extern(C) int main(int args_count, char** args){
                 default: assert(0);
 
                 case Entity_Type.Block:{
-                    set_material(&s.material_block);
+                    set_material(choose_material(s, e.type, e.id));
                     render_mesh(&s.cube_mesh, mat4_translate(p + Vec3(0, 0.5f, 0)));
                 } break;
 
                 case Entity_Type.Tank:{
-                    set_material(&s.material_tank);
+                    set_material(choose_material(s, e.type, e.id));
                     auto mat_tran = mat4_translate(p + Vec3(0, 0.18f, 0));
                     render_mesh(&s.tank_base_mesh, mat_tran*mat4_rot_y(e.angle));
                     render_mesh(&s.tank_top_mesh, mat_tran*mat4_rot_y(e.turret_angle));
                 } break;
 
                 case Entity_Type.Bullet:{
-                    set_material(&s.material_block);
+                    set_material(choose_material(s, e.type, e.id));
                     auto mat_tran = mat4_translate(p);
                     //auto mat_tran = mat4_translate(p + Vec3(0, 0.5f, 0)); // TODO: Use this offset when we're done testing the camera
                     render_mesh(&s.bullet_mesh, mat_tran*mat4_rot_y(e.angle));
                 } break;
             }
-        }
-
-        version(all){
-            Vec3 p = Vec3(s.mouse_world.x, 0, -s.mouse_world.y);
-            set_material(&s.material_block);
-            render_mesh(&s.cube_mesh, mat4_translate(p)*mat4_scale(Vec3(0.25f, 0.25f, 0.25f)));
         }
 
         if(editor_is_open){

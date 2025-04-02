@@ -21,8 +21,24 @@ bool editor_is_open;
 
 private{
     enum Default_File_Name = "./build/main.camp";
-    bool mouse_left_is_down;
-    bool mouse_right_is_down;
+
+    enum Edit_Catagory : uint{
+        Map,
+        Entity,
+    }
+
+    enum Edit_Mode : uint{
+        Config,
+        Place,
+        Erase,
+    }
+
+    bool g_initialized;
+    bool g_mouse_left_is_down;
+    bool g_mouse_right_is_down;
+    Material g_eraser_material;
+    Edit_Catagory g_edit_catagory;
+    Edit_Mode g_edit_mode;
 }
 
 void save_campaign_file(App_State* s){
@@ -111,11 +127,11 @@ void editor_simulate(App_State* s, float dt){
                     default: break;
 
                     case Button_ID.Mouse_Left:{
-                        mouse_left_is_down = btn.pressed;
+                        g_mouse_left_is_down = btn.pressed;
                     } break;
 
                     case Button_ID.Mouse_Right:{
-                        mouse_right_is_down = btn.pressed;
+                        g_mouse_right_is_down = btn.pressed;
                     } break;
                 }
             } break;
@@ -130,6 +146,18 @@ void editor_simulate(App_State* s, float dt){
                 if(!key.is_repeat && key.pressed){
                     switch(key.id){
                         default: break;
+
+                        case Key_ID_C:{
+                            g_edit_mode = Edit_Mode.Config;
+                        } break;
+
+                        case Key_ID_P:{
+                            g_edit_mode = Edit_Mode.Place;
+                        } break;
+
+                        case Key_ID_E:{
+                            g_edit_mode = Edit_Mode.Erase;
+                        } break;
 
                         case Key_ID_S:{
                             if(key.modifier & Key_Modifier_Ctrl){
@@ -151,36 +179,63 @@ void editor_simulate(App_State* s, float dt){
         }
     }
 
-    if(mouse_left_is_down){
-        auto tile = floor(s.mouse_world);
-        if(!block_exists_on_tile(&s.world, tile) && inside_grid(tile)){
-            add_block(&s.world, tile, 1);
-        }
-    }
-    else if(mouse_right_is_down){
-        auto tile = floor(s.mouse_world);
-        foreach(ref e; iterate_entities(&s.world)){
-            if(floor(e.pos) == tile){
-                e.health = 0;
+    switch(g_edit_mode){
+        default: break;
+
+        case Edit_Mode.Place:{
+            if(g_mouse_left_is_down){
+                auto tile = floor(s.mouse_world);
+                if(!block_exists_on_tile(&s.world, tile) && inside_grid(tile)){
+                    add_block(&s.world, tile, 1);
+                }
             }
-        }
+        } break;
+
+        case Edit_Mode.Erase:{
+            auto tile = floor(s.mouse_world);
+
+            s.to_erase_id = Null_Entity_ID;
+            Entity* hover_e;
+            foreach(ref e; iterate_entities(&s.world)){
+                if(floor(e.pos) == tile){
+                    hover_e = &e;
+                    s.to_erase_id = e.id;
+                }
+            }
+
+            if(g_mouse_left_is_down && hover_e){
+                hover_e.health = 0;
+            }
+        } break;
     }
 }
 
 void editor_render(App_State* s){
-    if(inside_grid(s.mouse_world) && !mouse_right_is_down){
-        set_material(&s.material_block);
-        Vec2 world_p = floor(s.mouse_world) + Vec2(0.5f, 0.5f);
-        auto p = world_to_render_pos(world_p) + Vec3(0, 0.5f, 0);
-        render_mesh(&s.cube_mesh, mat4_translate(p));
+    switch(g_edit_mode){
+        default: break;
+
+        case Edit_Mode.Config:{
+            // Draw cursor
+            auto p = world_to_render_pos(s.mouse_world);
+            set_material(&s.material_block);
+            render_mesh(&s.cube_mesh, mat4_translate(p)*mat4_scale(Vec3(0.25f, 0.25f, 0.25f)));
+        } break;
+
+        case Edit_Mode.Place:{
+            if(inside_grid(s.mouse_world)){
+                set_material(&s.material_block);
+                auto p = world_to_render_pos(floor(s.mouse_world)) + Vec3(0.5f, 0.5f, -0.5f);
+                render_mesh(&s.cube_mesh, mat4_translate(p));
+            }
+        } break;
     }
 }
 
 void editor_toggle(App_State* s){
     if(!editor_is_open){
         s.world.entities_count = 0;
-        mouse_left_is_down  = false;
-        mouse_right_is_down = false;
+        g_mouse_left_is_down  = false;
+        g_mouse_right_is_down = false;
     }
 
     editor_is_open = !editor_is_open;
