@@ -975,8 +975,13 @@ extern(C) int main(int args_count, char** args){
                 default: assert(0);
 
                 case Entity_Type.Block:{
+                    assert(e.block_height > 0 && e.block_height <= 7);
                     set_material(choose_material(s, e.type, e.id));
-                    render_mesh(&s.cube_mesh, mat4_translate(p + Vec3(0, 0.5f, 0)));
+
+                    float height = 1.0f + 0.5f*cast(float)(e.block_height-1);
+                    auto scale = Vec3(1, height, 1);
+                    auto pos = p + Vec3(0, height*0.5f, 0);
+                    render_mesh(&s.cube_mesh, mat4_translate(pos)*mat4_scale(scale));
                 } break;
 
                 case Entity_Type.Tank:{

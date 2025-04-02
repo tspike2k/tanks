@@ -132,33 +132,37 @@ bool config_mode_handle_event(App_State* s, Event* evt){
         case Event_Type.Button:{
             auto btn = &evt.button;
 
-            switch(btn.id){
-                default: break;
+            if(btn.pressed){
+                switch(btn.id){
+                    default: break;
 
-                case Button_ID.Mouse_Left:{
-                    if(g_selected_entity_id == Null_Entity_ID){
-                        auto e = get_entity_under_cursor(&s.world, s.mouse_world);
-                        if(e)
-                            g_selected_entity_id = e.id;
-                    }
-                } break;
+                    case Button_ID.Mouse_Left:{
+                        if(g_selected_entity_id == Null_Entity_ID){
+                            auto e = get_entity_under_cursor(&s.world, s.mouse_world);
+                            if(e)
+                                g_selected_entity_id = e.id;
+                        }
+                    } break;
 
-                case Button_ID.Mouse_Right:{
-                    g_selected_entity_id = Null_Entity_ID;
-                } break;
+                    case Button_ID.Mouse_Right:{
+                        g_selected_entity_id = Null_Entity_ID;
+                    } break;
+                }
             }
         } break;
 
         case Event_Type.Key:{
             auto key = &evt.key;
-            auto e = get_entity_by_id(&s.world, g_selected_entity_id);
-            if(e){
-                if(e.type == Entity_Type.Block){
-                    if(key.id == Key_ID_Arrow_Up){
-                        e.block_height++;
-                    }
-                    else if(key.id == Key_ID_Arrow_Down){
-                        e.block_height--;
+            if(key.pressed){
+                auto e = get_entity_by_id(&s.world, g_selected_entity_id);
+                if(e){
+                    if(e.type == Entity_Type.Block){
+                        if(key.id == Key_ID_Arrow_Up){
+                            e.block_height = min(e.block_height + 1, 7);
+                        }
+                        else if(key.id == Key_ID_Arrow_Down){
+                            e.block_height = max(e.block_height - 1, 1);
+                        }
                     }
                 }
             }
