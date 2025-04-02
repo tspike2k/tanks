@@ -17,6 +17,7 @@ bool editor_is_open;
 
 private{
     enum Default_File_Name = "./build/main.camp";
+    bool mouse_left_is_down;
 }
 
 void save_campaign_file(App_State* s){
@@ -54,14 +55,13 @@ void load_campaign_file(App_State* s){
     push_frame(scratch);
     scope(exit) pop_frame(scratch);
 
-    auto world = &s.world;
-
     auto memory = read_file_into_memory(Default_File_Name, scratch);
     auto reader = memory;
     // TODO: More robust reading code
     // TODO: Validate header
     auto header = stream_read!Campaign_Header(reader);
     if(header){
+        auto world = &s.world;
         world.entities_count = 0;
         auto count = *stream_read!uint(reader);
         foreach(i; 0 .. count){
@@ -72,6 +72,18 @@ void load_campaign_file(App_State* s){
             add_block(world, pos, block_height);
         }
     }
+}
+
+bool block_exists_on_tile(World* world, Vec2 tile){
+    bool result = false;
+    assert(floor(tile) == tile);
+    foreach(ref e; iterate_entities(world)){
+        if(floor(e.pos) == tile){
+            result = true;
+            break;
+        }
+    }
+    return result;
 }
 
 void editor_simulate(App_State* s, float dt){
@@ -89,10 +101,9 @@ void editor_simulate(App_State* s, float dt){
 
             case Event_Type.Button:{
                 auto btn = &evt.button;
-                if(btn.pressed){
-                    if(btn.id == Button_ID.Mouse_Left){
-                        add_block(&s.world, floor(s.mouse_world), 1);
-                    }
+
+                if(btn.id == Button_ID.Mouse_Left){
+                    mouse_left_is_down = btn.pressed;
                 }
             } break;
 
@@ -119,12 +130,18 @@ void editor_simulate(App_State* s, float dt){
                             }
                         } break;
 
-
                         case Key_ID_F2:
                             editor_toggle(s); break;
                     }
                 }
             } break;
+        }
+    }
+
+    if(mouse_left_is_down){
+        auto tile = floor(s.mouse_world);
+        if(!block_exists_on_tile(&s.world, tile) && inside_grid(tile)){
+            add_block(&s.world, tile, 1);
         }
     }
 }
@@ -141,6 +158,7 @@ void editor_render(App_State* s){
 void editor_toggle(App_State* s){
     if(!editor_is_open){
         s.world.entities_count = 0;
+        mouse_left_is_down   = false;
     }
 
     editor_is_open = !editor_is_open;
