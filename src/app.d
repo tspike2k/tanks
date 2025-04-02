@@ -58,7 +58,6 @@ enum Difficuly : uint{
 
 // The main campaign is made up of distinct levels. Levels are constructed and transmitted
 // using a command buffer. This simplifies a lot of things.
-
 struct Cmd_Make_Map{
     align(1):
     uint map_id;
@@ -67,8 +66,8 @@ struct Cmd_Make_Map{
 
 struct Cmd_Make_Block{
     align(1):
-    ubyte info;
-    ubyte pos;
+    ubyte  info;
+    ushort pos;
 }
 
 struct Cmd_Make_Level{
@@ -113,18 +112,18 @@ struct Campaign{
 }
 
 void encode(Cmd_Make_Block* cmd, uint block_height, Vec2 pos){
-    uint x = cast(uint)pos.x;
-    uint y = cast(uint)pos.y;
+    ushort x = cast(ushort)pos.x;
+    ushort y = cast(ushort)pos.y;
 
     cmd.info = cast(ubyte)block_height;
-    cmd.pos   = cast(ubyte)((x << 4) | y);
+    cmd.pos  = cast(ushort)((y << 8) | (x));
 }
 
 void decode(Cmd_Make_Block* cmd, uint* block_height, Vec2* pos){
     *block_height= cmd.info;
 
-    uint x = ((cast(uint)cmd.pos) >> 4) & 0x0f;
-    uint y = ((cast(uint)cmd.pos))      & 0x0f;
+    ushort x = (cmd.pos)      & 0xff;
+    ushort y = (cmd.pos >> 8) & 0xff;
     *pos   = Vec2(x, y);
 }
 
