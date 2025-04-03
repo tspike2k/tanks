@@ -64,23 +64,23 @@ struct Cmd_Make_Map{
     uint blocks_count;
 }
 
-struct Cmd_Make_Block{
-    align(1):
-    ubyte  info;
-    ushort pos;
-}
-
 struct Cmd_Make_Level{
     align(1):
     uint map_id;
     uint entity_count;
 }
 
-struct Cmd_Make_Entity{
+struct Cmd_Make_Block{
     align(1):
-    ubyte  info; // Contains both type and player id. Type should usually be Tank
-    Vec2  pos;
-    float angle;
+    ubyte  info;
+    ushort pos;
+}
+
+struct Cmd_Make_Tank{
+    align(1):
+    ushort info;
+    Vec2   pos;
+    float  angle;
 }
 
 struct Campaign_Info{
@@ -102,7 +102,7 @@ struct Map{
 
 struct Level{
     uint map_id;
-    Cmd_Make_Entity[] entities;
+    Cmd_Make_Tank[] tanks;
 }
 
 struct Campaign{
@@ -111,20 +111,54 @@ struct Campaign{
     Level[]       levels;
 }
 
-void encode(Cmd_Make_Block* cmd, uint block_height, Vec2 pos){
-    ushort x = cast(ushort)pos.x;
-    ushort y = cast(ushort)pos.y;
+void encode(Cmd_Make_Block* cmd, Entity* e){
+    assert(e.type == Entity_Type.Block || e.type == Entity_Type.Hole);
+    assert(e.type != Entity_Type.Hole || e.block_height > 0);
+    ushort x = cast(ushort)e.pos.x;
+    ushort y = cast(ushort)e.pos.y;
 
-    cmd.info = cast(ubyte)block_height;
+    cmd.info = cast(ubyte)e.block_height;
     cmd.pos  = cast(ushort)((y << 8) | (x));
 }
 
-void decode(Cmd_Make_Block* cmd, uint* block_height, Vec2* pos){
-    *block_height= cmd.info;
+void decode(Cmd_Make_Block* cmd, Entity* e){
+    e.block_height = cmd.info;
+    if(e.block_height == 0){
+        e.type = Entity_Type.Hole; // TODO: Is this a bit too hackey?
+    }
 
     ushort x = (cmd.pos)      & 0xff;
     ushort y = (cmd.pos >> 8) & 0xff;
-    *pos   = Vec2(x, y);
+    e.pos   = Vec2(x, y);
+
+    assert(e.type == Entity_Type.Block || e.type == Entity_Type.Hole);
+    assert(e.type != Entity_Type.Hole || e.block_height > 0);
+}
+
+void encode(Cmd_Make_Tank* cmd, Entity* e){
+    assert(e.type == Entity_Type.Tank);
+    if(e.player_index != 0){
+        cmd.info = (1 << 15) | cast(ushort)e.player_index;
+    }
+    else{
+        // TODO: Add NPC tank info to the command here
+    }
+
+    cmd.pos = e.pos;
+    cmd.angle = e.angle;
+}
+
+void decode(Cmd_Make_Tank* cmd, Entity* e){
+    assert(e.type == Entity_Type.Tank);
+    if(cmd.info & (1 << 15)){
+        e.player_index = cmd.info & 0xff;
+    }
+    else{
+        // TODO: Add NPC tank info to the command here
+    }
+
+    e.pos = cmd.pos;
+    e.angle = cmd.angle;
 }
 
 struct App_State{
@@ -179,6 +213,7 @@ struct Entity{
     float angle;
     float turret_angle;
     uint  health;
+    uint  player_index;
     uint  block_height;
 }
 

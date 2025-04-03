@@ -47,24 +47,44 @@ void save_campaign_file(App_State* s){
     push_frame(scratch);
     scope(exit) pop_frame(scratch);
 
+    auto world = &s.world;
+
     auto file = open_file(Default_File_Name, File_Flag_Write);
     if(is_open(&file)){
-        Campaign_Header header;
+        auto buffer = alloc_array!void(scratch, 2*1024*1024);
+        auto writer = buffer;
+
+        auto header = stream_next!Campaign_Header(writer);
         header.magic        = Campaign_File_Magic;
         header.file_version = Campaign_File_Version;
 
-        auto buffer = alloc_array!void(scratch, 2*1024*1024);
-        auto writer = buffer;
-        stream_write(writer, to_void(&header));
+        auto section = stream_next!Campaign_Section(writer);
+        section.type = Campaign_Section_Type.Blocks;
 
-        auto world = &s.world;
+        // TODO: After the section header, the Block and Tanks sections should state the
+        // map_id.
 
-        stream_write(writer, to_void(&world.entities_count));
-        foreach(ref e; world.entities[0 .. world.entities_count]){
-            assert(e.type == Entity_Type.Block);
-            Cmd_Make_Block cmd;
-            encode(&cmd, e.block_height, e.pos);
-            stream_write(writer, to_void(&cmd));
+        // TODO: In the future, don't use the "world" as the place for the editor to edit
+        // entities? Maybe.
+        foreach(ref e; iterate_entities(world)){
+            if(e.type == Entity_Type.Block || e.type == Entity_Type.Hole){
+                assert(e.type != Entity_Type.Hole || e.block_height == 0);
+                auto cmd = stream_next!Cmd_Make_Block(writer);
+                encode(cmd, &e);
+
+                section.size += Cmd_Make_Block.sizeof;
+            }
+        }
+
+        section = stream_next!Campaign_Section(writer);
+        section.type = Campaign_Section_Type.Blocks;
+
+        foreach(ref e; iterate_entities(world)){
+            if(e.type == Entity_Type.Tank){
+                auto cmd = stream_next!Cmd_Make_Tank(writer);
+                encode(cmd, &e);
+                section.size += Cmd_Make_Tank.sizeof;
+            }
         }
 
         write_file(&file, 0, buffer[0 .. writer.ptr - buffer.ptr]);
@@ -77,21 +97,40 @@ void load_campaign_file(App_State* s){
     push_frame(scratch);
     scope(exit) pop_frame(scratch);
 
+    auto world = &s.world;
+    world.entities_count = 0;
+
     auto memory = read_file_into_memory(Default_File_Name, scratch);
     auto reader = memory;
+
     // TODO: More robust reading code
     // TODO: Validate header
-    auto header = stream_read!Campaign_Header(reader);
+    auto header = stream_next!Campaign_Header(reader);
     if(header){
-        auto world = &s.world;
-        world.entities_count = 0;
-        auto count = *stream_read!uint(reader);
-        foreach(i; 0 .. count){
-            auto cmd = stream_read!Cmd_Make_Block(reader);
-            uint block_height;
-            Vec2 pos;
-            decode(cmd, &block_height, &pos);
-            add_block(world, pos, block_height);
+        while(auto section = stream_next!Campaign_Section(reader)){
+            switch(section.type){
+                default: break;
+
+                case Campaign_Section_Type.Blocks:{
+                    auto count = section.size / Cmd_Make_Block.sizeof;
+
+                    foreach(i; 0 .. count){
+                        auto cmd = stream_next!Cmd_Make_Block(reader);
+                        auto e = add_entity(world, Vec2(0, 0), Entity_Type.Block);
+                        decode(cmd, e);
+                    }
+                } break;
+
+                case Campaign_Section_Type.Tanks:{
+                    auto count = section.size / Cmd_Make_Tank.sizeof;
+
+                    foreach(i; 0 .. count){
+                        auto cmd = stream_next!Cmd_Make_Tank(reader);
+                        auto e = add_entity(world, Vec2(0, 0), Entity_Type.Tank);
+                        decode(cmd, e);
+                    }
+                } break;
+            }
         }
     }
 }

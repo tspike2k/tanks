@@ -32,7 +32,8 @@ struct Campaign_Header{
 enum Campaign_Section_Type: uint{
     None,
     Info,
-    Levels,
+    Blocks,
+    Tanks,
 }
 
 struct Campaign_Section{

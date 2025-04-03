@@ -360,7 +360,7 @@ void stream_read(ref void[] stream, void[] data){
     stream = stream[data.length .. $];
 }
 
-T* stream_read(T)(ref void[] stream){
+T* stream_next(T)(ref void[] stream){
     T* result;
     if(stream.length >= T.sizeof){
         result = cast(T*)stream;
