@@ -5,7 +5,7 @@ See accompanying file LICENSE_BOOST.txt or copy at http://www.boost.org/LICENSE_
 */
 
 /+
-    TODO: Use an actual GUI for the editor.
+    TODO: Make an actual GUI for the editor.
 +/
 
 import app;
@@ -22,24 +22,24 @@ bool editor_is_open;
 private{
     enum Default_File_Name = "./build/main.camp";
 
-    enum Edit_Catagory : uint{
-        Map,
-        Entity,
-    }
-
     enum Edit_Mode : uint{
         Config,
         Place,
         Erase,
     }
 
-    bool g_initialized;
-    bool g_mouse_left_is_down;
-    bool g_mouse_right_is_down;
-    Material g_eraser_material;
-    Edit_Catagory g_edit_catagory;
-    Edit_Mode g_edit_mode;
-    Entity_ID g_selected_entity_id;
+    enum Place_Mode : uint{
+        Block,
+        Tank,
+    }
+
+    bool       g_initialized;
+    bool       g_mouse_left_is_down;
+    bool       g_mouse_right_is_down;
+    Material   g_eraser_material;
+    Place_Mode g_placement_mode;
+    Edit_Mode  g_edit_mode;
+    Entity_ID  g_selected_entity_id;
 }
 
 void save_campaign_file(App_State* s){
@@ -214,6 +214,9 @@ bool config_mode_handle_event(App_State* s, Event* evt){
 void editor_simulate(App_State* s, float dt){
     assert(editor_is_open);
 
+    bool mouse_left_pressed = false;
+    bool mouse_right_pressed = false;
+
     Event evt;
     while(next_event(&evt)){
         bool event_consumed = false;
@@ -241,10 +244,12 @@ void editor_simulate(App_State* s, float dt){
 
                         case Button_ID.Mouse_Left:{
                             g_mouse_left_is_down = btn.pressed;
+                            mouse_left_pressed   = btn.pressed;
                         } break;
 
                         case Button_ID.Mouse_Right:{
                             g_mouse_right_is_down = btn.pressed;
+                            mouse_right_pressed   = btn.pressed;
                         } break;
                     }
                 } break;
@@ -260,6 +265,14 @@ void editor_simulate(App_State* s, float dt){
                         switch(key.id){
                             default: break;
 
+                            case Key_ID_T:{
+                                g_placement_mode = Place_Mode.Tank;
+                            } break;
+
+                            case Key_ID_B:{
+                                g_placement_mode = Place_Mode.Block;
+                            } break;
+
                             case Key_ID_C:{
                                 g_edit_mode = Edit_Mode.Config;
                             } break;
@@ -270,6 +283,15 @@ void editor_simulate(App_State* s, float dt){
 
                             case Key_ID_E:{
                                 g_edit_mode = Edit_Mode.Erase;
+                            } break;
+
+                            case Key_ID_Delete:{
+                                if(g_edit_mode == Edit_Mode.Config && g_selected_entity_id != Null_Entity_ID){
+                                    auto e = get_entity_by_id(&s.world, g_selected_entity_id);
+                                    assert(e);
+                                    destroy_entity(e);
+                                    g_selected_entity_id = Null_Entity_ID;
+                                }
                             } break;
 
                             case Key_ID_S:{
@@ -303,11 +325,14 @@ void editor_simulate(App_State* s, float dt){
         } break;
 
         case Edit_Mode.Place:{
-            if(g_mouse_left_is_down){
+            if(g_placement_mode == Place_Mode.Block && g_mouse_left_is_down){
                 auto tile = floor(s.mouse_world);
                 if(!block_exists_on_tile(&s.world, tile) && inside_grid(tile)){
                     add_block(&s.world, tile, 1);
                 }
+            }
+            else if(g_placement_mode == Place_Mode.Tank && mouse_left_pressed){
+                add_entity(&s.world, s.mouse_world, Entity_Type.Tank);
             }
         } break;
 
@@ -319,7 +344,7 @@ void editor_simulate(App_State* s, float dt){
                 s.highlight_material  = &s.material_eraser;
 
                 if(g_mouse_left_is_down && hover_e){
-                    hover_e.health = 0;
+                    destroy_entity(hover_e);
                 }
             }
             else{
@@ -342,9 +367,17 @@ void editor_render(App_State* s){
 
         case Edit_Mode.Place:{
             if(inside_grid(s.mouse_world)){
-                set_material(&s.material_block);
-                auto p = world_to_render_pos(floor(s.mouse_world)) + Vec3(0.5f, 0.5f, -0.5f);
-                render_mesh(&s.cube_mesh, mat4_translate(p));
+                if(g_placement_mode == Place_Mode.Block){
+                    set_material(&s.material_block);
+                    auto p = world_to_render_pos(floor(s.mouse_world)) + Vec3(0.5f, 0.5f, -0.5f);
+                    render_mesh(&s.cube_mesh, mat4_translate(p));
+                }
+                else if(g_placement_mode == Place_Mode.Tank){
+                    set_material(&s.material_tank);
+                    auto p = world_to_render_pos(s.mouse_world) + Vec3(0, 0.18f, 0);
+                    render_mesh(&s.tank_base_mesh, mat4_translate(p));
+                    render_mesh(&s.tank_top_mesh, mat4_translate(p));
+                }
             }
         } break;
     }

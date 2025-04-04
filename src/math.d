@@ -326,6 +326,11 @@ Vec2 ceil(Vec2 v){
     return result;
 }
 
+Vec3 floor(Vec3 v){
+    auto result = Vec3(floor(v.x), floor(v.y), floor(v.z));
+    return result;
+}
+
 Rect rect_from_min_wh(Vec2 min, float w, float h){
     Vec2 extents = Vec2(w, h)*0.5f;
     Rect result  = Rect(min + extents, extents);

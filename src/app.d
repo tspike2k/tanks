@@ -217,6 +217,10 @@ struct Entity{
     uint  block_height;
 }
 
+void destroy_entity(Entity* e){
+    e.health = 0;
+}
+
 uint get_child_entity_count(World* world, Entity_ID parent_id, Entity_Type type){
     uint result;
 
@@ -965,8 +969,8 @@ extern(C) int main(int args_count, char** args){
                             default: break;
 
                             case make_collision_id(Entity_Type.Tank, Entity_Type.Bullet):{
-                                a.health = 0;
-                                b.health = 0;
+                                destroy_entity(&a);
+                                destroy_entity(&b);
                             } break;
                         }
                     }
