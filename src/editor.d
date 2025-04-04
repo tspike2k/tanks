@@ -7,8 +7,6 @@ See accompanying file LICENSE_BOOST.txt or copy at http://www.boost.org/LICENSE_
 /+
 TODO:
     - Make an actual GUI for the editor.
-    - Entity dragging
-    - Entity tank rotation
     - Fix memory leak with calls to load_campaign_from_file. This should load the campaign into
     an allocator specially reserved for campaign memory. When we load, we should clear the
     allocator each time.
@@ -40,10 +38,11 @@ private{
     bool       g_initialized;
     bool       g_mouse_left_is_down;
     bool       g_mouse_right_is_down;
-    Material   g_eraser_material;
     Place_Mode g_placement_mode;
     Edit_Mode  g_edit_mode;
     Entity_ID  g_selected_entity_id;
+    bool       g_dragging_selected;
+    Vec2       g_drag_offset;
 }
 
 void save_campaign_file(App_State* s){
@@ -246,11 +245,6 @@ void editor_simulate(App_State* s, float dt){
         }
     }
 
-    if(mouse_right_pressed){
-        g_edit_mode = Edit_Mode.Select;
-        g_selected_entity_id = Null_Entity_ID;
-    }
-
     switch(g_edit_mode){
         default: break;
 
@@ -261,6 +255,7 @@ void editor_simulate(App_State* s, float dt){
             if(mouse_left_pressed){
                 auto e = get_entity_under_cursor(&s.world, s.mouse_world);
                 if(e){
+                    g_drag_offset = e.pos - s.mouse_world;
                     g_selected_entity_id = e.id;
                 }
                 else{
@@ -268,18 +263,43 @@ void editor_simulate(App_State* s, float dt){
                 }
             }
 
-
-            if(arrow_up_pressed){
+            if(g_selected_entity_id != Null_Entity_ID){
                 auto e = get_entity_by_id(&s.world, g_selected_entity_id);
                 if(e){
-                    e.block_height = min(e.block_height + 1, 7);
+                    if(g_mouse_right_is_down){
+                        // TODO: We'd like to be able to use shift+click or ctrl+click to
+                        // allow the user to snap rotation to fixed points.
+                        auto dir = normalize(s.mouse_world - e.pos);
+                        e.angle = atan2(dir.y, dir.x);
+                    }
+
+                    if(g_mouse_left_is_down){
+                        if(g_dragging_selected){
+                            if(e.type == Entity_Type.Block || e.type == Entity_Type.Hole){
+                                e.pos = floor(s.mouse_world) + Vec2(0.5f, 0.5f);
+                            }
+                            else{
+                                e.pos = s.mouse_world + g_drag_offset;
+                            }
+                        }
+                        else{
+                            g_dragging_selected = dist_sq(e.pos, s.mouse_world + g_drag_offset) > squared(0.5f);
+                        }
+                    }
+                    else{
+                        g_dragging_selected = false;
+                    }
+
+                    if(arrow_up_pressed && e.type == Entity_Type.Block){
+                        e.block_height = min(e.block_height + 1, 7);
+                    }
+
+                    if(arrow_down_pressed && e.type == Entity_Type.Block){
+                        e.block_height = max(e.block_height - 1, 1);
+                    }
                 }
-            }
-
-            if(arrow_down_pressed){
-                auto e = get_entity_by_id(&s.world, g_selected_entity_id);
-                if(e){
-                    e.block_height = max(e.block_height - 1, 1);
+                else{
+                    g_selected_entity_id = Null_Entity_ID;
                 }
             }
         } break;
