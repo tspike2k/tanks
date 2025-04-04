@@ -36,6 +36,17 @@ enum {
     Key_ID_Y,
     Key_ID_Z,
 
+    Key_ID_0,
+    Key_ID_1,
+    Key_ID_2,
+    Key_ID_3,
+    Key_ID_4,
+    Key_ID_5,
+    Key_ID_6,
+    Key_ID_7,
+    Key_ID_8,
+    Key_ID_9,
+
     Key_ID_F1,
     Key_ID_F2,
     Key_ID_F3,
@@ -776,6 +787,36 @@ version(linux){
                     case XK_Z:
                     case XK_z:
                         evt.key.id = Key_ID_Z; break;
+
+                    case XK_0:
+                        evt.key.id = Key_ID_0; break;
+
+                    case XK_1:
+                        evt.key.id = Key_ID_1; break;
+
+                    case XK_2:
+                        evt.key.id = Key_ID_2; break;
+
+                    case XK_3:
+                        evt.key.id = Key_ID_3; break;
+
+                    case XK_4:
+                        evt.key.id = Key_ID_4; break;
+
+                    case XK_5:
+                        evt.key.id = Key_ID_5; break;
+
+                    case XK_6:
+                        evt.key.id = Key_ID_6; break;
+
+                    case XK_7:
+                        evt.key.id = Key_ID_7; break;
+
+                    case XK_8:
+                        evt.key.id = Key_ID_8; break;
+
+                    case XK_9:
+                        evt.key.id = Key_ID_9; break;
 
                     case XK_F1:
                         evt.key.id = Key_ID_F1; break;

@@ -42,6 +42,8 @@ enum Main_Memory_Size    =  4*1024*1024;
 enum Frame_Memory_Size   =  8*1024*1024;
 enum Scratch_Memory_Size = 16*1024*1024;
 
+enum Campaign_File_Name = "./build/main.camp"; // TODO: Use a specific folder for campaigns?
+
 enum Max_Bullets_Per_Tank = 5;
 enum Max_Mines_Per_Tank   = 3;
 
@@ -56,20 +58,120 @@ enum Difficuly : uint{
     Impossible,
 }
 
+struct Campaign_Info{
+    String    name;
+    String    author;
+    String    date;
+    String    description;
+    Difficuly difficulty;
+    uint      players_count;
+    uint      levels_count;
+    uint      maps_count;
+    uint      next_map_id;
+}
+
+struct Campaign_Map{
+    uint id;
+    Cmd_Make_Block[] blocks;
+}
+
+struct Campaign_Level{
+    uint map_id;
+    Cmd_Make_Tank[] tanks;
+}
+
+struct Campaign{
+    Campaign_Info    info;
+    Campaign_Map[]   maps;
+    Campaign_Level[] levels;
+}
+
+bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* allocator){
+    auto scratch = allocator.scratch;
+    auto memory = read_file_into_memory(file_name, scratch);
+    auto reader = memory;
+
+    bool success = false;
+
+    // TODO: More robust reading code
+    // TODO: Validate header
+    auto header = stream_next!Campaign_Header(reader);
+    if(header){
+        // TODO: Get these from Campaign_Info once we start saving that out.
+        auto levels_count = 1;
+        auto maps_count   = 1;
+
+        campaign.maps   = alloc_array!Campaign_Map(allocator, maps_count);
+        campaign.levels = alloc_array!Campaign_Level(allocator, levels_count);
+
+        uint map_index;
+        uint level_index;
+
+        while(auto section = stream_next!Campaign_Section(reader)){
+            switch(section.type){
+                default: break;
+
+                case Campaign_Section_Type.Blocks:{
+                    auto map = &campaign.maps[map_index++];
+
+                    auto count = section.size / Cmd_Make_Block.sizeof;
+                    map.blocks = alloc_array!Cmd_Make_Block(allocator, count);
+
+                    foreach(i; 0 .. count){
+                        auto cmd = stream_next!Cmd_Make_Block(reader);
+                        map.blocks[i] = *cmd;
+                    }
+                } break;
+
+                case Campaign_Section_Type.Tanks:{
+                    auto level = &campaign.levels[level_index++];
+                    auto count = section.size / Cmd_Make_Tank.sizeof;
+                    level.tanks = alloc_array!Cmd_Make_Tank(allocator, count);
+
+                    foreach(i; 0 .. count){
+                        auto cmd = stream_next!Cmd_Make_Tank(reader);
+                        level.tanks[i] = *cmd;
+                    }
+                } break;
+            }
+        }
+
+        success = campaign.maps.length > 0 && campaign.levels.length > 0;
+    }
+    return success;
+}
+
+// TODO: Gracefully handle the level index being out of bounds. Generate the test level?
+// Also handle map_index being invalid.
+void load_campaign_level(App_State* s, Campaign* campaign, uint level_index){
+    auto world = &s.world;
+    world.entities_count = 0;
+
+    auto level = campaign.levels[level_index];
+    Campaign_Map* map;
+    foreach(ref m; campaign.maps){
+        if(m.id == level.map_id){
+            map = &m;
+        }
+    }
+
+    foreach(ref cmd; map.blocks){
+        auto e = add_entity(world, Vec2(0, 0), Entity_Type.Block);
+        decode(&cmd, e);
+    }
+
+    foreach(ref cmd; level.tanks){
+        auto e = add_entity(world, Vec2(0, 0), Entity_Type.Tank);
+        decode(&cmd, e);
+
+        if(e.player_index == 1){
+            s.player_entity_id = e.id;
+        }
+    }
+}
+
 // The main campaign is made up of distinct levels. Levels are constructed and transmitted
 // using a command buffer. This simplifies a lot of things.
-struct Cmd_Make_Map{
-    align(1):
-    uint map_id;
-    uint blocks_count;
-}
-
-struct Cmd_Make_Level{
-    align(1):
-    uint map_id;
-    uint entity_count;
-}
-
 struct Cmd_Make_Block{
     align(1):
     ubyte  info;
@@ -83,37 +185,9 @@ struct Cmd_Make_Tank{
     float  angle;
 }
 
-struct Campaign_Info{
-    String    name;
-    String    author;
-    String    date;
-    String    description;
-    Difficuly difficulty;
-    uint      players_count;
-    uint      levels_count;
-    uint      maps_count;
-    uint      next_map_id;
-}
-
-struct Map{
-    uint map_id;
-    Cmd_Make_Block[] blocks;
-}
-
-struct Level{
-    uint map_id;
-    Cmd_Make_Tank[] tanks;
-}
-
-struct Campaign{
-    Campaign_Info info;
-    Map[]         maps;
-    Level[]       levels;
-}
-
 void encode(Cmd_Make_Block* cmd, Entity* e){
     assert(e.type == Entity_Type.Block || e.type == Entity_Type.Hole);
-    assert(e.type != Entity_Type.Hole || e.block_height > 0);
+    assert(e.type == Entity_Type.Hole || e.block_height > 0);
     ushort x = cast(ushort)e.pos.x;
     ushort y = cast(ushort)e.pos.y;
 
@@ -129,10 +203,10 @@ void decode(Cmd_Make_Block* cmd, Entity* e){
 
     ushort x = (cmd.pos)      & 0xff;
     ushort y = (cmd.pos >> 8) & 0xff;
-    e.pos   = Vec2(x, y);
+    e.pos   = Vec2(x, y) + Vec2(0.5f, 0.5f);
 
     assert(e.type == Entity_Type.Block || e.type == Entity_Type.Hole);
-    assert(e.type != Entity_Type.Hole || e.block_height > 0);
+    assert(e.type == Entity_Type.Hole || e.block_height > 0);
 }
 
 void encode(Cmd_Make_Tank* cmd, Entity* e){
@@ -184,7 +258,8 @@ struct App_State{
     Mesh bullet_mesh;
     Mesh ground_mesh;
 
-    Material material_tank;
+    Material material_enemy_tank;
+    Material material_player_tank;
     Material material_block;
     Material material_ground;
     Material material_eraser;
@@ -605,7 +680,7 @@ Vec3 world_to_render_pos(Vec2 p){
     return result;
 }
 
-Material* choose_material(App_State*s, Entity_Type type, Entity_ID id){
+Material* choose_material(App_State*s, Entity_Type type, Entity_ID id, uint player_index){
     Material* result;
     if(id == s.highlight_entity_id){
         result = s.highlight_material;
@@ -617,7 +692,10 @@ Material* choose_material(App_State*s, Entity_Type type, Entity_ID id){
             } break;
 
             case Entity_Type.Tank: {
-                result = &s.material_tank;
+                if(player_index == 0)
+                    result = &s.material_enemy_tank;
+                else
+                    result = &s.material_player_tank;
             } break;
 
             case Entity_Type.Block: {
@@ -626,6 +704,21 @@ Material* choose_material(App_State*s, Entity_Type type, Entity_ID id){
         }
     }
     return result;
+}
+
+void generate_test_level(App_State* s){
+    {
+        auto player = add_entity(&s.world, Vec2(0, 0), Entity_Type.Tank);
+        s.player_entity_id = player.id;
+        player.player_index = 1;
+    }
+
+    add_entity(&s.world, Vec2(-4, -4), Entity_Type.Tank);
+
+    add_block(&s.world, Vec2(0, 0), 1);
+    add_block(&s.world, Vec2(Grid_Width-1, Grid_Height-1), 1);
+    add_block(&s.world, Vec2(0, Grid_Height-1), 1);
+    add_block(&s.world, Vec2(Grid_Width-1, 0), 1);
 }
 
 extern(C) int main(int args_count, char** args){
@@ -693,7 +786,8 @@ extern(C) int main(int args_count, char** args){
     light.diffuse  = light_color;
     light.specular = light_color;
 
-    setup_basic_material(&s.material_tank, Vec3(0.2f, 0.2f, 0.4f), 256);
+    setup_basic_material(&s.material_enemy_tank, Vec3(0.2f, 0.2f, 0.4f), 256);
+    setup_basic_material(&s.material_player_tank, Vec3(0.2f, 0.2f, 0.8f), 256);
     setup_basic_material(&s.material_ground, Vec3(0.50f, 0.42f, 0.30f), 2);
     setup_basic_material(&s.material_block, Vec3(0.30f, 0.42f, 0.30f), 2);
     setup_basic_material(&s.material_eraser, Vec3(0.8f, 0.2f, 0.2f), 128);
@@ -730,18 +824,12 @@ extern(C) int main(int args_count, char** args){
     scope(exit) close_socket(&socket);
 
     s.world.next_entity_id = Null_Entity_ID+1;
-
-    {
-        auto player = add_entity(&s.world, Vec2(0, 0), Entity_Type.Tank);
-        s.player_entity_id = player.id;
+    if(load_campaign_from_file(&s.campaign, Campaign_File_Name, &s.main_memory)){
+        load_campaign_level(s, &s.campaign, 0);
     }
-
-    add_entity(&s.world, Vec2(-4, -4), Entity_Type.Tank);
-
-    add_block(&s.world, Vec2(0, 0), 1);
-    add_block(&s.world, Vec2(Grid_Width-1, Grid_Height-1), 1);
-    add_block(&s.world, Vec2(0, Grid_Height-1), 1);
-    add_block(&s.world, Vec2(Grid_Width-1, 0), 1);
+    else{
+        generate_test_level(s);
+    }
 
     s.mouse_pixel = Vec2(0, 0);
 
@@ -1015,7 +1103,7 @@ extern(C) int main(int args_count, char** args){
 
                 case Entity_Type.Block:{
                     assert(e.block_height > 0 && e.block_height <= 7);
-                    set_material(choose_material(s, e.type, e.id));
+                    set_material(choose_material(s, e.type, e.id, e.player_index));
 
                     float height = 1.0f + 0.5f*cast(float)(e.block_height-1);
                     auto scale = Vec3(1, height, 1);
@@ -1024,14 +1112,14 @@ extern(C) int main(int args_count, char** args){
                 } break;
 
                 case Entity_Type.Tank:{
-                    set_material(choose_material(s, e.type, e.id));
+                    set_material(choose_material(s, e.type, e.id, e.player_index));
                     auto mat_tran = mat4_translate(p + Vec3(0, 0.18f, 0));
                     render_mesh(&s.tank_base_mesh, mat_tran*mat4_rot_y(e.angle));
                     render_mesh(&s.tank_top_mesh, mat_tran*mat4_rot_y(e.turret_angle));
                 } break;
 
                 case Entity_Type.Bullet:{
-                    set_material(choose_material(s, e.type, e.id));
+                    set_material(choose_material(s, e.type, e.id, e.player_index));
                     auto mat_tran = mat4_translate(p);
                     //auto mat_tran = mat4_translate(p + Vec3(0, 0.5f, 0)); // TODO: Use this offset when we're done testing the camera
                     render_mesh(&s.bullet_mesh, mat_tran*mat4_rot_y(e.angle));
