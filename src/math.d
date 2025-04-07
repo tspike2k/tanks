@@ -388,6 +388,11 @@ Rect expand(Rect r, Vec2 extents){
     return result;
 }
 
+Rect shrink(Rect r, Vec2 extents){
+    Rect result = Rect(r.center, r.extents - extents);
+    return result;
+}
+
 Vec2 clamp(Vec2 p, Rect r){
     Vec2 result = Vec2(
         clamp(p.x, r.center.x - r.extents.x, r.center.x + r.extents.x),

@@ -533,40 +533,81 @@ bool is_dynamic_entity(Entity_Type type){
     return result;
 }
 
-bool restrict_entity_to_grid(Entity* e, Vec2* hit_normal){
+void resolve_collision(Entity* e, Entity_Type target, Vec2 normal, float depth){
+    e.pos += depth*normal;
+    // TODO: Handle energy transfer here somehow
+    // Use this as a resource?
+    // https://erikonarheim.com/posts/understanding-collision-constraint-solvers/
+
+    e.vel = reflect(e.vel, normal);
+
+    switch(e.type){
+        default: break;
+
+        case Entity_Type.Bullet:{
+            if(target == Entity_Type.Tank){
+                destroy_entity(e);
+            }
+            else{
+                assert(e.health > 0);
+                e.health--;
+                e.angle = atan2(e.vel.y, e.vel.x);
+            }
+        } break;
+
+        case Entity_Type.Tank:{
+            if(target == Entity_Type.Bullet){
+                destroy_entity(e);
+                // TODO: Show explosion.
+            }
+        } break;
+    }
+}
+
+void entity_vs_world_bounds(Entity* e){
+    Rect aabb = void;
+    if(e.type == Entity_Type.Tank){
+        aabb = aabb_from_obb(e.pos, e.extents, e.angle);
+    }
+    else{
+        aabb = Rect(e.pos, e.extents);
+    }
+
+    Rect world_bounds = rect_from_min_max(Vec2(0, 0), Vec2(Grid_Width, Grid_Height));
+    world_bounds = shrink(world_bounds, aabb.extents);
+    auto p = aabb.center;
+
+    enum type = Entity_Type.None;
+    enum epsilon = 0.01f;
+    if(p.x < left(world_bounds)){
+        auto hit_dist = left(world_bounds) - p.x;
+        resolve_collision(e, type, Vec2(1, 0), hit_dist + epsilon);
+    }
+    else if(p.x > right(world_bounds)){
+        auto hit_dist = p.x - right(world_bounds);
+        resolve_collision(e, type, Vec2(-1, 0), hit_dist + epsilon);
+    }
+
+    if(p.y < bottom(world_bounds)){
+        auto hit_dist = bottom(world_bounds) - p.y;
+        resolve_collision(e, type, Vec2(0, 1), hit_dist + epsilon);
+    }
+    else if(p.y > top(world_bounds)){
+        auto hit_dist = p.y - top(world_bounds);
+        resolve_collision(e, type, Vec2(0, -1), hit_dist + epsilon);
+    }
+}
+
+/+
+bool obb_vs_world_bounds(Entity* e, Hit_Info* hit){
     bool was_hit = false;
 
     auto aabb = aabb_from_obb(e.pos, e.extents, e.angle);
-    auto min_p = Vec2(left(aabb), bottom(aabb));
-    auto max_p = Vec2(right(aabb), top(aabb));
 
-    // TODO: This is the world's dumbest collision resolution. Do something smarter here that
-    // takes into account the bounds of the entity.
-    Rect world_bounds = rect_from_min_max(Vec2(0, 0), Vec2(Grid_Width, Grid_Height));
-    if(min_p.x < left(world_bounds)){
-        e.pos.x = left(world_bounds) + aabb.extents.x;
-        was_hit = true;
-        hit_normal.x = 1;
-    }
-    else if(max_p.x > right(world_bounds)){
-        e.pos.x = right(world_bounds) - aabb.extents.x;
-        was_hit = true;
-        hit_normal.x = -1;
-    }
-
-    if(min_p.y < bottom(world_bounds)){
-        e.pos.y = bottom(world_bounds) + aabb.extents.y;
-        was_hit = true;
-        hit_normal.y = 1;
-    }
-    else if(max_p.y > top(world_bounds)){
-        e.pos.y = top(world_bounds) - aabb.extents.y;
-        was_hit = true;
-        hit_normal.y = -1;
-    }
 
     return was_hit;
-}
+}+/
+
 
 bool is_destroyed(Entity* e){
     bool result = e.health == 0;
@@ -721,6 +762,94 @@ void generate_test_level(App_State* s){
     add_block(&s.world, Vec2(Grid_Width-1, 0), 1);
 }
 
+enum Shape_Type : uint{
+    None,
+    Circle,
+    AABB,
+    OBB,
+}
+
+struct Shape{
+    Shape_Type type;
+
+    Vec2 center;
+    union{
+        Vec2  extents;
+        float radius;
+    }
+    float angle;
+}
+
+Shape get_collision_shape(Entity* e){
+    Shape result;
+    result.center = e.pos;
+    switch(e.type){
+        default: assert(0);
+
+        case Entity_Type.Mine:
+            break;
+
+        case Entity_Type.Block:
+        case Entity_Type.Hole:{
+            result.type    = Shape_Type.AABB;
+            result.extents = e.extents;
+        } break;
+
+        case Entity_Type.Tank:{
+            result.type    = Shape_Type.OBB;
+            result.extents = e.extents;
+            result.angle   = e.angle;
+        } break;
+
+        case Entity_Type.Bullet:{
+            result.type    = Shape_Type.Circle;
+            result.radius  = min(e.extents.x, e.extents.y);
+        } break;
+    }
+    return result;
+}
+
+struct Hit_Info{
+    Vec2  normal;
+    float dist;
+}
+
+bool detect_collision(Entity* a, Entity* b){
+    bool result = false;
+    return result;
+}
+
+/*
+void circle_vs_circle(Hit_Info* hit, Vec2 a_center, float a_radius, Vec2 b_center, float b_radius){
+    if(dist_sq(a_center, b_center) < squared(a_radius + b_radius)){
+        hit.was_hit   = true;
+        hit.pen_depth = a_radius + b_radius - length(b_center - a_center);
+        hit.normal    = normalize(b_center - a_center);
+        hit.rel_hit_a = normal * a_radius;
+        hit.rel_hit_b = -normal * b_radius;
+    }
+    return result;
+}
+
+Hit_Info detect_collision(Entity* a, Entity* b){
+    auto shape_a = get_collision_shape(a);
+    auto shape_b = get_collision_shape(b);
+
+    assert(shape_a.type == Shape_Type.Circle && shape_b.type == Shape_Type.Circle);
+
+    Hit_Info result = void;
+    result.was_hit = false;
+    circle_vs_circle(&result, shape_a.center, shape_a.radius, shape_b.center, shape_b.radius);
+}*/
+
+Vec2 integrate(Vec2* vel, Vec2 accel, float dt){
+    // Following simi-implicit Euler integration, we update the velocity based on the acceleration
+    // before we calculate the entity delta. This is supposed to improve numerical accuracy.
+    *vel += accel*dt;
+    Vec2 result = accel * 0.5f*(dt*dt) + *vel*dt;
+    return result;
+}
+
 extern(C) int main(int args_count, char** args){
     auto app_memory = os_alloc(Main_Memory_Size + Scratch_Memory_Size + Frame_Memory_Size, 0);
     scope(exit) os_dealloc(app_memory);
@@ -832,8 +961,6 @@ extern(C) int main(int args_count, char** args){
     }
 
     s.mouse_pixel = Vec2(0, 0);
-
-    Vec3 player_center = Vec3(0, 0, 0);
 
     auto grid_extents = Vec2(Grid_Width, Grid_Height)*0.5f;
     auto grid_center  = Vec3(grid_extents.x, 0, -grid_extents.y);
@@ -998,70 +1125,40 @@ extern(C) int main(int args_count, char** args){
             // Entity simulation
             foreach(ref e; iterate_entities(&s.world)){
                 if(is_dynamic_entity(e.type) && !is_destroyed(&e)){
-                    // TODO: We should only effect acceleration. Delta would be calculated from this below.
-                    Vec2 delta = Vec2(0, 0);
-                    Vec2 hit_normal = Vec2(0, 0);
                     if(e.id == s.player_entity_id){
-                        player_center = Vec3(e.pos.x, 0, -e.pos.y);
+                        e.vel = Vec2(0, 0);
 
-                        float rot_speed = (1.0f/4.0f)/(2.0f*PI);
+                        float rot_speed = ((2.0f*PI)*0.5f);
                         if(player_turn_left){
-                            e.angle += rot_speed;
+                            e.angle += rot_speed*dt;
                         }
                         if(player_turn_right){
-                            e.angle -= rot_speed;
+                            e.angle -= rot_speed*dt;
                         }
 
                         auto turret_dir = s.mouse_world - e.pos;
                         e.turret_angle = atan2(turret_dir.y, turret_dir.x);
 
                         auto dir = rotate(Vec2(1, 0), e.angle);
-                        float speed = 1.0f/16.0f;
+                        float speed = 8.0f;
                         if(player_move_forward){
-                            delta = dir*speed;
+                            e.vel = dir*(speed);
                         }
                         else if(player_move_backward){
-                            delta = dir*-speed;
+                            e.vel = dir*-(speed);
                         }
                     }
-                    else{
-                        // TODO: Better integration
-                        delta = e.vel*dt;
+
+                    // Since no object accelerate in this game, we can simplify integration drastically.
+                    e.pos += e.vel*dt;
+
+                    // TODO: Broadphase, Spatial partitioning to limit the number of entitites
+                    // we check here.
+                    foreach(ref target; iterate_entities(&s.world)){
+                        if(is_destroyed(&target) || &target == &e) continue;
+
                     }
-
-                    e.pos += delta;
-
-                    if(restrict_entity_to_grid(&e, &hit_normal)){
-                        // TODO: This should be designed to work on more than just bullets
-                        if(e.type == Entity_Type.Bullet){
-                            e.health--;
-                            e.vel = reflect(e.vel, hit_normal);
-                            e.angle = atan2(e.vel.y, e.vel.x);
-                        }
-                    }
-                }
-            }
-
-            // Entity Collisions handling
-            // TODO: Should this be part of the simulation loop?
-            foreach(ref a; iterate_entities(&s.world, 0)){
-                foreach(ref b; iterate_entities(&s.world, 1)){
-                    if(a.type > b.type)
-                        swap(a, b);
-
-                    auto a_radius = min(a.extents.x, a.extents.y);
-                    auto b_radius = min(b.extents.x, b.extents.y);
-                    if(circles_overlap(a.pos, a_radius, b.pos, b_radius)){
-                        auto collision_id = make_collision_id(a.type, b.type);
-                        switch(collision_id){
-                            default: break;
-
-                            case make_collision_id(Entity_Type.Tank, Entity_Type.Bullet):{
-                                destroy_entity(&a);
-                                destroy_entity(&b);
-                            } break;
-                        }
-                    }
+                    entity_vs_world_bounds(&e);
                 }
             }
         }
