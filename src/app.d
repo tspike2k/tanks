@@ -539,12 +539,11 @@ void resolve_collision(Entity* e, Entity_Type target, Vec2 normal, float depth){
     // Use this as a resource?
     // https://erikonarheim.com/posts/understanding-collision-constraint-solvers/
 
-    e.vel = reflect(e.vel, normal);
-
     switch(e.type){
         default: break;
 
         case Entity_Type.Bullet:{
+            e.vel = reflect(e.vel, normal);
             if(target == Entity_Type.Tank){
                 destroy_entity(e);
             }
@@ -749,17 +748,19 @@ Material* choose_material(App_State*s, Entity_Type type, Entity_ID id, uint play
 
 void generate_test_level(App_State* s){
     {
-        auto player = add_entity(&s.world, Vec2(0, 0), Entity_Type.Tank);
+        auto player = add_entity(&s.world, Vec2(2, 2), Entity_Type.Tank);
         s.player_entity_id = player.id;
         player.player_index = 1;
     }
 
-    add_entity(&s.world, Vec2(-4, -4), Entity_Type.Tank);
+    add_block(&s.world, Vec2(2, 2), 1);
 
-    add_block(&s.world, Vec2(0, 0), 1);
-    add_block(&s.world, Vec2(Grid_Width-1, Grid_Height-1), 1);
-    add_block(&s.world, Vec2(0, Grid_Height-1), 1);
-    add_block(&s.world, Vec2(Grid_Width-1, 0), 1);
+    //add_entity(&s.world, Vec2(-4, -4), Entity_Type.Tank);
+
+    //add_block(&s.world, Vec2(0, 0), 1);
+    //add_block(&s.world, Vec2(Grid_Width-1, Grid_Height-1), 1);
+    //add_block(&s.world, Vec2(0, Grid_Height-1), 1);
+    //add_block(&s.world, Vec2(Grid_Width-1, 0), 1);
 }
 
 enum Shape_Type : uint{
@@ -795,52 +796,65 @@ Shape get_collision_shape(Entity* e){
             result.extents = e.extents;
         } break;
 
-        case Entity_Type.Tank:{
-            result.type    = Shape_Type.OBB;
-            result.extents = e.extents;
-            result.angle   = e.angle;
-        } break;
+        version(none){
+            case Entity_Type.Tank:{
+                result.type    = Shape_Type.OBB;
+                result.extents = e.extents;
+                result.angle   = e.angle;
+            } break;
+        }
 
+        case Entity_Type.Tank:
         case Entity_Type.Bullet:{
             result.type    = Shape_Type.Circle;
             result.radius  = min(e.extents.x, e.extents.y);
         } break;
+
     }
     return result;
 }
 
-struct Hit_Info{
-    Vec2  normal;
-    float dist;
-}
+bool detect_collision(Entity* a, Entity* b, Vec2* hit_normal, float* hit_depth){
+    auto sa = get_collision_shape(a);
+    auto sb = get_collision_shape(b);
 
-bool detect_collision(Entity* a, Entity* b){
     bool result = false;
+    if(sa.type == Shape_Type.Circle && sb.type == Shape_Type.Circle){
+        result = circle_vs_circle(sa.center, sa.radius, sb.center, sb.radius, hit_normal, hit_depth);
+    }
+    else if(sa.type == Shape_Type.Circle && sb.type == Shape_Type.AABB){
+        result = rect_vs_circle(sb.center, sb.extents, sa.center, sa.radius, hit_normal, hit_depth);
+    }
+    else if(sa.type == Shape_Type.AABB && sb.type == Shape_Type.Circle){
+        result = rect_vs_circle(sa.center, sa.extents, sb.center, sb.radius, hit_normal, hit_depth);
+    }
+
     return result;
 }
 
-/*
-void circle_vs_circle(Hit_Info* hit, Vec2 a_center, float a_radius, Vec2 b_center, float b_radius){
+bool circle_vs_circle(Vec2 a_center, float a_radius, Vec2 b_center, float b_radius, Vec2* hit_normal, float* hit_depth){
+    bool result = false;
     if(dist_sq(a_center, b_center) < squared(a_radius + b_radius)){
-        hit.was_hit   = true;
-        hit.pen_depth = a_radius + b_radius - length(b_center - a_center);
-        hit.normal    = normalize(b_center - a_center);
-        hit.rel_hit_a = normal * a_radius;
-        hit.rel_hit_b = -normal * b_radius;
+        result      = true;
+        *hit_depth  = a_radius + b_radius - length(a_center - b_center);
+        *hit_normal = normalize(a_center - b_center);
     }
     return result;
 }
 
-Hit_Info detect_collision(Entity* a, Entity* b){
-    auto shape_a = get_collision_shape(a);
-    auto shape_b = get_collision_shape(b);
+bool rect_vs_circle(Vec2 a_center, Vec2 a_extents, Vec2 b_center, float b_radius, Vec2* hit_normal, float* hit_depth){
+    auto diff      = b_center - a_center;
+    auto closest_p = clamp(diff, -1.0f*a_extents, a_extents);
+    auto rel_p     = diff - closest_p;
 
-    assert(shape_a.type == Shape_Type.Circle && shape_b.type == Shape_Type.Circle);
-
-    Hit_Info result = void;
-    result.was_hit = false;
-    circle_vs_circle(&result, shape_a.center, shape_a.radius, shape_b.center, shape_b.radius);
-}*/
+    bool result = false;
+    if(squared(rel_p) < squared(b_radius)){
+        *hit_normal = normalize(rel_p);
+        *hit_depth  = b_radius - length(rel_p);
+        result      = true;
+    }
+    return result;
+}
 
 Vec2 integrate(Vec2* vel, Vec2 accel, float dt){
     // Following simi-implicit Euler integration, we update the velocity based on the acceleration
@@ -953,8 +967,13 @@ extern(C) int main(int args_count, char** args){
     scope(exit) close_socket(&socket);
 
     s.world.next_entity_id = Null_Entity_ID+1;
-    if(load_campaign_from_file(&s.campaign, Campaign_File_Name, &s.main_memory)){
-        load_campaign_level(s, &s.campaign, 0);
+    version(all){
+        if(load_campaign_from_file(&s.campaign, Campaign_File_Name, &s.main_memory)){
+            load_campaign_level(s, &s.campaign, 0);
+        }
+        else{
+            generate_test_level(s);
+        }
     }
     else{
         generate_test_level(s);
@@ -1123,6 +1142,8 @@ extern(C) int main(int args_count, char** args){
             s.t += dt;
 
             // Entity simulation
+            Vec2 hit_normal = void;
+            float hit_depth = void;
             foreach(ref e; iterate_entities(&s.world)){
                 if(is_dynamic_entity(e.type) && !is_destroyed(&e)){
                     if(e.id == s.player_entity_id){
@@ -1140,7 +1161,7 @@ extern(C) int main(int args_count, char** args){
                         e.turret_angle = atan2(turret_dir.y, turret_dir.x);
 
                         auto dir = rotate(Vec2(1, 0), e.angle);
-                        float speed = 8.0f;
+                        float speed = 4.0f;
                         if(player_move_forward){
                             e.vel = dir*(speed);
                         }
@@ -1157,6 +1178,11 @@ extern(C) int main(int args_count, char** args){
                     foreach(ref target; iterate_entities(&s.world)){
                         if(is_destroyed(&target) || &target == &e) continue;
 
+                        if(detect_collision(&e, &target, &hit_normal, &hit_depth)){
+                            resolve_collision(&e, target.type, hit_normal, hit_depth);
+                            if(is_dynamic_entity(target.type))
+                                resolve_collision(&target, e.type, hit_normal*-1.0f, hit_depth);
+                        }
                     }
                     entity_vs_world_bounds(&e);
                 }

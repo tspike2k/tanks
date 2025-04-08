@@ -401,6 +401,14 @@ Vec2 clamp(Vec2 p, Rect r){
     return result;
 }
 
+Vec2 clamp(Vec2 p, Vec2 min_p, Vec2 max_p){
+    Vec2 result = Vec2(
+        clamp(p.x, min_p.x, max_p.x),
+        clamp(p.y, min_p.y, max_p.y),
+    );
+    return result;
+}
+
 Rect cut_right(Rect r, float size){
     auto w = width(r);
     assert(size <= w);
