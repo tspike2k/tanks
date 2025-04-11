@@ -25,6 +25,20 @@ TODO:
     Interesting article on frequency of packet transmission in multiplayer games
     used in Source games.
     https://developer.valvesoftware.com/wiki/Source_Multiplayer_Networking
+
+    So we have the terrain mesh, but we also want to have holes appear in the ground.
+    How can we do this? It looks like the official game uses sprites for holes, so
+    that would be the simplest way. However, people say you can use a technique called
+    "depth masking." It's possible we could use this instead.
+
+    Here is some information on that sort of thing:
+    https://www.blog.radiator.debacle.us/2012/08/how-to-dig-holes-in-unity3d-terrains.html
+    https://gamedev.stackexchange.com/questions/115501/how-to-combine-depth-and-stencil-tests
+
+    You can also use the stencil buffer and use meshes for terrain occluders.
+    https://community.khronos.org/t/masking-away-an-area-of-a-terrain-surface/104810/4
+    https://www.youtube.com/watch?v=y-SEiDTbszk
+
 +/
 
 import display;
@@ -257,6 +271,7 @@ struct App_State{
     Mesh tank_top_mesh;
     Mesh bullet_mesh;
     Mesh ground_mesh;
+    Mesh hole_mesh;
 
     Material material_enemy_tank;
     Material material_player_tank;
@@ -539,11 +554,11 @@ void resolve_collision(Entity* e, Entity_Type target, Vec2 normal, float depth){
     // Use this as a resource?
     // https://erikonarheim.com/posts/understanding-collision-constraint-solvers/
 
+    e.vel = reflect(e.vel, normal);
     switch(e.type){
         default: break;
 
         case Entity_Type.Bullet:{
-            e.vel = reflect(e.vel, normal);
             if(target == Entity_Type.Tank){
                 destroy_entity(e);
             }
@@ -679,16 +694,6 @@ Ray screen_to_ray(Vec2 screen_p, float screen_w, float screen_h, Mat4_Pair* proj
     auto result = Ray(world_dir.xyz() + origin.xyz(), camera_dir);
     return result;
 }
-
-/+
-Vec3 unproject(Vec2 screen_pixel, float screen_width, float screen_height, Mat4_Pair* proj, Mat4_Pair* view){
-    auto eye = proj.inv*Vec4(ndc.x, ndc.y, -1.0f, 1.0f);
-    eye.z = -1.0f;
-    eye.w =  0.0f;
-    auto world_p = view.inv * eye;
-    auto result = Vec3(world_p.x, world_p.y, world_p.z);
-    return result;
-}+/
 
 Vec3 project_onto_plane(Vec3 p, Vec3 plane_p, Vec3 plane_n){
     auto result = p - dot(p - plane_p, plane_n)*plane_n;
@@ -913,6 +918,7 @@ extern(C) int main(int args_count, char** args){
     s.tank_top_mesh  = load_mesh_from_obj("./build/tank_top.obj", &s.main_memory);
     s.bullet_mesh    = load_mesh_from_obj("./build/bullet.obj", &s.main_memory);
     s.ground_mesh    = load_mesh_from_obj("./build/ground.obj", &s.main_memory);
+    s.hole_mesh      = load_mesh_from_obj("./build/hole.obj", &s.main_memory);
 
     auto shaders_dir = "./build/shaders";
     Shader shader;
@@ -970,6 +976,8 @@ extern(C) int main(int args_count, char** args){
     version(all){
         if(load_campaign_from_file(&s.campaign, Campaign_File_Name, &s.main_memory)){
             load_campaign_level(s, &s.campaign, 0);
+            add_entity(&s.world, Vec2(0.5f, 0.5f), Entity_Type.Hole);
+            add_entity(&s.world, Vec2(0.5f, 1.5f), Entity_Type.Hole);
         }
         else{
             generate_test_level(s);
@@ -1179,9 +1187,13 @@ extern(C) int main(int args_count, char** args){
                         if(is_destroyed(&target) || &target == &e) continue;
 
                         if(detect_collision(&e, &target, &hit_normal, &hit_depth)){
-                            resolve_collision(&e, target.type, hit_normal, hit_depth);
+                            enum epsilon = 0.01f;
+                            // TODO: This probably works well enough, but gliding long blocks
+                            // at a steep enough angle will cause a tank to noticeably hitch.
+                            // What is the best way to solve that using intersection tests?
+                            resolve_collision(&e, target.type, hit_normal, hit_depth + epsilon);
                             if(is_dynamic_entity(target.type))
-                                resolve_collision(&target, e.type, hit_normal*-1.0f, hit_depth);
+                                resolve_collision(&target, e.type, hit_normal*-1.0f, hit_depth + epsilon);
                         }
                     }
                     entity_vs_world_bounds(&e);
@@ -1215,6 +1227,42 @@ extern(C) int main(int args_count, char** args){
         set_light(&light);
         set_shader(shader);
 
+        // To draw holes in the ground we use a cylinder with inverted normals so the inner faces will be visible
+        // when rendering. The mesh for the holes must extend below the surface of the ground mesh, so we need a
+        // way to "cut out" a cylindrical shape in the ground through which we can see the hole. This can be
+        // achieved by using the dept-buffer to mask off portions of the ground mesh. For this technique
+        // to work, holes will need to be rendered before the ground.
+        //
+        // For each hole, we first draw the hole mesh as we normally would. We then disable culling so the outer
+        // faces of the hole mesh will be rendered. We then disable writing to the color buffer and render the mesh
+        // again in order to fill the z-buffer with the outer faces of our mesh.
+        //
+        // Based on information found here:
+        // https://gamedev.stackexchange.com/questions/115501/how-to-combine-depth-and-stencil-tests
+        // https://www.youtube.com/watch?v=cHhxs12ZfSQ
+        // https://www.youtube.com/watch?v=uxXEV91xsSc
+        //
+        // A similar result can also be achieved by writing to the stencil buffer and discarding the result
+        // when drawing the ground. Examples of this are discussed here:
+        // https://community.khronos.org/t/masking-away-an-area-of-a-terrain-surface/104810/4
+        // https://www.blog.radiator.debacle.us/2012/08/how-to-dig-holes-in-unity3d-terrains.html
+        // https://www.youtube.com/watch?v=y-SEiDTbszk
+        auto hole_scale  = Vec3(0.70f, 0.25f, 0.70f);
+        auto hole_offset = Vec3(0, -0.5f*hole_scale.y+0.01f, 0);
+        foreach(ref e; iterate_entities(&s.world)){
+            Vec3 p = world_to_render_pos(e.pos);
+            if(e.type == Entity_Type.Hole){
+                set_material(&s.material_ground);
+                render_mesh(&s.hole_mesh, mat4_translate(p + hole_offset)*mat4_scale(hole_scale));
+
+                enable_culling(false);
+                render_enable_color(false);
+                render_mesh(&s.hole_mesh, mat4_translate(p + hole_offset)*mat4_scale(hole_scale));
+                render_enable_color(true);
+                enable_culling(true);
+            }
+        }
+
         set_material(&s.material_ground);
         auto ground_xform = mat4_translate(grid_center)*mat4_scale(Vec3(grid_extents.x, 1.0f, grid_extents.y));
         render_mesh(&s.ground_mesh, ground_xform);
@@ -1223,6 +1271,9 @@ extern(C) int main(int args_count, char** args){
             Vec3 p = world_to_render_pos(e.pos);
             switch(e.type){
                 default: assert(0);
+
+                case Entity_Type.Hole:
+                    break;
 
                 case Entity_Type.Block:{
                     assert(e.block_height > 0 && e.block_height <= 7);

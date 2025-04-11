@@ -397,6 +397,26 @@ version(opengl){
 
     }
 
+    public void render_enable_color(bool enable){
+        // For more information on OpenGL Write Masks, see here:
+        // https://www.khronos.org/opengl/wiki/Write_Mask
+        glColorMask(enable, enable, enable, enable);
+    }
+
+    public void enable_depth_testing(bool enable){
+        if(enable)
+            glEnable(GL_DEPTH_TEST);
+        else
+            glDisable(GL_DEPTH_TEST);
+    }
+
+    public void enable_culling(bool enable){
+        if(enable)
+            glEnable(GL_CULL_FACE);
+        else
+            glDisable(GL_CULL_FACE);
+    }
+
     GLuint compile_shader_pass(GLenum pass_type, const(char)* shader_type_str, const(char)* source){
         GLuint shader = glCreateShader(pass_type);
         glShaderSource(shader, 1, &source, null);

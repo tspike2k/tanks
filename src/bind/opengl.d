@@ -874,6 +874,7 @@ extern(C){
     alias glDepthFuncFunc = void function(GLenum func);
     alias glDepthRangeFunc = void function(GLclampd nearVal, GLclampd farVal);
     alias glClearDepthFunc = void function(GLclampd depth);
+    alias glColorMaskFunc = void function(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha);
 }
 
 __gshared glGetStringFunc glGetString;
@@ -929,6 +930,7 @@ __gshared glDepthMaskFunc glDepthMask;
 __gshared glDepthFuncFunc glDepthFunc;
 __gshared glDepthRangeFunc glDepthRange;
 __gshared glClearDepthFunc glClearDepth;
+__gshared glColorMaskFunc glColorMask;
 
 alias OpenGL_Load_Sym_Func = void* function(const(char)*);
 
@@ -986,4 +988,5 @@ void load_opengl_functions(OpenGL_Load_Sym_Func load){
     glDepthFunc = cast(glDepthFuncFunc)load("glDepthFunc");
     glDepthRange = cast(glDepthRangeFunc)load("glDepthRange");
     glClearDepth = cast(glClearDepthFunc)load("glClearDepth");
+    glColorMask = cast(glColorMaskFunc)load("glColorMask");
 }
