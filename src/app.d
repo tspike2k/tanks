@@ -803,19 +803,44 @@ Shape get_collision_shape(Entity* e){
     return result;
 }
 
-bool detect_collision(Entity* a, Entity* b, Vec2* hit_normal, float* hit_depth){
-    auto sa = get_collision_shape(a);
-    auto sb = get_collision_shape(b);
+bool can_collide(Entity* a, Entity* b){
+    if(a.type > b.type)
+        swap(a, b);
 
     bool result = false;
-    if(sa.type == Shape_Type.Circle && sb.type == Shape_Type.Circle){
-        result = circle_vs_circle(sa.center, sa.radius, sb.center, sb.radius, hit_normal, hit_depth);
+    switch(make_collision_id(a.type, b.type)){
+        default: break;
+
+        case make_collision_id(Entity_Type.Block, Entity_Type.Bullet):{
+            result = !is_hole(a);
+        } break;
+
+        case make_collision_id(Entity_Type.Block, Entity_Type.Tank):{
+            result = true;
+        } break;
+
+        case make_collision_id(Entity_Type.Tank, Entity_Type.Bullet):{
+            result = true;
+        } break;
     }
-    else if(sa.type == Shape_Type.Circle && sb.type == Shape_Type.AABB){
-        result = rect_vs_circle(sb.center, sb.extents, sa.center, sa.radius, hit_normal, hit_depth);
-    }
-    else if(sa.type == Shape_Type.AABB && sb.type == Shape_Type.Circle){
-        result = rect_vs_circle(sa.center, sa.extents, sb.center, sb.radius, hit_normal, hit_depth);
+    return result;
+}
+
+bool detect_collision(Entity* a, Entity* b, Vec2* hit_normal, float* hit_depth){
+    bool result = false;
+    if(can_collide(a, b)){
+        auto sa = get_collision_shape(a);
+        auto sb = get_collision_shape(b);
+
+        if(sa.type == Shape_Type.Circle && sb.type == Shape_Type.Circle){
+            result = circle_vs_circle(sa.center, sa.radius, sb.center, sb.radius, hit_normal, hit_depth);
+        }
+        else if(sa.type == Shape_Type.Circle && sb.type == Shape_Type.AABB){
+            result = rect_vs_circle(sb.center, sb.extents, sa.center, sa.radius, hit_normal, hit_depth);
+        }
+        else if(sa.type == Shape_Type.AABB && sb.type == Shape_Type.Circle){
+            result = rect_vs_circle(sa.center, sa.extents, sb.center, sb.radius, hit_normal, hit_depth);
+        }
     }
 
     return result;
