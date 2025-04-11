@@ -71,8 +71,7 @@ void save_campaign_file(App_State* s){
         // TODO: In the future, don't use the "world" as the place for the editor to edit
         // entities? Maybe.
         foreach(ref e; iterate_entities(world)){
-            if(e.type == Entity_Type.Block || e.type == Entity_Type.Hole){
-                assert(e.type != Entity_Type.Hole || e.block_height == 0);
+            if(e.type == Entity_Type.Block){
                 auto cmd = stream_next!Cmd_Make_Block(writer);
                 encode(cmd, &e);
 
@@ -167,7 +166,7 @@ void editor_simulate(App_State* s, float dt){
 
             case Event_Type.Key:{
                 auto key = &evt.key;
-                if(!key.is_repeat && key.pressed){
+                if(key.pressed){
                     switch(key.id){
                         default: break;
 
@@ -185,11 +184,13 @@ void editor_simulate(App_State* s, float dt){
                         case Key_ID_3:
                         case Key_ID_4:
                         {
-                            auto index = key.id - Key_ID_0;
-                            if(g_edit_mode == Edit_Mode.Select){
-                                auto e = get_entity_by_id(&s.world, g_selected_entity_id);
-                                if(e && e.type == Entity_Type.Tank){
-                                    e.player_index = index;
+                            if(!key.is_repeat){
+                                auto index = key.id - Key_ID_0;
+                                if(g_edit_mode == Edit_Mode.Select){
+                                    auto e = get_entity_by_id(&s.world, g_selected_entity_id);
+                                    if(e && e.type == Entity_Type.Tank){
+                                        e.player_index = index;
+                                    }
                                 }
                             }
                         } break;
@@ -224,21 +225,28 @@ void editor_simulate(App_State* s, float dt){
                         } break;
 
                         case Key_ID_S:{
-                            if(key.modifier & Key_Modifier_Ctrl){
-                                save_campaign_file(s);
+                            if(!key.is_repeat){
+                                if(key.modifier & Key_Modifier_Ctrl){
+                                    save_campaign_file(s);
+                                }
                             }
                         } break;
 
                         case Key_ID_L:{
-                            if(key.modifier & Key_Modifier_Ctrl){
-                                if(load_campaign_from_file(&s.campaign, Campaign_File_Name, &s.main_memory)){
-                                    load_campaign_level(s, &s.campaign, 0);
+                            if(!key.is_repeat){
+                                if(key.modifier & Key_Modifier_Ctrl){
+                                    if(load_campaign_from_file(&s.campaign, Campaign_File_Name, &s.main_memory)){
+                                        load_campaign_level(s, &s.campaign, 0);
+                                    }
                                 }
                             }
                         } break;
 
                         case Key_ID_F2:
-                            editor_toggle(s); break;
+                            if(!key.is_repeat){
+                                editor_toggle(s);
+                            }
+                        break;
                     }
                 }
             } break;
@@ -275,11 +283,14 @@ void editor_simulate(App_State* s, float dt){
 
                     if(g_mouse_left_is_down){
                         if(g_dragging_selected){
-                            if(e.type == Entity_Type.Block || e.type == Entity_Type.Hole){
-                                e.pos = floor(s.mouse_world) + Vec2(0.5f, 0.5f);
-                            }
-                            else{
-                                e.pos = s.mouse_world + g_drag_offset;
+                            auto dest_p = s.mouse_world + g_drag_offset;
+                            if(inside_grid(dest_p)){
+                                if(e.type == Entity_Type.Block){
+                                    e.pos = floor(dest_p) + Vec2(0.5f, 0.5f);
+                                }
+                                else{
+                                    e.pos = dest_p;
+                                }
                             }
                         }
                         else{
@@ -290,12 +301,12 @@ void editor_simulate(App_State* s, float dt){
                         g_dragging_selected = false;
                     }
 
-                    if(arrow_up_pressed && e.type == Entity_Type.Block){
-                        e.block_height = min(e.block_height + 1, 7);
+                    if(arrow_up_pressed && e.type == Entity_Type.Block && e.block_height < 7){
+                        e.block_height++;
                     }
 
-                    if(arrow_down_pressed && e.type == Entity_Type.Block){
-                        e.block_height = max(e.block_height - 1, 1);
+                    if(arrow_down_pressed && e.type == Entity_Type.Block && e.block_height > 0){
+                        e.block_height--;
                     }
                 }
                 else{

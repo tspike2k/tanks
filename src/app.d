@@ -6,10 +6,6 @@ License:   Boost Software License 1.0 (https://www.boost.org/LICENSE_1_0.txt)
 
 /+
 TODO:
-    - Static Collisions
-    - Dynamic Collisions
-    - Enemies
-    - Bullets
     - Missiles
     - Mines
     - Particles (Explosions, smoke, etc)
@@ -20,25 +16,12 @@ TODO:
     - Temp saves
     - Levels
     - Tanks should be square (a little less than a meter in size)
-    - Level editor
+    - Debug camera?
+    - Debug collision volume display?
 
     Interesting article on frequency of packet transmission in multiplayer games
     used in Source games.
     https://developer.valvesoftware.com/wiki/Source_Multiplayer_Networking
-
-    So we have the terrain mesh, but we also want to have holes appear in the ground.
-    How can we do this? It looks like the official game uses sprites for holes, so
-    that would be the simplest way. However, people say you can use a technique called
-    "depth masking." It's possible we could use this instead.
-
-    Here is some information on that sort of thing:
-    https://www.blog.radiator.debacle.us/2012/08/how-to-dig-holes-in-unity3d-terrains.html
-    https://gamedev.stackexchange.com/questions/115501/how-to-combine-depth-and-stencil-tests
-
-    You can also use the stencil buffer and use meshes for terrain occluders.
-    https://community.khronos.org/t/masking-away-an-area-of-a-terrain-surface/104810/4
-    https://www.youtube.com/watch?v=y-SEiDTbszk
-
 +/
 
 import display;
@@ -200,8 +183,7 @@ struct Cmd_Make_Tank{
 }
 
 void encode(Cmd_Make_Block* cmd, Entity* e){
-    assert(e.type == Entity_Type.Block || e.type == Entity_Type.Hole);
-    assert(e.type == Entity_Type.Hole || e.block_height > 0);
+    assert(is_valid_block(e));
     ushort x = cast(ushort)e.pos.x;
     ushort y = cast(ushort)e.pos.y;
 
@@ -211,16 +193,12 @@ void encode(Cmd_Make_Block* cmd, Entity* e){
 
 void decode(Cmd_Make_Block* cmd, Entity* e){
     e.block_height = cmd.info;
-    if(e.block_height == 0){
-        e.type = Entity_Type.Hole; // TODO: Is this a bit too hackey?
-    }
 
     ushort x = (cmd.pos)      & 0xff;
     ushort y = (cmd.pos >> 8) & 0xff;
-    e.pos   = Vec2(x, y) + Vec2(0.5f, 0.5f);
+    e.pos    = Vec2(x, y) + Vec2(0.5f, 0.5f);
 
-    assert(e.type == Entity_Type.Block || e.type == Entity_Type.Hole);
-    assert(e.type == Entity_Type.Hole || e.block_height > 0);
+    assert(is_valid_block(e));
 }
 
 void encode(Cmd_Make_Tank* cmd, Entity* e){
@@ -286,7 +264,6 @@ enum  Null_Entity_ID = 0;
 enum Entity_Type : uint{
     None,
     Block,
-    Hole,
     Tank,
     Bullet,
     Mine,
@@ -329,6 +306,12 @@ struct World{
     uint        entities_count;
 }
 
+bool is_valid_block(Entity* e){
+    assert(e.type == Entity_Type.Block);
+    bool result = e.block_height >=0 && e.block_height <= 7;
+    return result;
+}
+
 Entity* add_entity(World* world, Vec2 pos, Entity_Type type){
     Entity* e = &world.entities[world.entities_count++];
     clear_to_zero(*e);
@@ -347,7 +330,6 @@ Entity* add_entity(World* world, Vec2 pos, Entity_Type type){
             e.extents = Vec2(0.55f, 0.324f); break;
 
         case Entity_Type.Block:
-        case Entity_Type.Hole:
             e.extents = Vec2(0.5f, 0.5f); break;
 
         case Entity_Type.Bullet:
@@ -526,8 +508,6 @@ bool inside_grid(Vec2 p){
 }
 
 Entity* add_block(World* world, Vec2 p, uint block_height){
-    // TODO: We should have different types of blocks. We should be able to set height
-    // and if the block is breakable.
     assert(inside_grid(p));
 
     auto e = add_entity(world, p + Vec2(0.5f, 0.5f), Entity_Type.Block);
@@ -725,26 +705,31 @@ Vec3 world_to_render_pos(Vec2 p){
     return result;
 }
 
-Material* choose_material(App_State*s, Entity_Type type, Entity_ID id, uint player_index){
+Material* choose_material(App_State*s, Entity* e){
     Material* result;
-    if(id == s.highlight_entity_id){
+    if(e.id == s.highlight_entity_id){
         result = s.highlight_material;
     }
     else{
-        switch(type){
+        switch(e.type){
             default: {
                 result = &s.material_block;
             } break;
 
             case Entity_Type.Tank: {
-                if(player_index == 0)
+                if(e.player_index == 0)
                     result = &s.material_enemy_tank;
                 else
                     result = &s.material_player_tank;
             } break;
 
             case Entity_Type.Block: {
-                result = &s.material_block;
+                if(is_hole(e)){
+                    result = &s.material_ground;
+                }
+                else{
+                    result = &s.material_block;
+                }
             } break;
         }
     }
@@ -795,8 +780,7 @@ Shape get_collision_shape(Entity* e){
         case Entity_Type.Mine:
             break;
 
-        case Entity_Type.Block:
-        case Entity_Type.Hole:{
+        case Entity_Type.Block:{
             result.type    = Shape_Type.AABB;
             result.extents = e.extents;
         } break;
@@ -858,6 +842,11 @@ bool rect_vs_circle(Vec2 a_center, Vec2 a_extents, Vec2 b_center, float b_radius
         *hit_depth  = b_radius - length(rel_p);
         result      = true;
     }
+    return result;
+}
+
+bool is_hole(Entity* e){
+    bool result = e.type == Entity_Type.Block && e.block_height == 0;
     return result;
 }
 
@@ -976,8 +965,8 @@ extern(C) int main(int args_count, char** args){
     version(all){
         if(load_campaign_from_file(&s.campaign, Campaign_File_Name, &s.main_memory)){
             load_campaign_level(s, &s.campaign, 0);
-            add_entity(&s.world, Vec2(0.5f, 0.5f), Entity_Type.Hole);
-            add_entity(&s.world, Vec2(0.5f, 1.5f), Entity_Type.Hole);
+            add_entity(&s.world, Vec2(0.5f, 0.5f), Entity_Type.Block);
+            add_entity(&s.world, Vec2(0.5f, 1.5f), Entity_Type.Block);
         }
         else{
             generate_test_level(s);
@@ -1178,7 +1167,7 @@ extern(C) int main(int args_count, char** args){
                         }
                     }
 
-                    // Since no object accelerate in this game, we can simplify integration drastically.
+                    // Since no object accelerate in this game, we can simplify integration.
                     e.pos += e.vel*dt;
 
                     // TODO: Broadphase, Spatial partitioning to limit the number of entitites
@@ -1188,7 +1177,7 @@ extern(C) int main(int args_count, char** args){
 
                         if(detect_collision(&e, &target, &hit_normal, &hit_depth)){
                             enum epsilon = 0.01f;
-                            // TODO: This probably works well enough, but gliding long blocks
+                            // TODO: This probably works well enough, but gliding along blocks
                             // at a steep enough angle will cause a tank to noticeably hitch.
                             // What is the best way to solve that using intersection tests?
                             resolve_collision(&e, target.type, hit_normal, hit_depth + epsilon);
@@ -1242,8 +1231,8 @@ extern(C) int main(int args_count, char** args){
         // https://www.youtube.com/watch?v=cHhxs12ZfSQ
         // https://www.youtube.com/watch?v=uxXEV91xsSc
         //
-        // A similar result can also be achieved by writing to the stencil buffer and discarding the result
-        // when drawing the ground. Examples of this are discussed here:
+        // A similar result can also be achieved by writing to the stencil buffer and discarding
+        // the result when drawing the ground. Examples of this are discussed here:
         // https://community.khronos.org/t/masking-away-an-area-of-a-terrain-surface/104810/4
         // https://www.blog.radiator.debacle.us/2012/08/how-to-dig-holes-in-unity3d-terrains.html
         // https://www.youtube.com/watch?v=y-SEiDTbszk
@@ -1251,8 +1240,8 @@ extern(C) int main(int args_count, char** args){
         auto hole_offset = Vec3(0, -0.5f*hole_scale.y+0.01f, 0);
         foreach(ref e; iterate_entities(&s.world)){
             Vec3 p = world_to_render_pos(e.pos);
-            if(e.type == Entity_Type.Hole){
-                set_material(&s.material_ground);
+            if(is_hole(&e)){
+                set_material(choose_material(s, &e));
                 render_mesh(&s.hole_mesh, mat4_translate(p + hole_offset)*mat4_scale(hole_scale));
 
                 enable_culling(false);
@@ -1272,28 +1261,27 @@ extern(C) int main(int args_count, char** args){
             switch(e.type){
                 default: assert(0);
 
-                case Entity_Type.Hole:
-                    break;
-
                 case Entity_Type.Block:{
-                    assert(e.block_height > 0 && e.block_height <= 7);
-                    set_material(choose_material(s, e.type, e.id, e.player_index));
+                    assert(is_valid_block(&e));
+                    if(!is_hole(&e)){
+                        set_material(choose_material(s, &e));
 
-                    float height = 1.0f + 0.5f*cast(float)(e.block_height-1);
-                    auto scale = Vec3(1, height, 1);
-                    auto pos = p + Vec3(0, height*0.5f, 0);
-                    render_mesh(&s.cube_mesh, mat4_translate(pos)*mat4_scale(scale));
+                        float height = 1.0f + 0.5f*cast(float)(e.block_height-1);
+                        auto scale = Vec3(1, height, 1);
+                        auto pos = p + Vec3(0, height*0.5f, 0);
+                        render_mesh(&s.cube_mesh, mat4_translate(pos)*mat4_scale(scale));
+                    }
                 } break;
 
                 case Entity_Type.Tank:{
-                    set_material(choose_material(s, e.type, e.id, e.player_index));
+                    set_material(choose_material(s, &e));
                     auto mat_tran = mat4_translate(p + Vec3(0, 0.18f, 0));
                     render_mesh(&s.tank_base_mesh, mat_tran*mat4_rot_y(e.angle));
                     render_mesh(&s.tank_top_mesh, mat_tran*mat4_rot_y(e.turret_angle));
                 } break;
 
                 case Entity_Type.Bullet:{
-                    set_material(choose_material(s, e.type, e.id, e.player_index));
+                    set_material(choose_material(s, &e));
                     auto mat_tran = mat4_translate(p);
                     //auto mat_tran = mat4_translate(p + Vec3(0, 0.5f, 0)); // TODO: Use this offset when we're done testing the camera
                     render_mesh(&s.bullet_mesh, mat_tran*mat4_rot_y(e.angle));
