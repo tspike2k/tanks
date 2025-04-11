@@ -18,6 +18,8 @@ TODO:
     - Tanks should be square (a little less than a meter in size)
     - Debug camera?
     - Debug collision volume display?
+    - X mark over defeated enemy position
+    - Treadmarks
 
     Interesting article on frequency of packet transmission in multiplayer games
     used in Source games.
@@ -250,12 +252,14 @@ struct App_State{
     Mesh bullet_mesh;
     Mesh ground_mesh;
     Mesh hole_mesh;
+    Mesh half_sphere_mesh;
 
     Material material_enemy_tank;
     Material material_player_tank;
     Material material_block;
     Material material_ground;
     Material material_eraser;
+    Material material_mine;
 }
 
 alias Entity_ID = ulong;
@@ -281,7 +285,8 @@ struct Entity{
     float turret_angle;
     uint  health;
     uint  player_index;
-    uint  block_height;
+    uint  block_height; // TODO: Just store the encoded block_info?
+    float mine_timer;
 }
 
 void destroy_entity(Entity* e){
@@ -322,7 +327,6 @@ Entity* add_entity(World* world, Vec2 pos, Entity_Type type){
     e.pos  = pos;
 
     final switch(type){
-        case Entity_Type.Mine:
         case Entity_Type.None:
             assert(0);
 
@@ -334,6 +338,9 @@ Entity* add_entity(World* world, Vec2 pos, Entity_Type type){
 
         case Entity_Type.Bullet:
             e.extents = Vec2(0.25f, 0.25f)*0.5f; break;
+
+        case Entity_Type.Mine:
+            e.extents = Vec2(0.25f, 0.25f); break;
     }
 
     return e;
@@ -515,6 +522,12 @@ Entity* add_block(World* world, Vec2 p, uint block_height){
     return e;
 }
 
+void spawn_mine(World* world, Vec2 p, Entity_ID id){
+    auto e = add_entity(world, p, Entity_Type.Mine);
+    e.parent_id = id;
+
+}
+
 Entity* spawn_bullet(World* world, Entity_ID parent_id, Vec2 p, float angle){
     auto e      = add_entity(world, p, Entity_Type.Bullet);
     e.angle     = angle;
@@ -540,11 +553,16 @@ void resolve_collision(Entity* e, Entity_Type target, Vec2 normal, float depth){
 
         case Entity_Type.Bullet:{
             if(target == Entity_Type.Tank){
+                // TODO: Show explosion
+                destroy_entity(e);
+            }
+            else if(target == Entity_Type.Bullet){
+                // TODO: Show minor explosion
                 destroy_entity(e);
             }
             else{
-                assert(e.health > 0);
-                e.health--;
+                if(e.health > 0)
+                    e.health--;
                 e.angle = atan2(e.vel.y, e.vel.x);
             }
         } break;
@@ -819,6 +837,10 @@ bool can_collide(Entity* a, Entity* b){
             result = true;
         } break;
 
+        case make_collision_id(Entity_Type.Bullet, Entity_Type.Bullet):{
+            result = true;
+        } break;
+
         case make_collision_id(Entity_Type.Tank, Entity_Type.Bullet):{
             result = true;
         } break;
@@ -927,12 +949,13 @@ extern(C) int main(int args_count, char** args){
     scope(exit) render_close();
 
     //auto teapot_mesh = load_mesh_from_obj("./build/teapot.obj", &s.main_memory);
-    s.cube_mesh      = load_mesh_from_obj("./build/cube.obj", &s.main_memory);
-    s.tank_base_mesh = load_mesh_from_obj("./build/tank_base.obj", &s.main_memory);
-    s.tank_top_mesh  = load_mesh_from_obj("./build/tank_top.obj", &s.main_memory);
-    s.bullet_mesh    = load_mesh_from_obj("./build/bullet.obj", &s.main_memory);
-    s.ground_mesh    = load_mesh_from_obj("./build/ground.obj", &s.main_memory);
-    s.hole_mesh      = load_mesh_from_obj("./build/hole.obj", &s.main_memory);
+    s.cube_mesh        = load_mesh_from_obj("./build/cube.obj", &s.main_memory);
+    s.tank_base_mesh   = load_mesh_from_obj("./build/tank_base.obj", &s.main_memory);
+    s.tank_top_mesh    = load_mesh_from_obj("./build/tank_top.obj", &s.main_memory);
+    s.bullet_mesh      = load_mesh_from_obj("./build/bullet.obj", &s.main_memory);
+    s.ground_mesh      = load_mesh_from_obj("./build/ground.obj", &s.main_memory);
+    s.hole_mesh        = load_mesh_from_obj("./build/hole.obj", &s.main_memory);
+    s.half_sphere_mesh = load_mesh_from_obj("./build/half_sphere.obj", &s.main_memory);
 
     auto shaders_dir = "./build/shaders";
     Shader shader;
@@ -962,7 +985,6 @@ extern(C) int main(int args_count, char** args){
     bool player_move_forward;
     bool player_move_backward;
     bool send_broadcast;
-    bool move_camera;
 
     Socket socket;
     String net_port_number = "1654";
@@ -990,8 +1012,6 @@ extern(C) int main(int args_count, char** args){
     version(all){
         if(load_campaign_from_file(&s.campaign, Campaign_File_Name, &s.main_memory)){
             load_campaign_level(s, &s.campaign, 0);
-            add_entity(&s.world, Vec2(0.5f, 0.5f), Entity_Type.Block);
-            add_entity(&s.world, Vec2(0.5f, 1.5f), Entity_Type.Block);
         }
         else{
             generate_test_level(s);
@@ -1093,40 +1113,39 @@ extern(C) int main(int args_count, char** args){
                     case Event_Type.Button:{
                         auto btn = &evt.button;
                         if(btn.pressed){
-                            if(btn.id == Button_ID.Mouse_Right){
-                                move_camera = evt.button.pressed;
-                            }
-                            else if(btn.id == Button_ID.Mouse_Left){
-                                auto player = get_entity_by_id(&s.world, s.player_entity_id);
-                                if(player){
-                                    auto count = get_child_entity_count(&s.world, player.id, Entity_Type.Bullet);
-                                    if(player && count < Max_Bullets_Per_Tank){
-                                        auto angle  = player.turret_angle;
-                                        auto dir    = rotate(Vec2(1, 0), angle);
-                                        auto p      = player.pos + dir*1.0f;
-                                        auto bullet = spawn_bullet(&s.world, player.id, p, angle);
-                                        bullet.vel  = dir*4.0f;
+                            switch(btn.id){
+                                default: break;
+
+                                case Button_ID.Mouse_Right:{
+                                    auto player = get_entity_by_id(&s.world, s.player_entity_id);
+                                    if(player){
+                                        auto count = get_child_entity_count(&s.world, player.id, Entity_Type.Mine);
+                                        if(player && count < Max_Mines_Per_Tank){
+                                            spawn_mine(&s.world, player.pos, player.id);
+                                        }
                                     }
-                                }
+                                } break;
+
+                                case Button_ID.Mouse_Left:{
+                                    auto player = get_entity_by_id(&s.world, s.player_entity_id);
+                                    if(player){
+                                        auto count = get_child_entity_count(&s.world, player.id, Entity_Type.Bullet);
+                                        if(player && count < Max_Bullets_Per_Tank){
+                                            auto angle  = player.turret_angle;
+                                            auto dir    = rotate(Vec2(1, 0), angle);
+                                            auto p      = player.pos + dir*1.0f;
+                                            auto bullet = spawn_bullet(&s.world, player.id, p, angle);
+                                            bullet.vel  = dir*4.0f;
+                                        }
+                                    }
+                                } break;
                             }
                         }
                     } break;
 
                     case Event_Type.Mouse_Motion:{
                         auto motion = &evt.mouse_motion;
-
                         s.mouse_pixel = Vec2(motion.pixel_x, motion.pixel_y);
-                        /*float speed = 0.12f;
-                        if(should_zoom_camera){
-                            auto amount = motion.rel_y*speed;
-                            camera_polar.z = max(camera_polar.z + amount, 0.0001f); // TODO: Clamp the y!
-                        }
-                        else if(move_camera){
-                            camera_polar.x += motion.rel_x*speed;
-
-                            auto amount_y = motion.rel_y*speed;
-                            camera_polar.y = clamp(camera_polar.y + amount_y, -78.75f, 64.0f); // TODO: Clamp the y!
-                        }*/
                     } break;
 
                     case Event_Type.Key:{
@@ -1205,6 +1224,11 @@ extern(C) int main(int args_count, char** args){
                             // TODO: This probably works well enough, but gliding along blocks
                             // at a steep enough angle will cause a tank to noticeably hitch.
                             // What is the best way to solve that using intersection tests?
+                            //
+                            // Note this also happens with bullets. If a bullet hits two blocks
+                            // just right, it'll be regisered as two collisions in one frame.
+                            // This will destroy the bullet before it can be reflected properly.
+                            // This is a HUGE problem and must be fixed.
                             resolve_collision(&e, target.type, hit_normal, hit_depth + epsilon);
                             if(is_dynamic_entity(target.type))
                                 resolve_collision(&target, e.type, hit_normal*-1.0f, hit_depth + epsilon);
@@ -1310,6 +1334,13 @@ extern(C) int main(int args_count, char** args){
                     auto mat_tran = mat4_translate(p);
                     //auto mat_tran = mat4_translate(p + Vec3(0, 0.5f, 0)); // TODO: Use this offset when we're done testing the camera
                     render_mesh(&s.bullet_mesh, mat_tran*mat4_rot_y(e.angle));
+                } break;
+
+                case Entity_Type.Mine:{
+                    // TODO: Dynamic material? This thing needs to blink. Perhaps we should have
+                    // a shader for that?
+                    set_material(choose_material(s, &e));
+                    render_mesh(&s.half_sphere_mesh, mat4_translate(p)*mat4_scale(Vec3(0.5f, 0.5f, 0.5f)));
                 } break;
             }
         }
