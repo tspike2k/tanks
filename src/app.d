@@ -46,6 +46,10 @@ enum Campaign_File_Name = "./build/main.camp"; // TODO: Use a specific folder fo
 enum Max_Bullets_Per_Tank = 5;
 enum Max_Mines_Per_Tank   = 3;
 
+//enum Mine_Detonation_Time    = 8.0f;
+enum Mine_Detonation_Time    = 4.0f;
+enum Mine_Explosion_End_Time = Mine_Detonation_Time + 1.0f;
+
 enum Grid_Width  = 22;
 enum Grid_Height = 16;
 
@@ -189,12 +193,13 @@ void encode(Cmd_Make_Block* cmd, Entity* e){
     ushort x = cast(ushort)e.pos.x;
     ushort y = cast(ushort)e.pos.y;
 
-    cmd.info = cast(ubyte)e.block_height;
+    cmd.info = ((cast(ubyte)e.block_height) & 0x0f) | (cast(ubyte)e.breakable << 7) & 0xf0;
     cmd.pos  = cast(ushort)((y << 8) | (x));
 }
 
 void decode(Cmd_Make_Block* cmd, Entity* e){
-    e.block_height = cmd.info;
+    e.block_height = cmd.info & 0x0f;
+    e.breakable    = (cmd.info & 0xf0) >> 7;
 
     ushort x = (cmd.pos)      & 0xff;
     ushort y = (cmd.pos >> 8) & 0xff;
@@ -260,6 +265,7 @@ struct App_State{
     Material material_ground;
     Material material_eraser;
     Material material_mine;
+    Material material_breakable_block;
 }
 
 alias Entity_ID = ulong;
@@ -286,6 +292,7 @@ struct Entity{
     uint  health;
     uint  player_index;
     uint  block_height; // TODO: Just store the encoded block_info?
+    bool  breakable;    // TODO: Just store the encoded block_info?
     float mine_timer;
 }
 
@@ -537,7 +544,16 @@ Entity* spawn_bullet(World* world, Entity_ID parent_id, Vec2 p, float angle){
 }
 
 bool is_dynamic_entity(Entity_Type type){
-    bool result = type == Entity_Type.Tank || type == Entity_Type.Bullet;
+    bool result = false;
+    switch(type){
+        default: break;
+
+        case Entity_Type.Tank:
+        case Entity_Type.Bullet:
+        case Entity_Type.Mine:
+            result = true; break;
+    }
+
     return result;
 }
 
@@ -746,7 +762,10 @@ Material* choose_material(App_State*s, Entity* e){
                     result = &s.material_ground;
                 }
                 else{
-                    result = &s.material_block;
+                    if(!e.breakable)
+                        result = &s.material_block;
+                    else
+                        result = &s.material_breakable_block;
                 }
             } break;
         }
@@ -897,6 +916,12 @@ bool is_hole(Entity* e){
     return result;
 }
 
+bool has_mine_exploded(Entity* e){
+    assert(e.type == Entity_Type.Mine);
+    bool   result = e.mine_timer > Mine_Detonation_Time;
+    return result;
+}
+
 Vec2 integrate(Vec2* vel, Vec2 accel, float dt){
     // Following simi-implicit Euler integration, we update the velocity based on the acceleration
     // before we calculate the entity delta. This is supposed to improve numerical accuracy.
@@ -977,6 +1002,7 @@ extern(C) int main(int args_count, char** args){
     setup_basic_material(&s.material_ground, Vec3(0.50f, 0.42f, 0.30f), 2);
     setup_basic_material(&s.material_block, Vec3(0.30f, 0.42f, 0.30f), 2);
     setup_basic_material(&s.material_eraser, Vec3(0.8f, 0.2f, 0.2f), 128);
+    setup_basic_material(&s.material_breakable_block, Vec3(0.7f, 0.3f, 0.15f), 2);
 
     s.running = true;
 
@@ -1211,6 +1237,17 @@ extern(C) int main(int args_count, char** args){
                         }
                     }
 
+                    switch(e.type){
+                        default: break;
+
+                        case Entity_Type.Mine:{
+                            e.mine_timer += dt;
+                            if(e.mine_timer > Mine_Explosion_End_Time){
+                                destroy_entity(&e);
+                            }
+                        } break;
+                    }
+
                     // Since no object accelerate in this game, we can simplify integration.
                     e.pos += e.vel*dt;
 
@@ -1339,8 +1376,18 @@ extern(C) int main(int args_count, char** args){
                 case Entity_Type.Mine:{
                     // TODO: Dynamic material? This thing needs to blink. Perhaps we should have
                     // a shader for that?
-                    set_material(choose_material(s, &e));
-                    render_mesh(&s.half_sphere_mesh, mat4_translate(p)*mat4_scale(Vec3(0.5f, 0.5f, 0.5f)));
+                    if(!has_mine_exploded(&e)){
+                        set_material(choose_material(s, &e));
+                        render_mesh(&s.half_sphere_mesh, mat4_translate(p)*mat4_scale(Vec3(0.5f, 0.5f, 0.5f)));
+                    }
+                    else{
+                        // TODO: The explosion should spin over time. This would only have any impact
+                        // once we add a texture to it.
+                        set_material(&s.material_eraser);
+                        auto t = normalized_range_clamp(e.mine_timer, Mine_Detonation_Time, Mine_Explosion_End_Time);
+                        auto scale = Vec3(6.0f, 6.0f, 6.0f) * sin(t);
+                        render_mesh(&s.half_sphere_mesh, mat4_translate(p)*mat4_scale(scale));
+                    }
                 } break;
             }
         }

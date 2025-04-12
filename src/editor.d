@@ -178,6 +178,15 @@ void editor_simulate(App_State* s, float dt){
                             arrow_down_pressed = true;
                         } break;
 
+                        case Key_ID_K:{
+                            if(g_edit_mode == Edit_Mode.Select){
+                                auto e = get_entity_by_id(&s.world, g_selected_entity_id);
+                                if(e && e.type == Entity_Type.Block){
+                                    e.breakable = !e.breakable;
+                                }
+                            }
+                        } break;
+
                         case Key_ID_0:
                         case Key_ID_1:
                         case Key_ID_2:

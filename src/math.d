@@ -877,14 +877,6 @@ float lerp(float start, float end, float t){
     return result;
 }
 
-float normalized_range_clamp(float a, float min, float max)
-{
-    // Handy function thanks to Casey Muratori, Handmade Hero day 107.
-    a = clamp(a, min, max);
-    float result = (a - min) / (max - min);
-    return result;
-}
-
 bool is_point_inside_rect(Vec2 p, Rect r){
     auto r_min = min(r);
     auto r_max = max(r);
@@ -908,6 +900,14 @@ Vec3 cross(Vec3 a, Vec3 b){
         a.z*b.x - a.x*b.z,
         a.x*b.y - a.y*b.x
     );
+    return result;
+}
+
+float normalized_range_clamp(float a, float min, float max)
+{
+    // Handy function thanks to Casey Muratori, Handmade Hero day 107.
+    a = clamp(a, min, max);
+    float result = (a - min) / (max - min);
     return result;
 }
 
