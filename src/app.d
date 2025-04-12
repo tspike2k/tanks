@@ -46,8 +46,7 @@ enum Campaign_File_Name = "./build/main.camp"; // TODO: Use a specific folder fo
 enum Max_Bullets_Per_Tank = 5;
 enum Max_Mines_Per_Tank   = 3;
 
-//enum Mine_Detonation_Time    = 8.0f;
-enum Mine_Detonation_Time    = 4.0f;
+enum Mine_Detonation_Time    = 8.0f;
 enum Mine_Explosion_End_Time = Mine_Detonation_Time + 1.0f;
 
 enum Grid_Width  = 22;
@@ -557,41 +556,6 @@ bool is_dynamic_entity(Entity_Type type){
     return result;
 }
 
-void resolve_collision(Entity* e, Entity_Type target, Vec2 normal, float depth){
-    e.pos += depth*normal;
-    // TODO: Handle energy transfer here somehow
-    // Use this as a resource?
-    // https://erikonarheim.com/posts/understanding-collision-constraint-solvers/
-
-    e.vel = reflect(e.vel, normal);
-    switch(e.type){
-        default: break;
-
-        case Entity_Type.Bullet:{
-            if(target == Entity_Type.Tank){
-                // TODO: Show explosion
-                destroy_entity(e);
-            }
-            else if(target == Entity_Type.Bullet){
-                // TODO: Show minor explosion
-                destroy_entity(e);
-            }
-            else{
-                if(e.health > 0)
-                    e.health--;
-                e.angle = atan2(e.vel.y, e.vel.x);
-            }
-        } break;
-
-        case Entity_Type.Tank:{
-            if(target == Entity_Type.Bullet){
-                destroy_entity(e);
-                // TODO: Show explosion.
-            }
-        } break;
-    }
-}
-
 void entity_vs_world_bounds(Entity* e){
     Rect aabb = void;
     if(e.type == Entity_Type.Tank){
@@ -605,24 +569,26 @@ void entity_vs_world_bounds(Entity* e){
     world_bounds = shrink(world_bounds, aabb.extents);
     auto p = aabb.center;
 
-    enum type = Entity_Type.None;
+    Entity fake_e; // TODO: This is a hack. Should we break entity seperation and collision event handling into two different functions?
+    fake_e.type = Entity_Type.None;
+
     enum epsilon = 0.01f;
     if(p.x < left(world_bounds)){
         auto hit_dist = left(world_bounds) - p.x;
-        resolve_collision(e, type, Vec2(1, 0), hit_dist + epsilon);
+        resolve_collision(e, &fake_e, Vec2(1, 0), hit_dist + epsilon);
     }
     else if(p.x > right(world_bounds)){
         auto hit_dist = p.x - right(world_bounds);
-        resolve_collision(e, type, Vec2(-1, 0), hit_dist + epsilon);
+        resolve_collision(e, &fake_e, Vec2(-1, 0), hit_dist + epsilon);
     }
 
     if(p.y < bottom(world_bounds)){
         auto hit_dist = bottom(world_bounds) - p.y;
-        resolve_collision(e, type, Vec2(0, 1), hit_dist + epsilon);
+        resolve_collision(e, &fake_e, Vec2(0, 1), hit_dist + epsilon);
     }
     else if(p.y > top(world_bounds)){
         auto hit_dist = p.y - top(world_bounds);
-        resolve_collision(e, type, Vec2(0, -1), hit_dist + epsilon);
+        resolve_collision(e, &fake_e, Vec2(0, -1), hit_dist + epsilon);
     }
 }
 
@@ -815,6 +781,8 @@ Shape get_collision_shape(Entity* e){
         default: assert(0);
 
         case Entity_Type.Mine:
+            result.type    = Shape_Type.Circle;
+            result.radius  = e.extents.x;
             break;
 
         case Entity_Type.Block:{
@@ -835,12 +803,23 @@ Shape get_collision_shape(Entity* e){
             result.type    = Shape_Type.Circle;
             result.radius  = min(e.extents.x, e.extents.y);
         } break;
-
     }
     return result;
 }
 
-bool can_collide(Entity* a, Entity* b){
+bool is_exploding(Entity* e){
+    assert(e.type == Entity_Type.Mine);
+    bool result = e.mine_timer > Mine_Detonation_Time;
+    return result;
+}
+
+void detonate(Entity* e){
+    assert(e.type == Entity_Type.Mine);
+    if(e.mine_timer < Mine_Detonation_Time)
+        e.mine_timer = Mine_Detonation_Time;
+}
+
+bool should_handle_overlap(Entity* a, Entity* b){
     if(a.type > b.type)
         swap(a, b);
 
@@ -863,13 +842,50 @@ bool can_collide(Entity* a, Entity* b){
         case make_collision_id(Entity_Type.Tank, Entity_Type.Bullet):{
             result = true;
         } break;
+
+        // TODO: When the mine overlaps the correct entity, that entity needs to
+        // be destroyed. We're abusing the collision resolution system here for that
+        // purpose. The resolution system is designed to always seperate colliding pairs
+        // and then do any post-processing on them as needed based on their state.
+        // Exploding mines shouldn't affect the positions of other entities. For
+        // correctness we should cleanly seperate overlap tests, overlap events,
+        // entity seperation and related events somehow.
+        case make_collision_id(Entity_Type.Bullet, Entity_Type.Mine):{
+            result = true;
+        } break;
+
+        case make_collision_id(Entity_Type.Tank, Entity_Type.Mine):{
+            result = is_exploding(b);
+        } break;
+
+        case make_collision_id(Entity_Type.Block, Entity_Type.Mine):{
+            result = is_exploding(b) && !is_hole(a) && a.breakable;
+        } break;
+    }
+    return result;
+}
+
+bool should_seperate(Entity_Type a, Entity_Type b){
+    if(a > b)
+        swap(a, b);
+
+    bool result = false;
+    switch(make_collision_id(a, b)){
+        default: break;
+
+        case make_collision_id(Entity_Type.Block, Entity_Type.Tank):
+        case make_collision_id(Entity_Type.Block, Entity_Type.Bullet):
+        case make_collision_id(Entity_Type.None, Entity_Type.Tank):
+        case make_collision_id(Entity_Type.None, Entity_Type.Bullet):{
+            result = true;
+        } break;
     }
     return result;
 }
 
 bool detect_collision(Entity* a, Entity* b, Vec2* hit_normal, float* hit_depth){
     bool result = false;
-    if(can_collide(a, b)){
+    if(should_handle_overlap(a, b)){
         auto sa = get_collision_shape(a);
         auto sb = get_collision_shape(b);
 
@@ -885,6 +901,62 @@ bool detect_collision(Entity* a, Entity* b, Vec2* hit_normal, float* hit_depth){
     }
 
     return result;
+}
+
+void resolve_collision(Entity* e, Entity* target, Vec2 normal, float depth){
+    if(should_seperate(e.type, target.type) && is_dynamic_entity(e.type)){
+        // TODO: Handle energy transfer here somehow
+        // Use this as a resource?
+        // https://erikonarheim.com/posts/understanding-collision-constraint-solvers/
+        e.pos += depth*normal;
+        e.vel = reflect(e.vel, normal);
+    }
+
+    switch(e.type){
+        default: break;
+
+        case Entity_Type.Bullet:{
+            if(target.type == Entity_Type.Tank){
+                // TODO: Show explosion
+                destroy_entity(e);
+            }
+            else if(target.type == Entity_Type.Bullet){
+                // TODO: Show minor explosion
+                destroy_entity(e);
+            }
+            else if(target.type == Entity_Type.Mine){
+                destroy_entity(e);
+            }
+            else{
+                if(e.health > 0)
+                    e.health--;
+                e.angle = atan2(e.vel.y, e.vel.x);
+            }
+        } break;
+
+        case Entity_Type.Tank:{
+            if(target.type == Entity_Type.Bullet){
+                destroy_entity(e);
+                // TODO: Show explosion.
+            }
+            else if(target.type == Entity_Type.Mine){
+                destroy_entity(e);
+                // TODO: Show explosion.
+            }
+        } break;
+
+        case Entity_Type.Mine:{
+            if(target.type == Entity_Type.Bullet){
+                if(target.type == Entity_Type.Tank || target.type == Entity_Type.Bullet){
+                    detonate(e);
+                }
+            }
+            else if(target.type == Entity_Type.Block){
+                assert(is_exploding(e));
+                destroy_entity(target);
+            }
+        } break;
+    }
 }
 
 bool circle_vs_circle(Vec2 a_center, float a_radius, Vec2 b_center, float b_radius, Vec2* hit_normal, float* hit_depth){
@@ -913,12 +985,6 @@ bool rect_vs_circle(Vec2 a_center, Vec2 a_extents, Vec2 b_center, float b_radius
 
 bool is_hole(Entity* e){
     bool result = e.type == Entity_Type.Block && e.block_height == 0;
-    return result;
-}
-
-bool has_mine_exploded(Entity* e){
-    assert(e.type == Entity_Type.Mine);
-    bool   result = e.mine_timer > Mine_Detonation_Time;
     return result;
 }
 
@@ -1245,6 +1311,11 @@ extern(C) int main(int args_count, char** args){
                             if(e.mine_timer > Mine_Explosion_End_Time){
                                 destroy_entity(&e);
                             }
+                            else if(e.mine_timer > Mine_Detonation_Time){
+                                auto t = normalized_range_clamp(e.mine_timer, Mine_Detonation_Time, Mine_Explosion_End_Time);
+                                auto radius = 3.0f * sin(t);
+                                e.extents = Vec2(radius, radius);
+                            }
                         } break;
                     }
 
@@ -1266,9 +1337,8 @@ extern(C) int main(int args_count, char** args){
                             // just right, it'll be regisered as two collisions in one frame.
                             // This will destroy the bullet before it can be reflected properly.
                             // This is a HUGE problem and must be fixed.
-                            resolve_collision(&e, target.type, hit_normal, hit_depth + epsilon);
-                            if(is_dynamic_entity(target.type))
-                                resolve_collision(&target, e.type, hit_normal*-1.0f, hit_depth + epsilon);
+                            resolve_collision(&e, &target, hit_normal, hit_depth + epsilon);
+                            resolve_collision(&target, &e, hit_normal*-1.0f, hit_depth + epsilon);
                         }
                     }
                     entity_vs_world_bounds(&e);
@@ -1376,7 +1446,7 @@ extern(C) int main(int args_count, char** args){
                 case Entity_Type.Mine:{
                     // TODO: Dynamic material? This thing needs to blink. Perhaps we should have
                     // a shader for that?
-                    if(!has_mine_exploded(&e)){
+                    if(!is_exploding(&e)){
                         set_material(choose_material(s, &e));
                         render_mesh(&s.half_sphere_mesh, mat4_translate(p)*mat4_scale(Vec3(0.5f, 0.5f, 0.5f)));
                     }
@@ -1384,8 +1454,9 @@ extern(C) int main(int args_count, char** args){
                         // TODO: The explosion should spin over time. This would only have any impact
                         // once we add a texture to it.
                         set_material(&s.material_eraser);
-                        auto t = normalized_range_clamp(e.mine_timer, Mine_Detonation_Time, Mine_Explosion_End_Time);
-                        auto scale = Vec3(6.0f, 6.0f, 6.0f) * sin(t);
+
+                        auto radius = e.extents.x;
+                        auto scale = Vec3(radius, radius, radius)*2.0f;
                         render_mesh(&s.half_sphere_mesh, mat4_translate(p)*mat4_scale(scale));
                     }
                 } break;
