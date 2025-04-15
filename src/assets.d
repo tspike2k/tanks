@@ -74,7 +74,7 @@ bool verify_header(alias target)(const(char)[] file_name, Asset_Header* header){
 //
 ////
 
-// TODO: Convert Campaign files into using the Asset structure.
+// TODO: Convert Campaign files to using the Asset structure.
 
 enum Campaign_File_Magic = ('T' << 0 | 'a' << 8 | 'n' << 16 | 'k' << 24);
 enum Campaign_File_Version = 0;
@@ -216,25 +216,18 @@ Obj_Data parse_obj_file(String source, Allocator* allocator){
 }
 
 struct Font_Meta{
-    enum magic        = ('B' << 0 | 'f' << 8 | 'n' << 16 | 't' << 24);
+    enum magic        = ('F' << 0 | 'o' << 8 | 'n' << 16 | 't' << 24);
     enum file_version = 0;
     enum min_version  = file_version;
     enum type         = Asset_Type.Font;
 }
 
-enum Font_Section_Type : uint{
+enum Font_Section : uint{
+    None    = 0,
     Metrics = 1,
     Glyphs  = 2,
     Kerning = 3,
     Pixels  = 4,
-}
-
-version(none):
-
-struct Pixels{
-    uint[] data;
-    uint   width;
-    uint   height;
 }
 
 struct Font_Metrics{
@@ -255,17 +248,64 @@ struct Font_Glyph{
     Vec2 uv_max;
 }
 
-struct Pixels{
-    uint[] pixels;
-    uint   width;
-    uint   height;
-}
-
 struct Font{
     Font_Metrics metrics;
     Font_Glyph[] glyphs;
-    // TODO: Include the kerning table heres.
+    // TODO: Include the kerning table here.
+    uint   bitmap_width;
+    uint   bitmap_height;
+    uint[] bitmap_pixels;
 }
+
+struct Pixels{
+    uint   width;
+    uint   height;
+    uint[] data;
+}
+
+bool parse_font_file(void[] source, Font* font, Pixels* pixels){
+    bool result = false;
+
+    auto reader = source;
+    auto header = stream_next!Asset_Header(reader);
+    if(header && verify_asset_file_header!Font_Meta(header)){
+        while(auto section = stream_next!Asset_Section(reader)){
+            switch(cast(Font_Section)section.type){
+                default: break;
+
+                case Font_Section.Metrics:{
+                    auto map = &campaign.maps[map_index++];
+
+                    auto count = section.size / Cmd_Make_Block.sizeof;
+                    map.blocks = alloc_array!Cmd_Make_Block(allocator, count);
+
+                    foreach(i; 0 .. count){
+                        auto cmd = stream_next!Cmd_Make_Block(reader);
+                        map.blocks[i] = *cmd;
+                    }
+                } break;
+
+                case Campaign_Section_Type.Tanks:{
+                    auto level = &campaign.levels[level_index++];
+                    auto count = section.size / Cmd_Make_Tank.sizeof;
+                    level.tanks = alloc_array!Cmd_Make_Tank(allocator, count);
+
+                    foreach(i; 0 .. count){
+                        auto cmd = stream_next!Cmd_Make_Tank(reader);
+                        level.tanks[i] = *cmd;
+                    }
+                } break;
+            }
+        }
+    }
+
+    return result;
+}
+
+
+
+version(none):
+
 
 bool load_font_from_file(const(char)[] file_name, Asset_Font* font, Allocator* allocator){
     push_frame(allocator.scratch);
