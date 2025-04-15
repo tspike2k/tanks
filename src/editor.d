@@ -8,7 +8,7 @@ See accompanying file LICENSE_BOOST.txt or copy at http://www.boost.org/LICENSE_
 TODO:
     - Make an actual GUI for the editor.
     - Fix memory leak with calls to load_campaign_from_file. This should load the campaign into
-    an allocator specially reserved for campaign memory. When we load, we should clear the
+    an allocator specially reserved for campaign memory. When we load, we should reset the
     allocator each time.
 +/
 
@@ -57,9 +57,10 @@ void save_campaign_file(App_State* s){
         auto buffer = alloc_array!void(scratch, 2*1024*1024);
         auto writer = buffer;
 
-        auto header = stream_next!Campaign_Header(writer);
-        header.magic        = Campaign_File_Magic;
-        header.file_version = Campaign_File_Version;
+        auto header = stream_next!Asset_Header(writer);
+        header.magic        = Campaign_Meta.type;
+        header.file_version = Campaign_Meta.file_version;
+        header.asset_type   = Campaign_Meta.type;
 
         auto section = stream_next!Campaign_Section(writer);
         section.type = Campaign_Section_Type.Blocks;

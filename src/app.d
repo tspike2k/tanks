@@ -6,11 +6,9 @@ License:   Boost Software License 1.0 (https://www.boost.org/LICENSE_1_0.txt)
 
 /+
 TODO:
-    - Missiles
-    - Mines
     - Particles (Explosions, smoke, etc)
     - Enemy AI
-    - Scoring
+    - Different enemy types (how many are there?)
     - Multiplayer
     - High score tracking
     - Temp saves
@@ -97,7 +95,7 @@ bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* al
 
     // TODO: More robust reading code
     // TODO: Validate header
-    auto header = stream_next!Campaign_Header(reader);
+    auto header = stream_next!Asset_Header(reader);
     if(header){
         // TODO: Get these from Campaign_Info once we start saving that out.
         auto levels_count = 1;
@@ -241,6 +239,8 @@ struct App_State{
     bool running;
     float t;
     Entity_ID player_entity_id;
+    uint      player_destroyed_tanks;
+
     World world;
     Vec2 mouse_pixel;
     Vec2 mouse_world;
@@ -531,7 +531,6 @@ Entity* add_block(World* world, Vec2 p, uint block_height){
 void spawn_mine(World* world, Vec2 p, Entity_ID id){
     auto e = add_entity(world, p, Entity_Type.Mine);
     e.parent_id = id;
-
 }
 
 Entity* spawn_bullet(World* world, Entity_ID parent_id, Vec2 p, float angle){
@@ -556,7 +555,7 @@ bool is_dynamic_entity(Entity_Type type){
     return result;
 }
 
-void entity_vs_world_bounds(Entity* e){
+void entity_vs_world_bounds(App_State* s, Entity* e){
     Rect aabb = void;
     if(e.type == Entity_Type.Tank){
         aabb = aabb_from_obb(e.pos, e.extents, e.angle);
@@ -575,20 +574,20 @@ void entity_vs_world_bounds(Entity* e){
     enum epsilon = 0.01f;
     if(p.x < left(world_bounds)){
         auto hit_dist = left(world_bounds) - p.x;
-        resolve_collision(e, &fake_e, Vec2(1, 0), hit_dist + epsilon);
+        resolve_collision(s, e, &fake_e, Vec2(1, 0), hit_dist + epsilon);
     }
     else if(p.x > right(world_bounds)){
         auto hit_dist = p.x - right(world_bounds);
-        resolve_collision(e, &fake_e, Vec2(-1, 0), hit_dist + epsilon);
+        resolve_collision(s, e, &fake_e, Vec2(-1, 0), hit_dist + epsilon);
     }
 
     if(p.y < bottom(world_bounds)){
         auto hit_dist = bottom(world_bounds) - p.y;
-        resolve_collision(e, &fake_e, Vec2(0, 1), hit_dist + epsilon);
+        resolve_collision(s, e, &fake_e, Vec2(0, 1), hit_dist + epsilon);
     }
     else if(p.y > top(world_bounds)){
         auto hit_dist = p.y - top(world_bounds);
-        resolve_collision(e, &fake_e, Vec2(0, -1), hit_dist + epsilon);
+        resolve_collision(s, e, &fake_e, Vec2(0, -1), hit_dist + epsilon);
     }
 }
 
@@ -903,7 +902,25 @@ bool detect_collision(Entity* a, Entity* b, Vec2* hit_normal, float* hit_depth){
     return result;
 }
 
-void resolve_collision(Entity* e, Entity* target, Vec2 normal, float depth){
+bool is_tank_player(Entity* e){
+    assert(e.type == Entity_Type.Tank);
+    bool result = e.player_index > 0;
+    return result;
+}
+
+void add_to_score_if_killed_by_player(App_State* s, Entity* tank, Entity_ID attacker_id){
+    assert(tank.type == Entity_Type.Tank);
+    if(!is_tank_player(tank)){
+        // TODO: Loop through each player to find who controlled the
+        // the attacker that shot or placed the mine that defeated the
+        // tank
+        if(attacker_id == s.player_entity_id){
+            s.player_destroyed_tanks++;
+        }
+    }
+}
+
+void resolve_collision(App_State* s, Entity* e, Entity* target, Vec2 normal, float depth){
     if(should_seperate(e.type, target.type) && is_dynamic_entity(e.type)){
         // TODO: Handle energy transfer here somehow
         // Use this as a resource?
@@ -919,6 +936,8 @@ void resolve_collision(Entity* e, Entity* target, Vec2 normal, float depth){
             if(target.type == Entity_Type.Tank){
                 // TODO: Show explosion
                 destroy_entity(e);
+                destroy_entity(target);
+                add_to_score_if_killed_by_player(s, target, e.parent_id);
             }
             else if(target.type == Entity_Type.Bullet){
                 // TODO: Show minor explosion
@@ -935,13 +954,12 @@ void resolve_collision(Entity* e, Entity* target, Vec2 normal, float depth){
         } break;
 
         case Entity_Type.Tank:{
-            if(target.type == Entity_Type.Bullet){
-                destroy_entity(e);
-                // TODO: Show explosion.
-            }
-            else if(target.type == Entity_Type.Mine){
-                destroy_entity(e);
-                // TODO: Show explosion.
+            if(target.type == Entity_Type.Mine){
+                if(is_exploding(target)){
+                    destroy_entity(e);
+                    add_to_score_if_killed_by_player(s, e, target.parent_id);
+                    // TODO: Show explosion? Or is the mine explosion enough?
+                }
             }
         } break;
 
@@ -1337,11 +1355,11 @@ extern(C) int main(int args_count, char** args){
                             // just right, it'll be regisered as two collisions in one frame.
                             // This will destroy the bullet before it can be reflected properly.
                             // This is a HUGE problem and must be fixed.
-                            resolve_collision(&e, &target, hit_normal, hit_depth + epsilon);
-                            resolve_collision(&target, &e, hit_normal*-1.0f, hit_depth + epsilon);
+                            resolve_collision(s, &e, &target, hit_normal, hit_depth + epsilon);
+                            resolve_collision(s, &target, &e, hit_normal*-1.0f, hit_depth + epsilon);
                         }
                     }
-                    entity_vs_world_bounds(&e);
+                    entity_vs_world_bounds(s, &e);
                 }
             }
         }

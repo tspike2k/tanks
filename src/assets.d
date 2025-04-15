@@ -12,24 +12,81 @@ private{
     import logging;
 }
 
+struct Asset_Header{
+    align(1):
+
+    uint     magic;
+    uint     file_version;
+    uint     asset_type;
+    uint[13] reserved;
+}
+
+enum Asset_Type : uint{
+    None,
+    Font,
+    Campaign,
+}
+
+enum Compression : uint{
+    None,
+}
+
+struct Asset_Section{
+    align(1):
+    uint        type;
+    Compression compression;
+    uint        size;
+    uint        compressed_size;
+}
+
+bool verify_header(alias target)(const(char)[] file_name, Asset_Header* header){
+    if(header.magic != target.magic){
+        format("Error reading file {0}. Expected magic {1} but got magic of {2} instead.\n", file_name, magic, target.magic);
+        return false;
+    }
+
+    if(header.file_version >= target.min_version){
+        format("Error reading file {0}. Minimum supported file version is {2} but got {1}.\n", file_name, header.file_version, target.min_version);
+        return false;
+    }
+
+    if(header.file_version <= target.file_version){
+        format("Error reading file {0}. Maximum supported file version is {2} but got {1}.\n", file_name, header.file_version, target.file_version);
+        return false;
+    }
+
+    if(header.file_version <= target.file_version){
+        format("Error reading file {0}. Maximum supported file version is {2} but got {1}.\n", file_name, header.file_version, target.file_version);
+        return false;
+    }
+
+    if(header.type == target.type){
+        format("Error reading file {0}. Asset type is marked as {1} when expecting {2}.\n", file_name, header.type, target.type);
+        return false;
+    }
+
+    return true;
+}
+
 ////
 //
 // Campaign files
 //
 ////
 
+// TODO: Convert Campaign files into using the Asset structure.
+
 enum Campaign_File_Magic = ('T' << 0 | 'a' << 8 | 'n' << 16 | 'k' << 24);
 enum Campaign_File_Version = 0;
 
-struct Campaign_Header{
-    align(1):
-
-    uint     magic;
-    uint     file_version;
-    uint[14] reserved;
+struct Campaign_Meta{
+    enum magic        = Campaign_File_Magic;
+    enum file_version = Campaign_File_Version;
+    enum min_version  = file_version;
+    enum type         = Asset_Type.Campaign;
 }
 
-enum Campaign_Section_Type: uint{
+enum Campaign_Section_Type : uint{
     None,
     Info,
     Blocks,
@@ -158,53 +215,21 @@ Obj_Data parse_obj_file(String source, Allocator* allocator){
     return result;
 }
 
+struct Font_Meta{
+    enum magic        = ('B' << 0 | 'f' << 8 | 'n' << 16 | 't' << 24);
+    enum file_version = 0;
+    enum min_version  = file_version;
+    enum type         = Asset_Type.Font;
+}
+
+enum Font_Section_Type : uint{
+    Metrics = 1,
+    Glyphs  = 2,
+    Kerning = 3,
+    Pixels  = 4,
+}
 
 version(none):
-
-
-enum Asset_File_Version = 1;
-enum uint Asset_File_Magic = ('a' << 0 | 's' << 8 | 'e' << 16 | 't' << 24);
-
-enum Compression_Type_None = 0;
-
-enum{
-    Asset_Type_Font   = 1,
-    Asset_Type_Sprite = 2,
-    Asset_Type_Level  = 3,
-}
-
-enum{
-    Font_Section_Metrics = 1,
-    Font_Section_Glyphs  = 2,
-    Font_Section_Kerning = 3,
-    Font_Section_Pixels  = 4,
-}
-
-struct Asset_File_Header{
-    align(1):
-
-    uint magic;
-    uint file_version;
-    uint asset_type;
-    uint cpu_id;
-    uint[12] reserved;
-}
-
-struct Asset_File_Section{
-    align(1):
-
-    uint  type;
-    uint  version_info;
-    ulong size;
-}
-
-struct Font_Pixels_Header{
-    align(1):
-
-    uint compression;
-    uint width;
-    uint height;
-}
 
 struct Pixels{
     uint[] data;
@@ -230,28 +255,16 @@ struct Font_Glyph{
     Vec2 uv_max;
 }
 
-struct Asset_Font{
-    Font_Metrics metrics;
-    Font_Glyph[] glyphs;
-    Pixels       pixels;
+struct Pixels{
+    uint[] pixels;
+    uint   width;
+    uint   height;
 }
 
-private bool verify_asset_file_header(Asset_File_Header* header, const(char)[] file_name){
-    bool succeeded = false;
-    if(header.magic == Asset_File_Magic){
-        if(header.file_version <= Asset_File_Version){
-            succeeded = true;
-        }
-        else{
-            // TODO: Log error
-            assert(0);
-        }
-    }
-    else{
-        // TODO: Log error
-        assert(0);
-    }
-    return succeeded;
+struct Font{
+    Font_Metrics metrics;
+    Font_Glyph[] glyphs;
+    // TODO: Include the kerning table heres.
 }
 
 bool load_font_from_file(const(char)[] file_name, Asset_Font* font, Allocator* allocator){
