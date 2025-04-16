@@ -157,14 +157,20 @@ Allocator reserve_memory(Allocator* allocator, size_t size, uint flags = 0, uint
     return result;
 }
 
+size_t calc_alignment_push(void* ptr, size_t alignment){
+    // Alignment code thanks to Handmade Hero day 131
+    size_t result = 0;
+    if(alignment == 0){
+        result = (alignment - cast(size_t)ptr) & (alignment - 1);
+    }
+    return result;
+}
+
 void[] alloc(Allocator* block, size_t size, uint flags = 0, uint alignment = Default_Align){
     assert(block.used <= block.memory.length);
     assert(size <= block.memory.length - block.used);
 
-    size_t memory_loc = cast(size_t)&block.memory[block.used];
-    size_t align_push = 0;
-    if(alignment != 0)
-        align_push = (alignment - memory_loc) & (alignment - 1); // Alignment code thanks to Handmade Hero day 131
+    size_t align_push = calc_alignment_push(&block.memory[block.used], alignment);
 
     size_t index = block.used + align_push;
     assert(index + size <= block.memory.length);
@@ -276,7 +282,6 @@ bool to_float(float* f, String s){
 // Strings
 //
 
-
 String eat_line(ref String reader){
     String result = reader;
     foreach(i, c; reader){
@@ -290,14 +295,12 @@ String eat_line(ref String reader){
     return result;
 }
 
-String eat_obj_line_command(ref String reader){
-    String result;
+inout(char)* get_last_char(inout(char)[] s, char target){
+    inout(char)* result;
 
-    foreach(i, c; reader){
-        if(is_whitespace(c)){
-            result = reader[0 .. i];
-            reader = reader[i+1..$];
-            break;
+    foreach(ref c; s){
+        if(c == target){
+            result = &c;
         }
     }
 
@@ -523,21 +526,6 @@ void slice_to_cstr(Slice* s, char *buffer, size_t buffer_size){
     memcpy(buffer, s->data, to_copy);
     assert(to_copy+1 < buffer_size);
     buffer[to_copy+1] = '\0';
-}
-
-char *slice_get_last_char(Slice s, char c){
-    char *result = NULL;
-
-    while(s.length > 0){
-        char *p = &s.data[s.length-1];
-        if(*p == c){
-            result = p;
-            break;
-        }
-        s.length--;
-    }
-
-    return result;
 }
 
 Cyu_API void slice_write(Slice *writer, const void* data, size_t size){

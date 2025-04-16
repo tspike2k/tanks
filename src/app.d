@@ -1045,6 +1045,8 @@ extern(C) int main(int args_count, char** args){
         s.frame_memory.scratch = &scratch_memory;
     }
 
+    auto exe_path = get_path_to_executable(&s.main_memory);
+
     if(!open_display("Tanks", 1920, 1080, 0)){
         log_error("Unable to open display.\n");
         return 1;

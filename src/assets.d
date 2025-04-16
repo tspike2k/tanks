@@ -127,6 +127,20 @@ struct Obj_Data{
     Obj_Face[] faces;
 }
 
+String eat_obj_line_command(ref String reader){
+    String result;
+
+    foreach(i, c; reader){
+        if(is_whitespace(c)){
+            result = reader[0 .. i];
+            reader = reader[i+1..$];
+            break;
+        }
+    }
+
+    return result;
+}
+
 Obj_Data parse_obj_file(String source, Allocator* allocator){
     Obj_Data result;
 

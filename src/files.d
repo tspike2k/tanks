@@ -146,6 +146,32 @@ version(linux){
         return bytes_written;
     }
 
+    char[] get_path_to_executable(Allocator* allocator){
+        char[] result;
+
+        auto push = calc_alignment_push(&allocator[allocator.used], Default_Align);
+        if(allocator.memory.length - allocator.used > push){
+            auto buffer = cast(char[])allocator.memory[allocator.used + push .. $];
+            ssize_t count = readlink("/proc/self/exe", buffer.ptr, buffer.length);
+            if(count > 0){
+                // Remove the trailing binary name from the result
+                char* c = get_last_char(buffer, '/');
+                if(c){
+                    *c = '\0';
+                    result = buffer[0 .. c - buffer.ptr];
+                    allocator.used += push + result.length;
+                }
+                else{
+                    // TODO: Handle errors
+                }
+            }
+            else{
+                // TODO: Handle errors
+            }
+        }
+        return result;
+    }
+
     private:
 
     import core.sys.linux.dlfcn;

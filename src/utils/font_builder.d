@@ -129,5 +129,7 @@ void end(Font_Builder* builder, Font_Entry *font_entry){
 
 
 extern(C) int main(){
+
+
     return 0;
 }

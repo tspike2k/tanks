@@ -4,6 +4,8 @@ Copyright: Copyright (c) 2025
 License:   Boost Software License 1.0 (https://www.boost.org/LICENSE_1_0.txt)
 */
 
+import memory;
+
 version(linux){
     import core.sys.linux.time;
 
