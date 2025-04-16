@@ -360,11 +360,20 @@ void stream_read(ref void[] stream, void[] data){
     stream = stream[data.length .. $];
 }
 
+void[] stream_next(ref void[] stream, size_t size){
+    void[] result;
+    if(stream.length >= size){
+        result = stream[0 .. size];
+        stream = stream[size .. $];
+    }
+    return result;
+}
+
 T* stream_next(T)(ref void[] stream){
-    T* result;
-    if(stream.length >= T.sizeof){
-        result = cast(T*)stream;
-        stream = stream[T.sizeof .. $];
+    T* result = null;
+    auto memory = stream_next(stream, T.sizeof);
+    if(memory.length){
+        result = cast(T*)memory;
     }
 
     return result;

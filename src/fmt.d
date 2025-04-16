@@ -58,8 +58,6 @@ enum Enable_Snake_Case             = false;
 // End of library configuration section.
 //
 
-//nothrow @nogc:
-
 private{
     import std.traits;
     import std.range : isInputRange, isInfinite;
@@ -140,8 +138,6 @@ if(canPutStrings!(Dest)){
 }
 
 struct BufferWriter{
-    //nothrow @nogc:
-
     char[] buffer;
     size_t buffer_written;
 
@@ -158,6 +154,7 @@ struct BufferWriter{
         // Issue #1: Using memcpy rather than the built-in slice copy operator for compatability with LDC when using the -betterC switch.
         // https://github.com/tspike2k/djinnprint/issues/1
         static if(Use_memcpy){
+            import core.stdc.string : memcpy;
             memcpy(&buffer[buffer_written], text.ptr, to_write);
         }
         else{
@@ -260,8 +257,6 @@ static if(Terminal_Output_Type != Terminal_Output_Type_None){
     }
 
     private struct TermWriter{
-        //nothrow @nogc:
-
         FileHandle file;
 
         void put(const(char)[] text){

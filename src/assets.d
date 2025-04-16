@@ -39,29 +39,34 @@ struct Asset_Section{
     uint        compressed_size;
 }
 
-bool verify_header(alias target)(const(char)[] file_name, Asset_Header* header){
+bool verify_asset_header(alias target)(const(char)[] file_name, Asset_Header* header){
+    if(!header){
+        log("Header for file {0} is null. Perhaps the file is too short to read.\n");
+        return false;
+    }
+
     if(header.magic != target.magic){
-        format("Error reading file {0}. Expected magic {1} but got magic of {2} instead.\n", file_name, magic, target.magic);
+        log("Error reading file {0}. Expected magic {1} but got magic of {2} instead.\n", file_name, header.magic, target.magic);
         return false;
     }
 
     if(header.file_version >= target.min_version){
-        format("Error reading file {0}. Minimum supported file version is {2} but got {1}.\n", file_name, header.file_version, target.min_version);
+        log("Error reading file {0}. Minimum supported file version is {2} but got {1}.\n", file_name, header.file_version, target.min_version);
         return false;
     }
 
     if(header.file_version <= target.file_version){
-        format("Error reading file {0}. Maximum supported file version is {2} but got {1}.\n", file_name, header.file_version, target.file_version);
+        log("Error reading file {0}. Maximum supported file version is {2} but got {1}.\n", file_name, header.file_version, target.file_version);
         return false;
     }
 
     if(header.file_version <= target.file_version){
-        format("Error reading file {0}. Maximum supported file version is {2} but got {1}.\n", file_name, header.file_version, target.file_version);
+        log("Error reading file {0}. Maximum supported file version is {2} but got {1}.\n", file_name, header.file_version, target.file_version);
         return false;
     }
 
-    if(header.type == target.type){
-        format("Error reading file {0}. Asset type is marked as {1} when expecting {2}.\n", file_name, header.type, target.type);
+    if(header.asset_type == target.type){
+        log("Error reading file {0}. Asset type is marked as {1} when expecting {2}.\n", file_name, header.asset_type, target.type);
         return false;
     }
 
@@ -263,109 +268,50 @@ struct Pixels{
     uint[] data;
 }
 
-bool parse_font_file(void[] source, Font* font, Pixels* pixels){
-    bool result = false;
-
+bool parse_font_file(String file_name, void[] source, Font* font, Pixels* pixels, Allocator* allocator){
     auto reader = source;
     auto header = stream_next!Asset_Header(reader);
-    if(header && verify_asset_file_header!Font_Meta(header)){
-        while(auto section = stream_next!Asset_Section(reader)){
-            switch(cast(Font_Section)section.type){
+
+    // TODO: Read sections based on the sizes in the section header.
+    // Have a function that will return the section payload, deflating compressed
+    // data as needed.
+    bool result = false;
+    if(verify_asset_header!Font_Meta(file_name, header)){
+        Font_Metrics* metrics;
+        Font_Glyph[]  glyphs;
+
+        while(auto section_header = stream_next!Asset_Section(reader)){
+            switch(cast(Font_Section)section_header.type){
                 default: break;
 
                 case Font_Section.Metrics:{
-                    auto map = &campaign.maps[map_index++];
+                    metrics = stream_next!Font_Metrics(reader);
+                } break;
 
-                    auto count = section.size / Cmd_Make_Block.sizeof;
-                    map.blocks = alloc_array!Cmd_Make_Block(allocator, count);
-
-                    foreach(i; 0 .. count){
-                        auto cmd = stream_next!Cmd_Make_Block(reader);
-                        map.blocks[i] = *cmd;
+                case Font_Section.Glyphs:{
+                    auto glyphs_count = stream_next!uint(reader);
+                    if(glyphs_count){
+                        glyphs = cast(Font_Glyph[])stream_next(reader, Font_Glyph.sizeof * (*glyphs_count));
                     }
                 } break;
 
-                case Campaign_Section_Type.Tanks:{
-                    auto level = &campaign.levels[level_index++];
-                    auto count = section.size / Cmd_Make_Tank.sizeof;
-                    level.tanks = alloc_array!Cmd_Make_Tank(allocator, count);
-
-                    foreach(i; 0 .. count){
-                        auto cmd = stream_next!Cmd_Make_Tank(reader);
-                        level.tanks[i] = *cmd;
+                case Font_Section.Pixels:{
+                    auto width  = stream_next!uint(reader);
+                    auto height = stream_next!uint(reader);
+                    if(width && height){
+                        pixels.width  = *width;
+                        pixels.height = *height;
+                        pixels.data   = cast(uint[])stream_next(reader, (*width)*(*height)*uint.sizeof);
                     }
                 } break;
             }
         }
+
+        if(metrics){
+            font.metrics = *metrics;
+        }
+        result = metrics && glyphs.length && pixels.data.length;
     }
 
     return result;
-}
-
-
-
-version(none):
-
-
-bool load_font_from_file(const(char)[] file_name, Asset_Font* font, Allocator* allocator){
-    push_frame(allocator.scratch);
-    scope(exit) pop_frame(allocator.scratch);
-
-    bool succeeded = false;
-
-    auto file = open_file(file_name, File_Flag_Read);
-    if(is_open(&file)){
-        auto source = read_file_into_memory(file_name, allocator.scratch);
-        if(source.length >= Asset_File_Header.sizeof){
-            auto header = cast(Asset_File_Header*)eat_bytes(source, Asset_File_Header.sizeof);
-            if(verify_asset_file_header(header, file_name)){
-                while(source.length > 0){
-                    auto section = cast(Asset_File_Section*)eat_bytes(source, Asset_File_Section.sizeof);
-                    auto data = eat_bytes(source, section.size);
-
-                    // TODO: Skip the sections if the data size is not what we expect and report an error.
-                    switch(section.type){
-                        default: break;
-
-                        case Font_Section_Metrics:{
-                            font.metrics = *(cast(Font_Metrics*)data);
-                        } break;
-
-                        case Font_Section_Glyphs:{
-                            uint glyphs_count = cast(uint)(data.length/Font_Glyph.sizeof);
-                            if(glyphs_count > 0){
-                                font.glyphs = alloc_array!Font_Glyph(allocator, glyphs_count);
-                                memcpy(font.glyphs.ptr, data.ptr, glyphs_count*Font_Glyph.sizeof);
-                                succeeded = true;
-                            }
-                            else{
-                                // TODO: Report error?
-                                assert(0);
-                            }
-                        } break;
-
-                        case Font_Section_Pixels:{
-                            auto pixels_header = cast(Font_Pixels_Header*)eat_bytes(data, Font_Pixels_Header.sizeof);
-                            assert(pixels_header.compression == Compression_Type_None);
-                            uint w = pixels_header.width;
-                            uint h = pixels_header.height;
-
-                            font.pixels.width  = w;
-                            font.pixels.height = h;
-                            font.pixels.data   = alloc_array!uint(allocator, w*h);
-                            assert(data.length >= w*h*uint.sizeof);
-                            memcpy(font.pixels.data.ptr, data.ptr, w*h*uint.sizeof);
-                        } break;
-                    }
-                }
-            }
-        }
-        else{
-            log("File is to short to be an asset file.\n"); // TODO: Better format function. Print file name!
-        }
-
-        close_file(&file);
-    }
-
-    return succeeded;
 }
