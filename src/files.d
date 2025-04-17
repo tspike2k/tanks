@@ -9,6 +9,13 @@ private{
     import logging;
 }
 
+version(Windows){
+    enum Dir_Sep = "\\";
+}
+else{
+    enum Dir_Sep = "/";
+}
+
 enum{
     File_Flag_Read    = (1 << 1),
     File_Flag_Write   = (1 << 2),
@@ -42,6 +49,22 @@ void[] read_file_into_memory(const(char)[] file_name, Allocator* allocator){
         close_file(&file);
     }
 
+    return result;
+}
+
+// TODO: Make sure the source args are Strings.
+char[] make_file_path(Args...)(Args args, Allocator* allocator)
+if(Args.length > 0){
+    auto writer = begin_buffer_writer(allocator);
+
+    foreach(arg; args[0 .. $-1]){
+        writer.put(arg);
+        writer.put(Dir_Sep);
+    }
+    writer.put(args[$-1]);
+
+    auto result = writer.buffer[0 .. writer.used];
+    end_buffer_writer(allocator, &writer);
     return result;
 }
 
@@ -149,26 +172,26 @@ version(linux){
     char[] get_path_to_executable(Allocator* allocator){
         char[] result;
 
-        auto push = calc_alignment_push(&allocator[allocator.used], Default_Align);
-        if(allocator.memory.length - allocator.used > push){
-            auto buffer = cast(char[])allocator.memory[allocator.used + push .. $];
-            ssize_t count = readlink("/proc/self/exe", buffer.ptr, buffer.length);
-            if(count > 0){
-                // Remove the trailing binary name from the result
-                char* c = get_last_char(buffer, '/');
-                if(c){
-                    *c = '\0';
-                    result = buffer[0 .. c - buffer.ptr];
-                    allocator.used += push + result.length;
-                }
-                else{
-                    // TODO: Handle errors
-                }
+        auto writer = begin_buffer_writer(allocator);
+        auto buffer = writer.buffer;
+        ssize_t count = readlink("/proc/self/exe", buffer.ptr, buffer.length);
+        if(count > 0){
+            // Remove the trailing binary name from the result
+            char* c = get_last_char(buffer[0 .. count], '/');
+            if(c){
+                *c = '\0';
+                result = buffer[0 .. c - buffer.ptr];
+                writer.used += result.length + 1;
+                assert(result[$-1] != '\0');
             }
             else{
                 // TODO: Handle errors
             }
         }
+        else{
+            // TODO: Handle errors
+        }
+        end_buffer_writer(allocator, &writer);
         return result;
     }
 

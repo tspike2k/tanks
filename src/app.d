@@ -1034,18 +1034,16 @@ extern(C) int main(int args_count, char** args){
     App_State* s;
     {
         auto memory = Allocator(app_memory);
-        auto main_memory = reserve_memory(&memory, Main_Memory_Size);
+        auto main_memory = make_sub_allocator(&memory, Main_Memory_Size);
 
         s = alloc_type!App_State(&main_memory);
-        s.main_memory = main_memory;
-        s.frame_memory   = reserve_memory(&memory, Frame_Memory_Size);
-        auto scratch_memory = reserve_memory(&memory, Scratch_Memory_Size);
+        s.main_memory       = main_memory;
+        s.frame_memory      = make_sub_allocator(&memory, Frame_Memory_Size);
+        auto scratch_memory = make_sub_allocator(&memory, Scratch_Memory_Size);
 
         s.main_memory.scratch  = &scratch_memory;
         s.frame_memory.scratch = &scratch_memory;
     }
-
-    auto exe_path = get_path_to_executable(&s.main_memory);
 
     if(!open_display("Tanks", 1920, 1080, 0)){
         log_error("Unable to open display.\n");

@@ -11,6 +11,12 @@ import memory;
 import assets;
 import logging;
 
+version(linux){
+    String[] Font_Directories = [
+        "/usr/share/fonts"
+    ];
+}
+
 struct Font_Entry{
     uint height;
     uint stroke;
@@ -37,7 +43,26 @@ struct Font_Builder{
     FT_Stroker stroker;
 };
 
-bool begin(Font_Builder *builder, Font_Entry *entry){
+Font_Entry[] Font_Entries = [
+    {
+        height: 12, stroke: 1, fill_color: 0xFFFFFFFF, stroke_color: 0x000000FF,
+        dest_file_name: "", source_file_name: ""
+    },
+];
+
+void[] find_and_load_ttf_file(String name, Allocator* allocator){
+    void[] result;
+    foreach(dir; Font_Directories){
+        auto path = recursive_file_search(dir, name, allocator.scratch);
+        if(path.length){
+            concat(dir, name);
+            read_file_into_memory;
+        }
+    }
+    return result;
+}
+
+bool begin_building_font(Font_Builder *builder, Font_Entry *entry){
     auto src_file = entry.source_file_name;
 
     if(FT_New_Face(builder.lib, src_file.ptr, 0, &builder.face) != 0){
@@ -68,8 +93,7 @@ bool begin(Font_Builder *builder, Font_Entry *entry){
     return true;
 }
 
-/+
-void end(Font_Builder* builder, Font_Entry *font_entry){
+void end_building_font(Font_Builder* builder, Font_Entry *font_entry){
     Pixels pixels = pack_glyphs_and_gen_texture(builder.glyph_entries, builder.allocator);
 
     // TODO: Is bulk clearing the memory faster than clearing on each call to push_writer?
@@ -125,11 +149,13 @@ void end(Font_Builder* builder, Font_Entry *font_entry){
 
     if(font_entry.stroke) FT_Stroker_Done(builder.stroker);
     FT_Done_Face(builder.face);
-}+/
-
+}
 
 extern(C) int main(){
+    auto main_memory = os_alloc(4*1024*1024);
+    scope(exit) os_dealloc(main_memory);
 
+    auto allocator = Allocator(main_memory);
 
     return 0;
 }

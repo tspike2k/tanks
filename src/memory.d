@@ -44,6 +44,17 @@ Unqual!T[] dup_array(T)(T[] src, Allocator* allocator){
     return result;
 }
 
+void copy(T)(const(T[]) src, T[] dest){
+    version(LDC){
+        // NOTE: Workaround for LDC compilation issues.
+        assert(dest.length == src.length);
+        memcpy(dest.ptr, src.ptr, src.length*src[0].sizeof);
+    }
+    else{
+        dest[0 .. $] = src[0 .. $];
+    }
+}
+
 char[] concat(String a, String b, Allocator* allocator){
     auto result = alloc_array!(char)(allocator, a.length+b.length+1);
     copy(a[0 .. $], result[0 .. a.length]);
@@ -59,42 +70,6 @@ bool begins_with(String a, String b){
     }
     return result;
 }
-
-// TODO: Make sure the source args are String.
-char[] make_file_path(Args...)(Args args, Allocator* allocator)
-if(Args.length > 0){
-    version(Windows){
-        String dir = "\\";
-    }
-    else{
-        String dir = "/";
-    }
-
-    size_t len;
-    static foreach(arg; args){
-        len += arg.length;
-    }
-
-    len += args.length-1; // Account for directory seperators
-    len += 1; // Account for null terminator
-    auto dest = alloc_array!char(allocator, len);
-
-    size_t place;
-    void append(String s){
-        copy(s[0 .. $], dest[place .. place + s.length]);
-        place += s.length;
-    }
-
-    foreach(arg; args[0 .. $-1]){
-        append(arg);
-        append(dir);
-    }
-    append(args[$-1]);
-    append("\0");
-
-    return dest[0 .. $-1]; // Ignore the null terminator
-}
-
 
 version(linux){
     import core.sys.linux.sys.mman;
@@ -123,15 +98,11 @@ version(linux){
     }
 }
 
-bool is_whitespace(char c){
-    bool result = (c == ' ')
-               || (c == '\t')
-               || (c == '\v')
-               || (c == '\f')
-               || (c == '\n')
-               || (c == '\r');
-    return result;
-}
+///
+//
+// Allocators
+//
+////
 
 enum Default_Align = uint.sizeof;
 
@@ -150,11 +121,6 @@ struct Allocator{
     Allocator_Frame* last_frame;
 
     Allocator* scratch;
-}
-
-Allocator reserve_memory(Allocator* allocator, size_t size, uint flags = 0, uint alignment = Default_Align){
-    auto result = Allocator(alloc_array!void(allocator, size, flags, alignment));
-    return result;
 }
 
 size_t calc_alignment_push(void* ptr, size_t alignment){
@@ -181,17 +147,6 @@ void[] alloc(Allocator* block, size_t size, uint flags = 0, uint alignment = Def
     block.used += size + align_push;
 
     return result;
-}
-
-void copy(T)(const(T[]) src, T[] dest){
-    version(LDC){
-        // NOTE: Workaround for LDC compilation issues.
-        assert(dest.length == src.length);
-        memcpy(dest.ptr, src.ptr, src.length*src[0].sizeof);
-    }
-    else{
-        dest[0 .. $] = src[0 .. $];
-    }
 }
 
 T* alloc_type(T)(Allocator* allocator, uint flags = 0, uint alignment = Default_Align){
@@ -223,64 +178,51 @@ void pop_frame(Allocator* allocator){
     allocator.last_frame = allocator.last_frame.next;
 }
 
-bool to_int(T)(T* t, String s)
-if(isIntegral!T && !isFloatingPoint!T){
-    bool succeeded = s.length > 0;
-
-    bool is_negative;
-    if(s.length > 0){
-        is_negative = s[0] == '-';
-
-        if(s[0] == '-' || s[0] == '+')
-            s = s[1..$];
-    }
-
-    // TODO: Parse hex literals. What about binary and octal?
-    T base = 10;
-
-    T result = 0;
-    foreach_reverse(i, c; s){
-        if(c >= '0' && c <= '9'){
-            T n = (c - '0');
-            result += n*(base^^(s.length-1 - i)); // ^^ is the pow expression in D
-        }
-        else if(c != '_'){
-            succeeded = false;
-            break;
-        }
-    }
-
-    if(succeeded){
-        *t = result;
-    }
-
-    return succeeded;
-}
-
-bool to_float(float* f, String s){
-    import core.stdc.stdlib : strtod;
-
-    bool result = false;
-
-    // Since we're using strtod, we need to pass in a string that we know is null terminated.
-    // Therefore, we copy the string.
-    //
-    // TODO: Learn how to write a replacement to strtod, so we don't have to do this silly
-    // null termination dance.
-    char[512] buffer = void;
-    if(s.length > 0 && s.length < buffer.length){
-        copy(s[0..$], buffer[0 .. s.length]);
-        buffer[s.length] = '\0';
-        *f = strtod(buffer.ptr, null);
-        result = true;
-    }
-
+Allocator make_sub_allocator(Allocator* allocator, size_t size, uint flags = 0, uint alignment = Default_Align){
+    auto result = Allocator(alloc_array!void(allocator, size, flags, alignment));
     return result;
 }
 
+////
 //
 // Strings
 //
+////
+
+struct Buffer_Writer{
+    char[] buffer;
+    size_t used;
+
+    void put(String text){
+        size_t bytes_left = buffer.length - used;
+        size_t to_write = text.length > bytes_left ? bytes_left : text.length;
+        copy(text[0 .. to_write], buffer[used .. used + to_write]);
+        used += to_write;
+        buffer[used >= buffer.length ? $-1 : used] = '\0';
+    }
+}
+
+Buffer_Writer begin_buffer_writer(Allocator* allocator, uint alignment = Default_Align){
+    auto push = calc_alignment_push(&allocator.memory[allocator.used], alignment);
+    auto result = Buffer_Writer(cast(char[])allocator.memory[allocator.used + push .. $]);
+    allocator.used = allocator.memory.length;
+    return result;
+}
+
+void end_buffer_writer(Allocator* allocator, Buffer_Writer* writer){
+    allocator.used = &writer.buffer[writer.used] - cast(char*)allocator.memory.ptr;
+    assert(allocator.used <= allocator.memory.length);
+}
+
+bool is_whitespace(char c){
+    bool result = (c == ' ')
+               || (c == '\t')
+               || (c == '\v')
+               || (c == '\f')
+               || (c == '\n')
+               || (c == '\r');
+    return result;
+}
 
 String eat_line(ref String reader){
     String result = reader;
@@ -344,6 +286,61 @@ String eat_between_char(ref String reader, char delimiter){
     return result;
 }
 
+
+bool to_int(T)(T* t, String s)
+if(isIntegral!T && !isFloatingPoint!T){
+    bool succeeded = s.length > 0;
+
+    bool is_negative;
+    if(s.length > 0){
+        is_negative = s[0] == '-';
+
+        if(s[0] == '-' || s[0] == '+')
+            s = s[1..$];
+    }
+
+    // TODO: Parse hex literals. What about binary and octal?
+    T base = 10;
+
+    T result = 0;
+    foreach_reverse(i, c; s){
+        if(c >= '0' && c <= '9'){
+            T n = (c - '0');
+            result += n*(base^^(s.length-1 - i)); // ^^ is the pow expression in D
+        }
+        else if(c != '_'){
+            succeeded = false;
+            break;
+        }
+    }
+
+    if(succeeded){
+        *t = result;
+    }
+
+    return succeeded;
+}
+
+bool to_float(float* f, String s){
+    import core.stdc.stdlib : strtod;
+
+    bool result = false;
+
+    // Since we're using strtod, we need to pass in a string that we know is null terminated.
+    // Therefore, we copy the string.
+    //
+    // TODO: Learn how to write a replacement to strtod, so we don't have to do this silly
+    // null termination dance.
+    char[512] buffer = void;
+    if(s.length > 0 && s.length < buffer.length){
+        copy(s[0..$], buffer[0 .. s.length]);
+        buffer[s.length] = '\0';
+        *f = strtod(buffer.ptr, null);
+        result = true;
+    }
+
+    return result;
+}
 
 ////
 //
