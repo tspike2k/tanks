@@ -266,6 +266,22 @@ bool is_whitespace(char c){
     return result;
 }
 
+bool is_match(String a, String b){
+    if(a.length != b.length)
+        return false;
+
+    foreach(i, c; a){
+        if(b[i] != c)
+            return false;
+    }
+    return true;
+}
+
+inout(char)[] to_string(inout(char)* s){
+    auto result = s[0 .. strlen(s)];
+    return result;
+}
+
 String eat_line(ref String reader){
     String result = reader;
     foreach(i, c; reader){
@@ -327,7 +343,6 @@ String eat_between_char(ref String reader, char delimiter){
     }
     return result;
 }
-
 
 bool to_int(T)(T* t, String s)
 if(isIntegral!T && !isFloatingPoint!T){

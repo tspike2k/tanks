@@ -1046,42 +1046,9 @@ extern(C) int main(int args_count, char** args){
     }
 
     {
-        struct Node{
-            Node* next;
-            Node* prev;
-            int n;
+        foreach(entry; recurse_directory("./build/shaders", &s.frame_memory)){
+            log("Name: {0} type: {1}\n", entry.name, entry.type);
         }
-
-        auto n0 = Node(n: 0);
-        auto n1 = Node(n: 1);
-        auto n2 = Node(n: 2);
-
-        List!Node list;
-        list.make();
-
-        list.insert(list.top, &n0);
-        list.insert(list.top, &n1);
-        list.insert(list.top, &n2);
-
-        log("List test.\n");
-
-        auto node = list.bottom;
-        while(!list.is_sentinel(node)){
-            log("{0}, ", node.n);
-            node = node.next;
-        }
-        log("\n");
-
-        list.remove(&n1);
-        list.remove(&n0);
-        list.remove(&n2);
-        node = list.bottom;
-        while(!list.is_sentinel(node)){
-            log("{0}, ", node.n);
-            node = node.next;
-        }
-
-        log("\n");
     }
 
     if(!open_display("Tanks", 1920, 1080, 0)){
