@@ -156,6 +156,9 @@ version(linux){
         String     base_dir_name;
 
         this(String dir_name, Allocator* al){
+            assert(dir_name.length);
+            assert(dir_name[$-1] != Dir_Sep[0]);
+
             allocator = al;
             push_frame(allocator.scratch);
             nodes.make();
@@ -249,14 +252,25 @@ version(linux){
     }
 
     char[] get_full_path(Directory_Entry *dir, Allocator* allocator){
-        char[] result;
-/*
         auto range = cast(Directory_Range*)dir.internal;
-        auto writer = begin_buffer_writer(allocator);
-        writer.put(base_dir_name);
 
+        auto writer = begin_buffer_writer(allocator);
+        writer.put(range.base_dir_name);
+
+        auto nodes = &range.nodes;
+        auto node = nodes.bottom;
+        while(!nodes.is_sentinel(node)){
+            writer.put(Dir_Sep);
+
+            auto name = to_string(node.entry_stream.d_name.ptr);
+            writer.put(name);
+
+            node = node.next;
+        }
+
+        auto result = writer.buffer[0 .. writer.used];
         end_buffer_writer(allocator, &writer);
-*/
+
         return result;
     }
 

@@ -1046,8 +1046,9 @@ extern(C) int main(int args_count, char** args){
     }
 
     {
-        foreach(entry; recurse_directory("./build/shaders", &s.frame_memory)){
-            log("Name: {0} type: {1}\n", entry.name, entry.type);
+        foreach(entry; recurse_directory("./build", &s.frame_memory)){
+            auto path = get_full_path(&entry, &s.frame_memory);
+            log("Name: {0} type: {1}\n", path, entry.type);
         }
     }
 
