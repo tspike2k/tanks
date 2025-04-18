@@ -251,9 +251,11 @@ Buffer_Writer begin_buffer_writer(Allocator* allocator, uint alignment = Default
     return result;
 }
 
-void end_buffer_writer(Allocator* allocator, Buffer_Writer* writer){
+char[] end_buffer_writer(Allocator* allocator, Buffer_Writer* writer){
     allocator.used = &writer.buffer[writer.used] - cast(char*)allocator.memory.ptr;
     assert(allocator.used <= allocator.memory.length);
+    auto result = writer.buffer[0 .. writer.used];
+    return result;
 }
 
 bool is_whitespace(char c){

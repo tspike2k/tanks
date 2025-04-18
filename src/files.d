@@ -148,21 +148,20 @@ version(linux){
             Node*   prev;
             DIR*    dir;
             dirent* entry_stream;
+            String  path;
         }
 
-        Allocator* allocator;
+        Allocator* scratch;
         List!Node  nodes;
         Node*      node_first_free;
-        String     base_dir_name;
 
-        this(String dir_name, Allocator* al){
+        this(String dir_name, Allocator* allocator){
             assert(dir_name.length);
             assert(dir_name[$-1] != Dir_Sep[0]);
 
-            allocator = al;
-            push_frame(allocator.scratch);
+            scratch = allocator.scratch;
+            push_frame(scratch);
             nodes.make();
-            base_dir_name = dir_name;
             push_directory(dir_name);
             advance_directory_stream();
         }
@@ -173,13 +172,15 @@ version(linux){
         }
 
         Directory_Entry front(){
-            auto entry = nodes.top.entry_stream;
+            auto top = nodes.top;
+            assert(!nodes.is_sentinel(top));
+            assert(top.entry_stream);
 
             Directory_Entry result;
-            result.name = to_string(entry.d_name.ptr);
-            result.internal = &this;
+            result.name = to_string(top.entry_stream.d_name.ptr);
+            result.internal = top;
 
-            switch(entry.d_type){
+            switch(top.entry_stream.d_type){
                 default:
                     result.type = Directory_Entry_Type.Unknown; break;
 
@@ -194,15 +195,24 @@ version(linux){
         }
 
         void popFront(){
-            auto stream = nodes.top.entry_stream;
-            if(stream && stream.d_type == DT_DIR){
-                push_directory(stream.d_name[]);
+            auto entry = nodes.top.entry_stream;
+            if(entry && entry.d_type == DT_DIR){
+                auto top = nodes.top;
+                assert(!nodes.is_sentinel(top));
+
+                auto writer = begin_buffer_writer(scratch);
+                writer.put(top.path);
+                writer.put(Dir_Sep);
+                writer.put(to_string(entry.d_name.ptr));
+                auto path = end_buffer_writer(scratch, &writer);
+
+                push_directory(path);
             }
             advance_directory_stream();
 
-            // We have no more directories to search, so cleanup memory.
+            // We have no more directories to search, so clean up memory.
             if(nodes.is_sentinel(nodes.top)){
-                pop_frame(allocator.scratch);
+                pop_frame(scratch);
             }
         }
 
@@ -215,9 +225,9 @@ version(linux){
                     node_first_free = node.next;
                 }
                 else{
-                    node = alloc_type!Node(allocator);
+                    node = alloc_type!Node(scratch);
                 }
-
+                node.path = dir_name;
                 nodes.insert(nodes.top, node);
                 node.dir = dir;
             }
@@ -252,24 +262,14 @@ version(linux){
     }
 
     char[] get_full_path(Directory_Entry *dir, Allocator* allocator){
-        auto range = cast(Directory_Range*)dir.internal;
+        auto node = cast(Directory_Range.Node*)dir.internal;
+        assert(node.entry_stream);
 
         auto writer = begin_buffer_writer(allocator);
-        writer.put(range.base_dir_name);
-
-        auto nodes = &range.nodes;
-        auto node = nodes.bottom;
-        while(!nodes.is_sentinel(node)){
-            writer.put(Dir_Sep);
-
-            auto name = to_string(node.entry_stream.d_name.ptr);
-            writer.put(name);
-
-            node = node.next;
-        }
-
-        auto result = writer.buffer[0 .. writer.used];
-        end_buffer_writer(allocator, &writer);
+        writer.put(node.path);
+        writer.put(Dir_Sep);
+        writer.put(to_string(node.entry_stream.d_name.ptr));
+        auto result = end_buffer_writer(allocator, &writer);
 
         return result;
     }
