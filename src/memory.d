@@ -71,6 +71,48 @@ bool begins_with(String a, String b){
     return result;
 }
 
+template isListNode(T){
+    enum isListNode = is(typeof(T.next) == T*)
+                   && is(typeof(T.prev) == T*)
+                   && T.next.offsetof == 0
+                   && T.prev.offsetof == size_t.sizeof;
+}
+
+struct List(T)
+if(isListNode!T){
+    T*     next;
+    T*     prev;
+    size_t count;
+
+    alias top    = prev;
+    alias bottom = next;
+
+    void make(){
+        next = cast(T*)&this;
+        prev = cast(T*)&this;
+    }
+
+    void insert(T* head, T* node){
+        head.next.prev = node;
+        node.next = head.next;
+        node.prev = head;
+        head.next = node;
+        count++;
+    }
+
+    void remove(T* node){
+        assert(count > 0);
+        node.prev.next = node.next;
+        node.next.prev = node.prev;
+        count--;
+    }
+
+    bool is_sentinel(T* node){
+        bool result = node == cast(T*)&this;
+        return result;
+    }
+}
+
 version(linux){
     import core.sys.linux.sys.mman;
 

@@ -68,6 +68,23 @@ if(Args.length > 0){
     return result;
 }
 
+enum Directory_Entry_Type: uint{
+    None,
+    File,
+    Directory,
+    Unknown,
+}
+
+struct Directory_Entry{
+    Directory_Entry_Type type;
+    char[] name;
+}
+
+/+auto recurse_directory(String dir_name, Allocator* allocator){
+    auto result = Directory_Range(dir_name, allocator);
+    return result;
+}+/
+
 version(linux){
     File open_file(const(char)[] file_name, uint flags){
         int permissions = 0;
@@ -122,6 +139,197 @@ version(linux){
         }
         return result;
     }
+
+    version(none){
+        struct Recurse_Directory{
+            import core.sys.posix.dirent;
+
+            DIR*[8]        dir_stack;
+            uint[8]        path_watermarks;
+            char[4096]     path;
+            uint           dir_count;
+            dirent*        entry;
+
+            this(String source_dir_name){
+                push_dir(source_dir_name);
+                next_entry();
+            }
+
+            bool empty(){
+                bool result = dir_count == 0;
+                return result;
+            }
+
+            void popFront(){}
+
+            Directory_Entry front(){
+                Directory_Entry result;
+                assert(entry);
+
+                auto file_type = File_Type.Unknown;
+                switch(entry.d_type){
+                    default: break;
+
+                    case DT_REG:
+                        file_type = File_Type.File; break;
+
+                    case DT_DIR:
+                        file_type = File_Type.Directory; break;
+                }
+
+                result.type = file_type;
+                result.file_path = to_string(&path[0]);
+                return result;
+            }
+
+            uint graft_name_onto_path_end(const(char)* name){
+                auto min_index = dir_count == 0 ? 0 : path_watermarks[dir_count-1];
+                uint max_index = min_index + cast(uint)strlen(name);
+                path[min_index .. max_index] = name[0 .. max_index-min_index];
+                path[max_index] = '\0';
+                return max_index;
+            }
+
+            void push_dir(String dir_name){
+                auto max_index = graft_name_onto_path_end(dir_name.ptr);
+                path[max_index] = '/';
+                path[max_index+1] = '\0';
+                path_watermarks[dir_count] = max_index+1;
+
+                auto dir = opendir(&path[0]);
+                if(dir){
+                    dir_stack[dir_count++] = dir;
+                }
+                else{
+                    log_error("Unable to open dir ", to_string(&path[0]));
+                }
+            }
+
+            void next_entry(){
+                while(dir_count > 0){
+                    auto dir = dir_stack[dir_count-1];
+                    entry = readdir(dir);
+                    if(entry){
+                        auto name = to_string(&entry.d_name[0]);
+                        if(!is_match(name, ".") && !is_match(name, "..")){
+                            graft_name_onto_path_end(name.ptr);
+                            break;
+                        }
+                    }
+                    else{
+                        closedir(dir);
+                        dir_count--;
+                    }
+                }
+            }
+        }
+    }
+
+    // My preference would be that we could use a Range to walk the directory. How can we do that?
+    /+
+
+        for(; !range.empty; range.popFront){
+            auto front = range.front;
+        }
+    +/
+
+    /+
+    struct Directory_Range{
+        import core.sys.posix.dirent;
+        struct Node{
+            Node*     next;
+            Node*     prev;
+            DIR*      dir;
+            char[256] name;
+        }
+
+        Allocator* allocator;
+        List!Node  nodes;
+        Node*      node_first_free;
+        dirent*    entry;
+
+        this(String dir_name, Allocator* al){
+            allocator = al;
+            push_frame(allocator.scratch);
+            nodes.make();
+
+            push_directory(dir_name);
+        }
+
+        bool empty(){
+            bool result = is_sentinel(nodes, nodes.front);
+            return result;
+        }
+
+        void popFront(){
+            if(dir_stream && dir_stream.d_type == DT_DIR){
+                push_dir(dir_stream.d_name[]);
+            }
+            advance_directory_stream();
+
+            // TODO: If empty, pop_frame(allocator.scratch)
+        }
+    }+/
+
+    /+
+    struct Directory_Walker{
+
+
+
+
+
+
+        Directory_Entry front(){
+            Directory_Entry result;
+
+            auto node = sentinel.get;
+            while(node != &sentinel){
+                auto dir = node.dir;
+                dir_stream = readdir(dir);
+                if(entry){
+                    auto name = to_string(&entry.d_name[0]);
+                    if(!is_match(name, ".") && !is_match(name, "..")){
+                        graft_name_onto_path_end(name.ptr);
+                        break;
+                    }
+                }
+                else{
+                    closedir(dir);
+                    ;
+                }
+            }
+
+
+            auto entry = readdir()
+
+            return result;
+        }
+
+        void popFront(){
+            if(dir_stream && dir_stream.d_type == DT_DIR){
+                push_dir(dir_stream.d_name[]);
+            }
+            advance_directory_stream();
+        }
+
+        private:
+
+        void push_directory(String dir_name){
+            auto dir = opendir(dir_name.ptr);
+            if(dir){
+                auto node = alloc_type!Stack_Node(allocator);
+                stack_top.next   = node;
+                stack_top        = node;
+                if(!stack_first) stack_first = node;
+
+                node.dir = dir;
+            }
+        }
+
+        void advance_directory_stream(){
+
+        }
+    }+/
 
     size_t read_file(File *file, size_t offset, void[] dest){
         assert(file.flags & File_Flag_Read);

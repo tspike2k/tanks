@@ -156,6 +156,7 @@ extern(C) int main(){
     scope(exit) os_dealloc(main_memory);
 
     auto allocator = Allocator(main_memory);
+    allocator.scratch = &allocator;
 
     return 0;
 }
