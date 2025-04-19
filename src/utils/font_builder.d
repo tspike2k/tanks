@@ -10,9 +10,11 @@ import bind.freetype2;
 import memory;
 import assets;
 import logging;
+import files;
+import math;
 
 version(linux){
-    String[] Font_Directories = [
+    __gshared String[] Font_Directories = [
         "/usr/share/fonts"
     ];
 }
@@ -33,8 +35,8 @@ struct Font_Entry{
 };
 
 struct Font_Builder{
-    //Memory_Block *allocator;
-    //Font_Entry     *font_entry;
+    Allocator*    allocator;
+    Font_Entry*   font_entry;
     //Glyph_Entry    *glyph_entries;
     Font_Metrics    metrics;
 
@@ -43,23 +45,138 @@ struct Font_Builder{
     FT_Stroker stroker;
 };
 
-Font_Entry[] Font_Entries = [
+__gshared Font_Entry[] Font_Entries = [
     {
-        height: 12, stroke: 1, fill_color: 0xFFFFFFFF, stroke_color: 0x000000FF,
-        dest_file_name: "", source_file_name: ""
+        height: 24, stroke: 1, fill_color: 0xFFFFFFFF, stroke_color: 0x000000FF,
+        dest_file_name: "./build/test_en.fnt", source_file_name: "LiberationSans-Regular.ttf"
     },
 ];
 
-void[] find_and_load_ttf_file(String name, Allocator* allocator){
-    void[] result;
-    foreach(dir; Font_Directories){
-        auto path = recursive_file_search(dir, name, allocator.scratch);
-        if(path.length){
-            concat(dir, name);
-            read_file_into_memory;
+char[] get_path_for_ttf_file(String name, Allocator* allocator){
+    char[] result;
+    outer: foreach(dir_name; Font_Directories){
+        foreach(entry; recurse_directory(dir_name, allocator)){
+            if(entry.type == File_Type.File && is_match(name, entry.name)){
+                result = get_full_path(&entry, allocator.scratch);
+                break outer;
+            }
         }
     }
     return result;
+}
+
+uint blend_colors_premultiplied_alpha(uint source, uint dest){
+    // Blending code adapted from Handmade Hero.
+    // TODO: Cite which day of Handmade Hero it was from
+
+    // TODO: Gamma corrected colors? See here for more information:
+    // https://www.youtube.com/watch?v=fVyzTKCfchw&feature=youtu.be&t=3275
+    Vec4 s = Vec4(
+        (source >> 16) & 0xff, (source >>  8) & 0xff,
+        (source >>  0) & 0xff, (source >> 24) & 0xff
+    );
+
+    Vec4 d = Vec4(
+        (dest >> 16) & 0xff, (dest >>  8) & 0xff,
+        (dest >>  0) & 0xff, (dest >> 24) & 0xff
+    );
+
+    float rsa = (s.a / 255.0f);
+    float rda = (d.a / 255.0f);
+    float inv_rsa = (1.0f - rsa);
+    Vec4 out_c = Vec4(
+        inv_rsa*d.r + s.r,
+        inv_rsa*d.g + s.g,
+        inv_rsa*d.b + s.b,
+        (rsa + rda  - rsa * rda) * 255.0f
+    );
+    uint result = (cast(uint)out_c.a) << 24 | (cast(uint)out_c.r) << 16
+                | (cast(uint)out_c.g) <<  8 | (cast(uint)out_c.b) <<  0;
+
+    return result;
+}
+
+static FT_BitmapGlyph rasterize_glyph(FT_Face face, FT_Stroker stroker, uint codepoint, uint stroke){
+    // TODO: Error handling!
+    FT_Load_Char(face, codepoint, FT_LOAD_DEFAULT | FT_LOAD_NO_BITMAP);
+    FT_Glyph glyph_info;
+    FT_Get_Glyph(face.glyph, &glyph_info);
+    assert(glyph_info.format == FT_GLYPH_FORMAT_OUTLINE);
+
+    if(stroke > 0)
+        FT_Glyph_StrokeBorder(&glyph_info, stroker, false, true);
+
+    FT_Glyph_To_Bitmap(&glyph_info, FT_RENDER_MODE_NORMAL, null, 1);
+    FT_BitmapGlyph result = cast(FT_BitmapGlyph)glyph_info;
+    return result;
+}
+
+uint replace_alpha(uint color, uint alpha){
+   uint result = (color & 0x00ffffff) | (alpha << 24);
+   return result;
+}
+
+bool rasterize_glyph_and_copy_metrics(Font_Builder *builder, uint codepoint, Font_Glyph *glyph, Pixels* pixels){
+    // TODO: Better error handling!
+    bool succeeded = true;
+
+    /+
+    FT_Face     face       = builder.face;
+    FT_Stroker  stroker    = builder.stroker;
+    Allocator*  allocator  = builder.allocator;
+    Font_Entry* font_entry = builder.font_entry;
+
+    FT_BitmapGlyph bitmap_glyph = rasterize_glyph(face, stroker, codepoint, font_entry.stroke);
+    uint w = bitmap_glyph.bitmap.width;
+    uint h = bitmap_glyph.bitmap.rows;
+
+    // Copy glyph metrics
+    glyph.codepoint = codepoint;
+    glyph.width     = w;
+    glyph.height    = h;
+    glyph.offset.x  = bitmap_glyph.left + cast(int)font_entry.stroke;
+    glyph.offset.y  = bitmap_glyph.bitmap.rows - bitmap_glyph.top;
+    glyph.advance   = (cast(uint)face.glyph.advance.x) >> 6;
+
+    pixels.width  = w;
+    pixels.height = h;
+    pixels.data   = alloc_array!uint(allocator, w*h);
+
+    uint target_color = font_entry.stroke == 0 ? font_entry.fill_color : font_entry.stroke_color;
+    for(uint y = 0; y < h; y++){
+        for(uint x = 0; x < w; x++){
+            uint alpha = bitmap_glyph.bitmap.buffer[x + y*w];
+            uint color = premultiply_alpha(replace_alpha(target_color, alpha));
+
+            uint *pixel = &pixels.data[x + y*w];
+            *pixel = blend_colors_premultiplied_alpha(color, *pixel);
+        }
+    }
+
+    if(font_entry.stroke){
+        bitmap_glyph = rasterize_glyph(face, stroker, codepoint, 0);
+        w = bitmap_glyph.bitmap.width;
+        h = bitmap_glyph.bitmap.rows;
+
+        // TODO: Is it really this simple to get the fill offset? Are there times where this doesn't work?
+        uint fill_offset_x = font_entry.stroke;
+        uint fill_offset_y = font_entry.stroke;
+
+        target_color = font_entry.fill_color;
+        for(uint y = 0; y < h; y++){
+            for(uint x = 0; x < w; x++){
+                uint alpha = bitmap_glyph.bitmap.buffer[x + y*w];
+                uint color = premultiply_alpha(replace_alpha(target_color, alpha));
+
+                uint pixel_index = fill_offset_x+x + (fill_offset_y+y)*pixels.width;
+                assert(pixel_index < pixels.width * pixels.height);
+                uint *pixel = &pixels.data[pixel_index];
+                *pixel = blend_colors_premultiplied_alpha(color, *pixel);
+            }
+        }
+    }
++/
+    return succeeded;
 }
 
 bool begin_building_font(Font_Builder *builder, Font_Entry *entry){
@@ -94,6 +211,10 @@ bool begin_building_font(Font_Builder *builder, Font_Entry *entry){
 }
 
 void end_building_font(Font_Builder* builder, Font_Entry *font_entry){
+    auto canvas = Pixels(48, 48);
+    canvas.data = alloc_array!uint(builder.allocator, canvas.width, canvas.height);
+
+/+
     Pixels pixels = pack_glyphs_and_gen_texture(builder.glyph_entries, builder.allocator);
 
     // TODO: Is bulk clearing the memory faster than clearing on each call to push_writer?
@@ -102,9 +223,9 @@ void end_building_font(Font_Builder* builder, Font_Entry *font_entry){
 
     Slice writer = {(char*)&file_memory[0], Array_Length(file_memory)};
     Asset_File_Header *header = push_writer_type(writer, Asset_File_Header);
-    header.magic      = Asset_File_Magic;
-    header.version    = Asset_File_Version;
-    header.asset_type = Asset_Type_Font;
+    header.magic        = Asset_File_Magic;
+    header.file_version = Asset_File_Version;
+    header.asset_type   = Asset_Type_Font;
 
     Asset_File_Section *section = push_writer_type(writer, Asset_File_Section);
     section.type = Font_Section_Metrics;
@@ -134,7 +255,7 @@ void end_building_font(Font_Builder* builder, Font_Entry *font_entry){
     pixels_header.width  = pixels.width;
     pixels_header.height = pixels.height;
     slice_write(&writer, pixels.data, pixels.width*pixels.height*sizeof(u32));
-    section.size = writer.data - (char*)section - sizeof(Asset_File_Section);
+    section.size = writer.data - cast(char*)section - sizeof(Asset_File_Section);
 
     // TODO: Depricate File_Flag_Trunc. It's too easy to forget it. Most of the time we want to
     // truncate anyway. Add a flag for appending to a file instead.
@@ -146,17 +267,30 @@ void end_building_font(Font_Builder* builder, Font_Entry *font_entry){
 
     // TODO: Pick a filename based on the name of the destination filename
     save_to_tga("test.tga", &pixels.data[0], pixels.width, pixels.height, builder.allocator);
-
++/
     if(font_entry.stroke) FT_Stroker_Done(builder.stroker);
     FT_Done_Face(builder.face);
 }
 
 extern(C) int main(){
-    auto main_memory = os_alloc(4*1024*1024);
+    auto main_memory = os_alloc(4*1024*1024, 0);
     scope(exit) os_dealloc(main_memory);
 
     auto allocator = Allocator(main_memory);
     allocator.scratch = &allocator;
+
+    foreach(ref entry; Font_Entries){
+        auto src_file_path = get_path_for_ttf_file(entry.source_file_name, &allocator);
+        if(src_file_path.length){
+            Font_Builder builder = void;
+            if(begin_building_font(&builder, &entry)){
+                end_building_font(&builder, &entry);
+            }
+        }
+        else{
+            log_error("Unable to load font: {0}. Skipping.\n", entry.source_file_name, entry);
+        }
+    }
 
     return 0;
 }

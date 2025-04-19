@@ -73,6 +73,12 @@ bool verify_asset_header(alias target)(const(char)[] file_name, Asset_Header* he
     return true;
 }
 
+struct Pixels{
+    uint   width;
+    uint   height;
+    uint[] data;
+}
+
 ////
 //
 // Campaign files
@@ -276,12 +282,6 @@ struct Font{
     uint[] bitmap_pixels;
 }
 
-struct Pixels{
-    uint   width;
-    uint   height;
-    uint[] data;
-}
-
 bool parse_font_file(String file_name, void[] source, Font* font, Pixels* pixels, Allocator* allocator){
     auto reader = source;
     auto header = stream_next!Asset_Header(reader);
@@ -328,4 +328,47 @@ bool parse_font_file(String file_name, void[] source, Font* font, Pixels* pixels
     }
 
     return result;
+}
+
+////
+//
+// Atlas Packer
+//
+////
+
+struct Atlas_Packer{
+    struct Node{
+        Node* next;
+        Rect  bounds;
+        void* source;
+    }
+
+    Allocator* scratch;
+    uint       canvas_width;
+    uint       canvas_height;
+
+    Node*      items;
+    uint       items_count;
+    uint       items_height;
+    uint       items_width;
+}
+
+Atlas_Packer begin_packing(Allocator* allocator){
+    Atlas_Packer packer;
+    packer.scratch = allocator.scratch;
+    return packer;
+}
+
+void add_rect(Atlas_Packer* packer, Rect bounds, void* source){
+    auto node = alloc_type!Atlas_Packer.Node(scratch);
+    node.next = packer.items;
+    packer.items = node;
+
+    packer.items_count++;
+    packer.items_width  += cast(uint)width(bounds);
+    packer.items_height += cast(uint)height(bounds);
+}
+
+void end_packing(Atlas_Packer* packer, uint padding){
+
 }

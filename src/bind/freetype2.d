@@ -29,10 +29,31 @@ enum FT_LOAD_COMPUTE_METRICS              = ( 1L << 21 );
 enum FT_LOAD_BITMAP_METRICS_ONLY          = ( 1L << 22 );
 enum FT_LOAD_NO_SVG                       = ( 1L << 24 );
 
+enum{
+    FT_GLYPH_FORMAT_NONE      = FT_IMAGE_TAG(0, 0, 0, 0),
+    FT_GLYPH_FORMAT_COMPOSITE = FT_IMAGE_TAG('c', 'o', 'm', 'p'),
+    FT_GLYPH_FORMAT_BITMAP    = FT_IMAGE_TAG('b', 'i', 't', 's'),
+    FT_GLYPH_FORMAT_OUTLINE   = FT_IMAGE_TAG('o', 'u', 't', 'l'),
+    FT_GLYPH_FORMAT_PLOTTER   = FT_IMAGE_TAG('p', 'l', 'o', 't'),
+    FT_GLYPH_FORMAT_SVG       = FT_IMAGE_TAG('S', 'V', 'G', ' ')
+}
+
+enum{
+    FT_RENDER_MODE_NORMAL = 0,
+    FT_RENDER_MODE_LIGHT,
+    FT_RENDER_MODE_MONO,
+    FT_RENDER_MODE_LCD,
+    FT_RENDER_MODE_LCD_V,
+    FT_RENDER_MODE_SDF,
+
+    FT_RENDER_MODE_MAX
+}
+
 // Additional integer size conversion information can be found here:
 // https://wiki.dlang.org/D_binding_for_C
 import core.stdc.config : c_ulong, c_long;
 alias c_enum              = int; // TODO: Is this correct?
+alias FT_Bool             = ubyte;
 alias FT_Int              = int;
 alias FT_Int32            = int;
 alias FT_UInt             = uint;
@@ -47,18 +68,23 @@ alias FT_Fixed            = c_long;
 alias FT_Stroker_LineCap  = c_enum;
 alias FT_Stroker_LineJoin = c_enum;
 alias FT_Glyph_Format     = c_enum;
+alias FT_Render_Mode      = c_enum;
 
 struct FT_LibraryRec;
 struct FT_CharMapRec;
 struct FT_StrokerRec;
 struct FT_SubGlyphRec;
-alias  FT_CharMap   = FT_CharMapRec*;
-alias  FT_Library   = FT_LibraryRec*;
-alias  FT_Size      = FT_SizeRec*;
-alias  FT_Face      = FT_FaceRec*;
-alias  FT_Stroker   = FT_StrokerRec*;
-alias  FT_GlyphSlot = FT_GlyphSlotRec*;
-alias  FT_SubGlyph  = FT_SubGlyphRec*;
+
+alias  FT_CharMap     = FT_CharMapRec*;
+alias  FT_Library     = FT_LibraryRec*;
+alias  FT_Size        = FT_SizeRec*;
+alias  FT_Face        = FT_FaceRec*;
+alias  FT_Stroker     = FT_StrokerRec*;
+alias  FT_GlyphSlot   = FT_GlyphSlotRec*;
+alias  FT_SubGlyph    = FT_SubGlyphRec*;
+alias  FT_BitmapGlyph = FT_BitmapGlyphRec*;
+alias  FT_Glyph       = FT_GlyphRec*;
+alias  FT_Glyph_Class = void*;
 
 alias FT_Generic_Finalizer = void function(void* object);
 
@@ -231,11 +257,36 @@ struct FT_Bitmap{
     void*   palette;
 }
 
+struct FT_BitmapGlyphRec{
+    FT_GlyphRec  root;
+    FT_Int       left;
+    FT_Int       top;
+    FT_Bitmap    bitmap;
+}
+
+struct FT_GlyphRec{
+    FT_Library             library;
+    const FT_Glyph_Class*  clazz;
+    FT_Glyph_Format        format;
+    FT_Vector              advance;
+};
+
 FT_Error FT_Init_FreeType(FT_Library* library);
 FT_Error FT_Done_FreeType(FT_Library library);
 FT_Error FT_New_Face(FT_Library library, const(char)* filepathname, FT_Long face_index, FT_Face* aface);
+FT_Error FT_Done_Face(FT_Face face);
 FT_Error FT_Set_Pixel_Sizes(FT_Face face, FT_UInt pixel_width, FT_UInt pixel_height);
-FT_Error FT_Stroker_New(FT_Library library, FT_Stroker* astroker);
 void FT_Stroker_Set(FT_Stroker stroker, FT_Fixed radius, FT_Stroker_LineCap line_cap, FT_Stroker_LineJoin  line_join, FT_Fixed miter_limit);
 FT_Error FT_Load_Char(FT_Face face, FT_ULong char_code, FT_Int32 load_flags);
+FT_Error FT_Stroker_New(FT_Library library, FT_Stroker* astroker);
+void FT_Stroker_Done(FT_Stroker stroker);
+FT_Error FT_Glyph_StrokeBorder(FT_Glyph* pglyph, FT_Stroker stroker, FT_Bool inside, FT_Bool destroy);
+FT_Error FT_Get_Glyph(FT_GlyphSlot slot, FT_Glyph* aglyph);
+FT_Error FT_Glyph_To_Bitmap(FT_Glyph* the_glyph, FT_Render_Mode render_mode, const(FT_Vector)* origin, FT_Bool destroy);
 
+// This is a compromise. The Freetype2 uses a macro that takes the result as the first parameter and
+// sets it via the macro. Here we return the value instead.
+uint FT_IMAGE_TAG(uint x1, uint x2, uint x3, uint x4){
+    uint result = x1 << 24 | x2 << 16 | x3 << 8 | x4;
+    return result;
+}
