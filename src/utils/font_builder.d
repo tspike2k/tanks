@@ -4,11 +4,14 @@ Distributed under the Boost Software License, Version 1.0.
 See accompanying file LICENSE_BOOST.txt or copy at http://www.boost.org/LICENSE_1_0.txt
 */
 
+/+
+TODO:
+    - On some letters, the stroke is obviously off by one pixel. Usually to the left or right.
++/
+
 pragma(lib, "freetype");
 
 import bind.freetype2;
-//import bindbc.freetype;
-//import bindbc.freetype.bind.ftsystem;
 import memory;
 import assets;
 import logging;
@@ -254,12 +257,6 @@ void end_building_font(Font_Builder* builder, Font_Entry *font_entry){
     save_to_tga("test.tga", canvas.data.ptr, canvas.width, canvas.height, builder.allocator);
 
 /+
-    Pixels pixels = pack_glyphs_and_gen_texture(builder.glyph_entries, builder.allocator);
-
-    // TODO: Is bulk clearing the memory faster than clearing on each call to push_writer?
-    // I suspect that's true.
-    memset(&file_memory[0], 0, Array_Length(file_memory));
-
     Slice writer = {(char*)&file_memory[0], Array_Length(file_memory)};
     Asset_File_Header *header = push_writer_type(writer, Asset_File_Header);
     header.magic        = Asset_File_Magic;
@@ -326,6 +323,7 @@ extern(C) int main(){
             auto src_file_path = get_path_for_ttf_file(entry.source_file_name, &allocator);
             if(src_file_path.length){
                 if(begin_building_font(&builder, src_file_path, &entry)){
+                    // TODO: Add the null glyph!
                     foreach(c; '!' .. '~'+1){
                         add_codepoint(&builder, c);
                     }

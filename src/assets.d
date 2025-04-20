@@ -509,28 +509,29 @@ void add_item(Atlas_Packer* packer, uint width, uint height, void* source){
 }
 
 void end_atlas_packing(Atlas_Packer* packer, uint padding, bool use_powers_of_two){
-    // TODO: Make a better initial canvas estimate
-    auto canvas_width  = (packer.items_width  / 2) + padding*(packer.items_count+1);
-    auto canvas_height = (packer.items_height / 2) + padding*(packer.items_count+1);
+    // Using this algorithm, we estimate the desired canvas width and grow the height as
+    // much as we need.
+    //
+    // TODO: Perhaps there's a better way to handle this? It seems to work pretty well so far.
+    // We may need to use maximum item width rather than everage item width for things other
+    // than fonts.
+    auto columns = cast(uint)ceil(sqrt(cast(float)packer.items_count));
+    auto average_width  = packer.items_width  / packer.items_count;
+    auto canvas_width   = (average_width  * columns) + padding*(packer.items_count+1);
 
     if(use_powers_of_two){
         canvas_width  = round_up_power_of_two(canvas_width);
-        canvas_height = round_up_power_of_two(canvas_height);
     }
-
-    packer.canvas_width  = canvas_width;
-    packer.canvas_height = canvas_height;
 
     uint pen_x = padding;
     uint pen_y = padding;
 
     auto node = packer.items;
 
+    uint canvas_height = 0;
     uint max_line_height = 0;
     while(node){
-        assert(pen_y + node.height + padding < canvas_height);
-
-        if(pen_x + node.width + padding > canvas_width){
+        if(pen_x + node.width + padding >= canvas_width){
             pen_y += max_line_height + padding;
             pen_x = padding;
             max_line_height = 0;
@@ -540,9 +541,16 @@ void end_atlas_packing(Atlas_Packer* packer, uint padding, bool use_powers_of_tw
         node.x = pen_x;
         node.y = pen_y;
         max_line_height = max(max_line_height, node.height);
+        canvas_height   = max(canvas_height, pen_y + max_line_height + padding);
 
         pen_x += node.width + padding;
 
         node = node.next;
     }
+
+    if(use_powers_of_two)
+        canvas_height = round_up_power_of_two(canvas_height);
+
+    packer.canvas_width  = canvas_width;
+    packer.canvas_height = canvas_height;
 }
