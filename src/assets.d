@@ -6,6 +6,7 @@ License:   Boost Software License 1.0 (https://www.boost.org/LICENSE_1_0.txt)
 
 import memory;
 import math;
+import files;
 import render : Mesh;
 private{
     import files;
@@ -332,6 +333,134 @@ bool parse_font_file(String file_name, void[] source, Font* font, Pixels* pixels
 
 ////
 //
+// TGA Files
+//
+////
+
+/*
+TGA loading cade based on text from the following source:
+https://paulbourke.net/dataformats/tga/
+*/
+
+enum TGA_Data_Type_Uncompressed_RGB = 2;
+enum TGA_Desc_Upper_Left_Origin = (1 << 5);
+
+bool is_non_interleaved(TGA_Header* header){
+    auto desc = header.image_desc;
+    auto result = !((desc) & ((1 << 6) | (1 << 7)));
+    return result;
+}
+
+struct TGA_Header{
+    align(1):
+    ubyte id_length;
+    ubyte colormap_type;
+    ubyte data_type;
+    short colormap_origin;
+    short colormap_length;
+    ubyte colormap_depth;
+    short x_origin;
+    short y_origin;
+    short width;  // TODO: Is this really signed?
+    short height; // TODO: Is this really signed?
+    ubyte bits_per_pixel;
+    ubyte image_desc;
+}
+static assert(TGA_Header.sizeof == 18);
+
+/+
+Pixels load_pixels_from_tga(void[] file_contents, String file_name, Memory_Block *block){
+    Pixels result;
+    if(file_contents.length < TGA_Header_Size){
+        log(Cyu_Err "File {0} is too small to contain a valid TGA header.\n", file_name);
+        return result;
+    }
+
+    assert(sizeof(TGA_Header) == TGA_Header_Size);
+    TGA_Header *header = (TGA_Header*)file_contents.data;
+
+    // TODO: Handle 24-bit pixel data
+    if(header.data_type != TGA_Data_Type_Uncompressed_RGB){
+        log(Cyu_Err "Unsupported TGA file for {0}. File must be an uncompressed RGB image.\n", file_name);
+        return result;
+    }
+
+    if(header.bits_per_pixel != 32){
+        log(Cyu_Err "Unsupported TGA file for {0}. File must be a 32-bit image (got {1}-bit).\n", file_name), fmt_u(header.bits_per_pixel));
+        return result;
+    }
+
+    if(!(header.image_desc & TGA_Desc_Upper_Left_Origin)){
+        log(Cyu_Err "Unsupported TGA file for {0}. Origin must be at the upper-left.\n", file_name);
+        return result;
+    }
+
+    if(!is_non_interleaved(header.image_desc)){
+        log(Cyu_Err "Unsupported TGA file for {0}. Pixel data must be non-interleaved.\n", file_name);
+        return result;
+    }
+
+    u32 w = header.width;
+    u32 h = header.height;
+    char* pixels_start = file_contents.data + TGA_Header_Size + header.id_length;
+
+    if(file_contents.length < w*h*sizeof(u32) + (pixels_start - file_contents.data)){
+        log(Cyu_Err "Invalid TGA file for {0}. File is too small to contain {1}x{2} pixel data.\n", fmt_cstr(file_name), fmt_u(w), fmt_u(h));
+        return result;
+    }
+
+    u32* source = (u32*)(pixels_start);
+    u32 pixel_count = w*h;
+    u32 *dest = (u32*)memory_alloc(block, pixel_count*sizeof(u32), 0, Default_Align);
+    if(!dest){
+        log(Cyu_Err "Unable to allocate memory for pixels for file {0}.\n", fmt_cstr(file_name));
+        return result;
+    }
+
+    for(u32 pixel_index = 0; pixel_index < pixel_count; pixel_index++){
+        u32 *pixel = &source[pixel_index];
+
+        u8 a = (*pixel >> 24) & 0xff;
+        u8 r = (*pixel >> 16) & 0xff;
+        u8 g = (*pixel >> 8)  & 0xff;
+        u8 b = (*pixel)       & 0xff;
+
+        dest[pixel_index] = ((u32)r) | ((u32)g) << 8
+            | ((u32)b) << 16 | ((u32)a) << 24;
+    }
+
+    result.width  = w;
+    result.height = h;
+    result.data   = dest;
+
+    return result;
+}+/
+
+void save_to_tga(String file_name, uint *pixels, uint width, uint height, Allocator *allocator){
+    auto scratch = allocator.scratch;
+    push_frame(scratch);
+    scope(exit) pop_frame(scratch);
+
+    auto file = open_file(file_name, File_Flag_Write|File_Flag_Trunc);
+    if(is_open(&file)){
+        size_t dest_size = TGA_Header.sizeof + uint.sizeof*width*height;
+        auto dest = alloc_array!void(scratch, dest_size);
+
+        auto header           = cast(TGA_Header*)dest;
+        header.data_type      = TGA_Data_Type_Uncompressed_RGB;
+        header.bits_per_pixel = 32;
+        header.width          = cast(short)width;
+        header.height         = cast(short)height;
+        header.image_desc     = TGA_Desc_Upper_Left_Origin;
+
+        copy(pixels[0 .. width*height], cast(uint[])dest[TGA_Header.sizeof .. $]);
+        write_file(&file, 0, dest);
+        close_file(&file);
+    }
+}
+
+////
+//
 // Atlas Packer
 //
 ////
@@ -339,7 +468,13 @@ bool parse_font_file(String file_name, void[] source, Font* font, Pixels* pixels
 struct Atlas_Packer{
     struct Node{
         Node* next;
-        Rect  bounds;
+
+        // X grows to the right
+        // Y grows to the bottom
+        uint x;
+        uint y;
+        uint width;
+        uint height;
         void* source;
     }
 
@@ -353,22 +488,61 @@ struct Atlas_Packer{
     uint       items_width;
 }
 
-Atlas_Packer begin_packing(Allocator* allocator){
+Atlas_Packer begin_atlas_packing(Allocator* allocator){
     Atlas_Packer packer;
     packer.scratch = allocator.scratch;
     return packer;
 }
 
-void add_rect(Atlas_Packer* packer, Rect bounds, void* source){
-    auto node = alloc_type!Atlas_Packer.Node(scratch);
+void add_item(Atlas_Packer* packer, uint width, uint height, void* source){
+    auto node = alloc_type!(Atlas_Packer.Node)(packer.scratch);
     node.next = packer.items;
     packer.items = node;
 
+    node.width  = width;
+    node.height = height;
+    node.source = source;
+
     packer.items_count++;
-    packer.items_width  += cast(uint)width(bounds);
-    packer.items_height += cast(uint)height(bounds);
+    packer.items_width  += width;
+    packer.items_height += height;
 }
 
-void end_packing(Atlas_Packer* packer, uint padding){
+void end_atlas_packing(Atlas_Packer* packer, uint padding, bool use_powers_of_two){
+    // TODO: Make a better initial canvas estimate
+    auto canvas_width  = (packer.items_width  / 2) + padding*(packer.items_count+1);
+    auto canvas_height = (packer.items_height / 2) + padding*(packer.items_count+1);
 
+    if(use_powers_of_two){
+        canvas_width  = round_up_power_of_two(canvas_width);
+        canvas_height = round_up_power_of_two(canvas_height);
+    }
+
+    packer.canvas_width  = canvas_width;
+    packer.canvas_height = canvas_height;
+
+    uint pen_x = padding;
+    uint pen_y = padding;
+
+    auto node = packer.items;
+
+    uint max_line_height = 0;
+    while(node){
+        assert(pen_y + node.height + padding < canvas_height);
+
+        if(pen_x + node.width + padding > canvas_width){
+            pen_y += max_line_height + padding;
+            pen_x = padding;
+            max_line_height = 0;
+        }
+
+        assert(pen_x + node.width + padding < canvas_width);
+        node.x = pen_x;
+        node.y = pen_y;
+        max_line_height = max(max_line_height, node.height);
+
+        pen_x += node.width + padding;
+
+        node = node.next;
+    }
 }

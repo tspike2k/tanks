@@ -11,6 +11,7 @@ public {
     import core.stdc.math : floor, ceil, atan2f, tanf;
     import std.math : abs, sgn, sqrt, signbit, pow;
     import std.math.traits : isNaN;
+    import meta : isIntegral, Unqual;
 }
 
 private {
@@ -433,6 +434,26 @@ struct OBB{
     float angle;
 }
 
+T round_up_power_of_two(T)(T n)
+if(isIntegral!T){
+    // NOTE: Adapted from here:
+    // https://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2
+    n--;
+    static foreach(byteIndex; 0 .. T.sizeof){
+        n |= n >> pow(2, byteIndex);
+    }
+    n++;
+    return n;
+}
+
+bool is_power_of_two(T)(T n)
+if(isIntegral!T){
+    // NOTE: Taken from here:
+    // https://graphics.stanford.edu/~seander/bithacks.html#DetermineIfPowerOf2
+    bool result = (n > 0 && (n & (n - 1)) == 0);
+    return result;
+}
+
 //
 // Utility function
 //
@@ -453,22 +474,27 @@ void max(T)(T* a, T b){
     *a = *a > b ? *a : b;
 }
 
+uint premultiply_alpha(uint c){
+    ubyte r = (c) & 0xff;
+    ubyte g = (c >> 8) & 0xff;
+    ubyte b = (c >> 16) & 0xff;
+    ubyte a = (c >> 24) & 0xff;
+
+    float fa = (cast(float)a / 255.0f);
+    float fr = (cast(float)r / 255.0f) * fa;
+    float fg = (cast(float)g / 255.0f) * fa;
+    float fb = (cast(float)b / 255.0f) * fa;
+
+    uint result = cast(uint)(a << 24)
+                | cast(uint)(fb * 255.0f + 0.5f) << 16
+                | cast(uint)(fg * 255.0f + 0.5f) << 8
+                | cast(uint)(fr * 255.0f + 0.5f);
+    return result;
+}
+
 void premultiply_alpha(uint[] rgba_pixels){
     foreach(ref c; rgba_pixels){
-        ubyte r = (c) & 0xff;
-        ubyte g = (c >> 8) & 0xff;
-        ubyte b = (c >> 16) & 0xff;
-        ubyte a = (c >> 24) & 0xff;
-
-        float fa = (cast(float)a / 255.0f);
-        float fr = (cast(float)r / 255.0f) * fa;
-        float fg = (cast(float)g / 255.0f) * fa;
-        float fb = (cast(float)b / 255.0f) * fa;
-
-        c =   cast(uint)(a << 24)
-            | cast(uint)(fb * 255.0f + 0.5f) << 16
-            | cast(uint)(fg * 255.0f + 0.5f) << 8
-            | cast(uint)(fr * 255.0f + 0.5f) << 0;
+        c = premultiply_alpha(c);
     }
 }
 
@@ -706,40 +732,6 @@ float distanceBetween(Vec2 a, Vec2 b)
     diff = a - b;
     // TODO(tspike): Make an intrinsics.h file to wrap around this!
     return sqrt(diff.x * diff.x + diff.y * diff.y);
-}
-
-bool isPowerOfTwo(int n)
-{
-    // NOTE: Taken from here:
-    // https://graphics.stanford.edu/~seander/bithacks.html#DetermineIfPowerOf2
-    bool result = (n > 0 && (n & (n - 1)) == 0);
-    return result;
-}
-
-Unqual!T roundUpPowerOfTwo(T)(T t)
-if(isIntegral!T)
-{
-    // NOTE: Adapted from here:
-    // https://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2
-
-    // TODO: We need to explicitly copy the value if the parameter is const or immutable.
-    // This is a little silly since the parameter should have been passed by value anyway.
-    // If this wasn't a template, you could pass immutable args just fine. Perhaps this is
-    // a compiler bug? We should probably ask in the forums.
-    // See, we could pass immutable(uint) to roundUpPowerOfTwo(uint) without any problems.
-    static if(is(Unqual!T == T))
-        alias n = t;
-    else
-        Unqual!T n = t;
-
-    n--;
-    static foreach(byteIndex; 0 .. T.sizeof)
-    {{
-        enum shift = pow(2, byteIndex);
-        n |= n >> shift;
-    }}
-    n++;
-    return n;
 }
 
 float squared(float n){

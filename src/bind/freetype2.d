@@ -6,8 +6,6 @@ See accompanying file LICENSE_BOOST.txt or copy at http://www.boost.org/LICENSE_
 
 module bind.freetype2;
 
-extern(C):
-
 enum FT_LOAD_DEFAULT                      = 0x0;
 enum FT_LOAD_NO_SCALE                     = ( 1L << 0  );
 enum FT_LOAD_NO_HINTING                   = ( 1L << 1  );
@@ -177,6 +175,20 @@ struct FT_FaceRec{
     FT_GlyphSlot      glyph;
     FT_Size           size;
     FT_CharMap        charmap;
+
+    /* private fields, internal to FreeType */
+
+    /+
+    FT_Driver         driver;
+    FT_Memory         memory;
+    FT_Stream         stream;
+
+    FT_ListRec        sizes_list;
+
+    FT_Generic        autohint;   /* face-specific auto-hinter data */
+    void*             extensions; /* unused                         */
+
+    FT_Face_Internal  internal;+/
 }
 
 struct FT_Glyph_Metrics{
@@ -271,18 +283,20 @@ struct FT_GlyphRec{
     FT_Vector              advance;
 };
 
-FT_Error FT_Init_FreeType(FT_Library* library);
-FT_Error FT_Done_FreeType(FT_Library library);
-FT_Error FT_New_Face(FT_Library library, const(char)* filepathname, FT_Long face_index, FT_Face* aface);
-FT_Error FT_Done_Face(FT_Face face);
-FT_Error FT_Set_Pixel_Sizes(FT_Face face, FT_UInt pixel_width, FT_UInt pixel_height);
-void FT_Stroker_Set(FT_Stroker stroker, FT_Fixed radius, FT_Stroker_LineCap line_cap, FT_Stroker_LineJoin  line_join, FT_Fixed miter_limit);
-FT_Error FT_Load_Char(FT_Face face, FT_ULong char_code, FT_Int32 load_flags);
-FT_Error FT_Stroker_New(FT_Library library, FT_Stroker* astroker);
-void FT_Stroker_Done(FT_Stroker stroker);
-FT_Error FT_Glyph_StrokeBorder(FT_Glyph* pglyph, FT_Stroker stroker, FT_Bool inside, FT_Bool destroy);
-FT_Error FT_Get_Glyph(FT_GlyphSlot slot, FT_Glyph* aglyph);
-FT_Error FT_Glyph_To_Bitmap(FT_Glyph* the_glyph, FT_Render_Mode render_mode, const(FT_Vector)* origin, FT_Bool destroy);
+extern(C){
+    FT_Error FT_Init_FreeType(FT_Library* library);
+    FT_Error FT_Done_FreeType(FT_Library library);
+    FT_Error FT_New_Face(FT_Library library, const(char)* filepathname, FT_Long face_index, FT_Face* aface);
+    FT_Error FT_Done_Face(FT_Face face);
+    FT_Error FT_Set_Pixel_Sizes(FT_Face face, FT_UInt pixel_width, FT_UInt pixel_height);
+    void FT_Stroker_Set(FT_Stroker stroker, FT_Fixed radius, FT_Stroker_LineCap line_cap, FT_Stroker_LineJoin  line_join, FT_Fixed miter_limit);
+    FT_Error FT_Load_Char(FT_Face face, FT_ULong char_code, FT_Int32 load_flags);
+    FT_Error FT_Stroker_New(FT_Library library, FT_Stroker* astroker);
+    void FT_Stroker_Done(FT_Stroker stroker);
+    FT_Error FT_Glyph_StrokeBorder(FT_Glyph* pglyph, FT_Stroker stroker, FT_Bool inside, FT_Bool destroy);
+    FT_Error FT_Get_Glyph(FT_GlyphSlot slot, FT_Glyph* aglyph);
+    FT_Error FT_Glyph_To_Bitmap(FT_Glyph* the_glyph, FT_Render_Mode render_mode, const(FT_Vector)* origin, FT_Bool destroy);
+}
 
 // This is a compromise. The Freetype2 uses a macro that takes the result as the first parameter and
 // sets it via the macro. Here we return the value instead.

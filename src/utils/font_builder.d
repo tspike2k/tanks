@@ -7,6 +7,8 @@ See accompanying file LICENSE_BOOST.txt or copy at http://www.boost.org/LICENSE_
 pragma(lib, "freetype");
 
 import bind.freetype2;
+//import bindbc.freetype;
+//import bindbc.freetype.bind.ftsystem;
 import memory;
 import assets;
 import logging;
@@ -19,6 +21,8 @@ version(linux){
     ];
 }
 
+enum Atlas_Padding = 1;
+
 struct Font_Entry{
     uint height;
     uint stroke;
@@ -26,19 +30,18 @@ struct Font_Entry{
     uint stroke_color;
     String source_file_name;
     String dest_file_name;
-
-    // TODO: Rather than have the user determine the canvas size, we should determine this programatically.
-    // We can do that by using a bin-packing algorithm to determine glyph placement and then
-    // get the min and max canvas based on that.
-    uint canvas_w;
-    uint canvas_h;
 };
+
+struct Rasterized_Glyph{
+    Pixels      pixels;
+    Font_Glyph  glyph;
+}
 
 struct Font_Builder{
     Allocator*    allocator;
     Font_Entry*   font_entry;
-    //Glyph_Entry    *glyph_entries;
-    Font_Metrics    metrics;
+    Font_Metrics  metrics;
+    Atlas_Packer  atlas;
 
     FT_Library lib;
     FT_Face    face;
@@ -47,7 +50,7 @@ struct Font_Builder{
 
 __gshared Font_Entry[] Font_Entries = [
     {
-        height: 24, stroke: 1, fill_color: 0xFFFFFFFF, stroke_color: 0x000000FF,
+        height: 64, stroke: 1, fill_color: 0xFFFFFFFF, stroke_color: 0xFF000000,
         dest_file_name: "./build/test_en.fnt", source_file_name: "LiberationSans-Regular.ttf"
     },
 ];
@@ -57,12 +60,27 @@ char[] get_path_for_ttf_file(String name, Allocator* allocator){
     outer: foreach(dir_name; Font_Directories){
         foreach(entry; recurse_directory(dir_name, allocator)){
             if(entry.type == File_Type.File && is_match(name, entry.name)){
-                result = get_full_path(&entry, allocator.scratch);
+                result = get_full_path(&entry, allocator);
                 break outer;
             }
         }
     }
     return result;
+}
+
+bool begin(Font_Builder* builder, Allocator* allocator){
+    bool result = true;
+    builder.allocator = allocator;
+    if(FT_Init_FreeType(&builder.lib) != 0){
+        // TODO: Get error diagnostic from Freetype? Can you?
+        log_error("Unable to initialize Freetype2.\n");
+    }
+    return result;
+}
+
+void end(Font_Builder* builder){
+    assert(builder.lib);
+    FT_Done_FreeType(builder.lib);
 }
 
 uint blend_colors_premultiplied_alpha(uint source, uint dest){
@@ -96,7 +114,7 @@ uint blend_colors_premultiplied_alpha(uint source, uint dest){
     return result;
 }
 
-static FT_BitmapGlyph rasterize_glyph(FT_Face face, FT_Stroker stroker, uint codepoint, uint stroke){
+FT_BitmapGlyph make_bitmap_glyph(FT_Face face, FT_Stroker stroker, uint codepoint, uint stroke){
     // TODO: Error handling!
     FT_Load_Char(face, codepoint, FT_LOAD_DEFAULT | FT_LOAD_NO_BITMAP);
     FT_Glyph glyph_info;
@@ -111,79 +129,64 @@ static FT_BitmapGlyph rasterize_glyph(FT_Face face, FT_Stroker stroker, uint cod
     return result;
 }
 
-uint replace_alpha(uint color, uint alpha){
-   uint result = (color & 0x00ffffff) | (alpha << 24);
-   return result;
+void blit_to_dest(FT_BitmapGlyph bitmap_glyph, Pixels* pixels, uint target_color, uint offset_x, uint offset_y){
+    uint w = bitmap_glyph.bitmap.width;
+    uint h = bitmap_glyph.bitmap.rows;
+
+    foreach(y; 0 .. h){
+        foreach(x; 0 .. w){
+            uint alpha = bitmap_glyph.bitmap.buffer[x + y*w];
+            uint color = premultiply_alpha((target_color & 0x00ffffff) | (alpha << 24));
+
+            auto pixel = &pixels.data[offset_x+x + (offset_y+y)*pixels.width];
+            *pixel = blend_colors_premultiplied_alpha(color, *pixel);
+        }
+    }
 }
 
 bool rasterize_glyph_and_copy_metrics(Font_Builder *builder, uint codepoint, Font_Glyph *glyph, Pixels* pixels){
     // TODO: Better error handling!
     bool succeeded = true;
 
-    /+
     FT_Face     face       = builder.face;
     FT_Stroker  stroker    = builder.stroker;
     Allocator*  allocator  = builder.allocator;
     Font_Entry* font_entry = builder.font_entry;
 
-    FT_BitmapGlyph bitmap_glyph = rasterize_glyph(face, stroker, codepoint, font_entry.stroke);
-    uint w = bitmap_glyph.bitmap.width;
-    uint h = bitmap_glyph.bitmap.rows;
+    auto bitmap_glyph = make_bitmap_glyph(face, stroker, codepoint, font_entry.stroke);
+    pixels.width  = bitmap_glyph.bitmap.width;
+    pixels.height = bitmap_glyph.bitmap.rows;
+    pixels.data   = alloc_array!uint(allocator, pixels.width * pixels.height);
 
     // Copy glyph metrics
     glyph.codepoint = codepoint;
-    glyph.width     = w;
-    glyph.height    = h;
+    glyph.width     = pixels.width;
+    glyph.height    = pixels.height;
     glyph.offset.x  = bitmap_glyph.left + cast(int)font_entry.stroke;
     glyph.offset.y  = bitmap_glyph.bitmap.rows - bitmap_glyph.top;
     glyph.advance   = (cast(uint)face.glyph.advance.x) >> 6;
 
-    pixels.width  = w;
-    pixels.height = h;
-    pixels.data   = alloc_array!uint(allocator, w*h);
-
     uint target_color = font_entry.stroke == 0 ? font_entry.fill_color : font_entry.stroke_color;
-    for(uint y = 0; y < h; y++){
-        for(uint x = 0; x < w; x++){
-            uint alpha = bitmap_glyph.bitmap.buffer[x + y*w];
-            uint color = premultiply_alpha(replace_alpha(target_color, alpha));
-
-            uint *pixel = &pixels.data[x + y*w];
-            *pixel = blend_colors_premultiplied_alpha(color, *pixel);
-        }
-    }
+    blit_to_dest(bitmap_glyph, pixels, target_color, 0, 0);
 
     if(font_entry.stroke){
-        bitmap_glyph = rasterize_glyph(face, stroker, codepoint, 0);
-        w = bitmap_glyph.bitmap.width;
-        h = bitmap_glyph.bitmap.rows;
-
         // TODO: Is it really this simple to get the fill offset? Are there times where this doesn't work?
         uint fill_offset_x = font_entry.stroke;
         uint fill_offset_y = font_entry.stroke;
-
-        target_color = font_entry.fill_color;
-        for(uint y = 0; y < h; y++){
-            for(uint x = 0; x < w; x++){
-                uint alpha = bitmap_glyph.bitmap.buffer[x + y*w];
-                uint color = premultiply_alpha(replace_alpha(target_color, alpha));
-
-                uint pixel_index = fill_offset_x+x + (fill_offset_y+y)*pixels.width;
-                assert(pixel_index < pixels.width * pixels.height);
-                uint *pixel = &pixels.data[pixel_index];
-                *pixel = blend_colors_premultiplied_alpha(color, *pixel);
-            }
-        }
+        bitmap_glyph = make_bitmap_glyph(face, stroker, codepoint, 0);
+        blit_to_dest(bitmap_glyph, pixels, font_entry.fill_color, fill_offset_x, fill_offset_y);
     }
-+/
+
     return succeeded;
 }
 
-bool begin_building_font(Font_Builder *builder, Font_Entry *entry){
-    auto src_file = entry.source_file_name;
+bool begin_building_font(Font_Builder *builder, String source_file_name, Font_Entry *entry){
+    push_frame(builder.allocator);
 
-    if(FT_New_Face(builder.lib, src_file.ptr, 0, &builder.face) != 0){
-        log("Unable to load font file {0}. Aborting...\n", src_file);
+    builder.font_entry = entry;
+
+    if(FT_New_Face(builder.lib, source_file_name.ptr, 0, &builder.face) != 0){
+        log("Unable to load font file {0}. Aborting...\n", source_file_name);
         return false;
     }
 
@@ -207,12 +210,48 @@ bool begin_building_font(Font_Builder *builder, Font_Entry *entry){
     FT_Load_Char(face, ' ', FT_LOAD_DEFAULT);
     metrics.space_width = cast(uint)(face.glyph.advance.x >> 6);
 
+    builder.atlas = begin_atlas_packing(builder.allocator);
+
     return true;
 }
 
+void add_codepoint(Font_Builder* builder, uint codepoint){
+    auto glyph = alloc_type!Rasterized_Glyph(builder.allocator);
+    if(rasterize_glyph_and_copy_metrics(builder, codepoint, &glyph.glyph, &glyph.pixels)){
+        add_item(&builder.atlas, glyph.pixels.width, glyph.pixels.height, glyph);
+    }
+    else{
+        log_warn("Unable to add codepoint {0} to font file {1}", codepoint, builder.font_entry.dest_file_name);
+    }
+}
+
 void end_building_font(Font_Builder* builder, Font_Entry *font_entry){
-    auto canvas = Pixels(48, 48);
-    canvas.data = alloc_array!uint(builder.allocator, canvas.width, canvas.height);
+    auto atlas = &builder.atlas;
+    end_atlas_packing(atlas, Atlas_Padding, true);
+
+    auto canvas = Pixels(atlas.canvas_width, atlas.canvas_height);
+    canvas.data = alloc_array!uint(builder.allocator, canvas.width*canvas.height);
+
+    auto node = atlas.items;
+    while(node){
+        auto glyph = cast(Rasterized_Glyph*)node.source;
+        auto source = glyph.pixels;
+
+        auto dest_x = node.x;
+        auto dest_y = node.y;
+        auto w = node.width;
+        auto h = node.height;
+
+        foreach(y; 0 .. h){
+            foreach(x; 0 .. w){
+                canvas.data[dest_x + x + (dest_y+y) * canvas.width] = source.data[x + y*w];
+            }
+        }
+
+        node = node.next;
+    }
+
+    save_to_tga("test.tga", canvas.data.ptr, canvas.width, canvas.height, builder.allocator);
 
 /+
     Pixels pixels = pack_glyphs_and_gen_texture(builder.glyph_entries, builder.allocator);
@@ -270,26 +309,34 @@ void end_building_font(Font_Builder* builder, Font_Entry *font_entry){
 +/
     if(font_entry.stroke) FT_Stroker_Done(builder.stroker);
     FT_Done_Face(builder.face);
+
+    pop_frame(builder.allocator);
 }
 
 extern(C) int main(){
-    auto main_memory = os_alloc(4*1024*1024, 0);
+    auto main_memory = os_alloc(128*1024*1024, 0);
     scope(exit) os_dealloc(main_memory);
 
     auto allocator = Allocator(main_memory);
     allocator.scratch = &allocator;
 
-    foreach(ref entry; Font_Entries){
-        auto src_file_path = get_path_for_ttf_file(entry.source_file_name, &allocator);
-        if(src_file_path.length){
-            Font_Builder builder = void;
-            if(begin_building_font(&builder, &entry)){
-                end_building_font(&builder, &entry);
+    Font_Builder builder = void;
+    if(begin(&builder, &allocator)){
+        foreach(ref entry; Font_Entries){
+            auto src_file_path = get_path_for_ttf_file(entry.source_file_name, &allocator);
+            if(src_file_path.length){
+                if(begin_building_font(&builder, src_file_path, &entry)){
+                    foreach(c; '!' .. '~'+1){
+                        add_codepoint(&builder, c);
+                    }
+                    end_building_font(&builder, &entry);
+                }
+            }
+            else{
+                log_error("Unable to load font: {0}. Skipping.\n", entry.source_file_name, entry);
             }
         }
-        else{
-            log_error("Unable to load font: {0}. Skipping.\n", entry.source_file_name, entry);
-        }
+        end(&builder);
     }
 
     return 0;
