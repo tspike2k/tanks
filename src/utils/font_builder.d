@@ -24,8 +24,8 @@ enum Atlas_Padding = 1;
 struct Font_Entry{
     uint height;
     uint stroke;
-    uint fill_color;
-    uint stroke_color;
+    Vec4 fill_color;
+    Vec4 stroke_color;
     String source_file_name;
     String dest_file_name;
 };
@@ -44,11 +44,14 @@ struct Font_Builder{
     FT_Library lib;
     FT_Face    face;
     FT_Stroker stroker;
+    uint fill_color;
+    uint stroke_color;
 };
 
 __gshared Font_Entry[] Font_Entries = [
     {
-        height: 64, stroke: 1, fill_color: 0xFFFFFFFF, stroke_color: 0xFF000000,
+        height: 82, stroke: 1,
+        fill_color: Vec4(1, 1, 1, 1), stroke_color: Vec4(0.16f, 0.34f, 0.68f, 1),
         dest_file_name: "./build/test_en.fnt", source_file_name: "LiberationSans-Regular.ttf"
     },
 ];
@@ -164,7 +167,7 @@ bool rasterize_glyph_and_copy_metrics(Font_Builder *builder, uint codepoint, Fon
     glyph.offset.y  = bitmap_glyph.bitmap.rows - bitmap_glyph.top;
     glyph.advance   = (cast(uint)face.glyph.advance.x) >> 6;
 
-    uint target_color = font_entry.stroke == 0 ? font_entry.fill_color : font_entry.stroke_color;
+    uint target_color = font_entry.stroke == 0 ? builder.fill_color : builder.stroke_color;
     blit_to_dest(bitmap_glyph, pixels, target_color, 0, 0);
 
     if(font_entry.stroke){
@@ -174,7 +177,7 @@ bool rasterize_glyph_and_copy_metrics(Font_Builder *builder, uint codepoint, Fon
         bitmap_glyph = make_bitmap_glyph(face, stroker, codepoint, 0);
         uint fill_offset_x = bitmap_glyph.left - stroke_left;
         uint fill_offset_y = stroke_top - bitmap_glyph.top; // In Freetype the Y-axis of bitmaps grows upwards, hence the flipped subtraction.
-        blit_to_dest(bitmap_glyph, pixels, font_entry.fill_color, fill_offset_x, fill_offset_y);
+        blit_to_dest(bitmap_glyph, pixels, builder.fill_color, fill_offset_x, fill_offset_y);
 
         glyph.offset.x += fill_offset_x;
         //glyph.offset.y += fille_offset_y; // TODO: Should we do this?
@@ -187,6 +190,8 @@ bool begin_building_font(Font_Builder *builder, String source_file_name, Font_En
     push_frame(builder.allocator);
 
     builder.font_entry = entry;
+    builder.fill_color   = rgba_to_uint(entry.fill_color);
+    builder.stroke_color = rgba_to_uint(entry.stroke_color);
 
     if(FT_New_Face(builder.lib, source_file_name.ptr, 0, &builder.face) != 0){
         log("Unable to load font file {0}. Aborting...\n", source_file_name);

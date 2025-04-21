@@ -453,7 +453,19 @@ void save_to_tga(String file_name, uint *pixels, uint width, uint height, Alloca
         header.height         = cast(short)height;
         header.image_desc     = TGA_Desc_Upper_Left_Origin;
 
-        copy(pixels[0 .. width*height], cast(uint[])dest[TGA_Header.sizeof .. $]);
+        auto out_pixels = cast(uint[])dest[TGA_Header.sizeof .. $];
+        foreach(pixel_index, ref out_pixel; out_pixels){
+            auto pixel = &pixels[pixel_index];
+
+            ubyte a = (*pixel >> 24) & 0xff;
+            ubyte r = (*pixel >> 16) & 0xff;
+            ubyte g = (*pixel >> 8)  & 0xff;
+            ubyte b = (*pixel)       & 0xff;
+
+            out_pixel = (cast(uint)a) << 24 | (cast(uint)b) << 16
+                      | (cast(uint)g) << 8 | (cast(uint)r);
+        }
+
         write_file(&file, 0, dest);
         close_file(&file);
     }

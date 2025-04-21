@@ -498,6 +498,16 @@ void premultiply_alpha(uint[] rgba_pixels){
     }
 }
 
+uint rgba_to_uint(Vec4 c){
+    // NOTE: We have to use x, y, z, w instead of r, g, b, a because D doesn't like the
+    // use of "overlapping initializers" in CTFE.
+    uint result = cast(uint)(c.x * 255.0f + 0.5f)
+                | cast(uint)(c.y * 255.0f + 0.5f) << 8
+                | cast(uint)(c.z * 255.0f + 0.5f) << 16
+                | cast(uint)(c.w * 255.0f + 0.5f) << 24;
+    return result;
+}
+
 Vec2 normalize(Vec2 v){
     // TODO(tspike): Make an intrinsics.h file to wrap around this?
     float magnitude = sqrt(v.x * v.x + v.y * v.y);
