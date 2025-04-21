@@ -4,11 +4,6 @@ Distributed under the Boost Software License, Version 1.0.
 See accompanying file LICENSE_BOOST.txt or copy at http://www.boost.org/LICENSE_1_0.txt
 */
 
-/+
-TODO:
-    - On some letters, the stroke is obviously off by one pixel. Usually to the left or right.
-+/
-
 pragma(lib, "freetype");
 
 import bind.freetype2;
@@ -165,7 +160,7 @@ bool rasterize_glyph_and_copy_metrics(Font_Builder *builder, uint codepoint, Fon
     glyph.codepoint = codepoint;
     glyph.width     = pixels.width;
     glyph.height    = pixels.height;
-    glyph.offset.x  = bitmap_glyph.left + cast(int)font_entry.stroke;
+    glyph.offset.x  = bitmap_glyph.left;
     glyph.offset.y  = bitmap_glyph.bitmap.rows - bitmap_glyph.top;
     glyph.advance   = (cast(uint)face.glyph.advance.x) >> 6;
 
@@ -173,11 +168,16 @@ bool rasterize_glyph_and_copy_metrics(Font_Builder *builder, uint codepoint, Fon
     blit_to_dest(bitmap_glyph, pixels, target_color, 0, 0);
 
     if(font_entry.stroke){
-        // TODO: Is it really this simple to get the fill offset? Are there times where this doesn't work?
-        uint fill_offset_x = font_entry.stroke;
-        uint fill_offset_y = font_entry.stroke;
+        auto stroke_left = bitmap_glyph.left;
+        auto stroke_top  = bitmap_glyph.top;
+
         bitmap_glyph = make_bitmap_glyph(face, stroker, codepoint, 0);
+        uint fill_offset_x = bitmap_glyph.left - stroke_left;
+        uint fill_offset_y = stroke_top - bitmap_glyph.top; // In Freetype the Y-axis of bitmaps grows upwards, hence the flipped subtraction.
         blit_to_dest(bitmap_glyph, pixels, font_entry.fill_color, fill_offset_x, fill_offset_y);
+
+        glyph.offset.x += fill_offset_x;
+        //glyph.offset.y += fille_offset_y; // TODO: Should we do this?
     }
 
     return succeeded;
