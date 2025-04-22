@@ -245,7 +245,7 @@ void end_building_font(Font_Builder* builder, Font_Entry *font_entry){
     auto node = atlas.items;
     while(node){
         auto glyph      = cast(Rasterized_Glyph*)node.source;
-        auto glyph_info = glyph.glyph;
+        auto glyph_info = &glyph.glyph;
         auto source     = glyph.pixels;
 
         auto dest_x = node.x;
