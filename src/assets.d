@@ -74,6 +74,15 @@ bool verify_asset_header(alias target)(const(char)[] file_name, Asset_Header* he
     return true;
 }
 
+Asset_Section* begin_writing_section(ref void[] writer, uint section_type){
+    auto result = stream_next!Asset_Section(writer);
+    return result;
+}
+
+void end_writing_section(ref void[] writer, Asset_Section* section){
+    section.size = cast(uint)(writer.ptr - cast(void*)section);
+}
+
 struct Pixels{
     uint   width;
     uint   height;
@@ -241,6 +250,12 @@ Obj_Data parse_obj_file(String source, Allocator* allocator){
     return result;
 }
 
+////
+//
+// Fonts
+//
+////
+
 struct Font_Meta{
     enum magic        = ('F' << 0 | 'o' << 8 | 'n' << 16 | 't' << 24);
     enum file_version = 0;
@@ -254,6 +269,11 @@ enum Font_Section : uint{
     Glyphs  = 2,
     Kerning = 3,
     Pixels  = 4,
+}
+
+struct Kerning_Pair{
+    uint a;
+    uint b;
 }
 
 struct Font_Metrics{
@@ -277,55 +297,93 @@ struct Font_Glyph{
 struct Font{
     Font_Metrics metrics;
     Font_Glyph[] glyphs;
-    // TODO: Include the kerning table here.
-    uint   bitmap_width;
-    uint   bitmap_height;
-    uint[] bitmap_pixels;
+    ulong texture_id;
+    Kerning_Pair[] kerning_pairs;
+    float[]        kerning_offset;
 }
 
-bool parse_font_file(String file_name, void[] source, Font* font, Pixels* pixels, Allocator* allocator){
-    auto reader = source;
-    auto header = stream_next!Asset_Header(reader);
+float get_codepoint_kerning_advance(Font* font, uint prev_codepoint, uint codepoint){
+    float result = 0;
+    auto key = Kerning_Pair(prev_codepoint, codepoint);
 
-    // TODO: Read sections based on the sizes in the section header.
-    // Have a function that will return the section payload, deflating compressed
-    // data as needed.
+    // TODO: Should we prefer a hash table? With modern CPU caches, a linear search should
+    // probably suffice. If the L1 cache is 16K large, that means we can search through
+    // 2048 entries before we have a cache miss. That should be good enough, I suspect.
+    // In the future we may wish to switch to a HashTable, though.
+    foreach(i, ref entry; font.kerning_pairs){
+        if(entry == key){
+            result = font.kerning_offset[i];
+            break;
+        }
+    }
+    return result;
+}
+
+/+
+    TODO: When rendering the font, we should do something like this:
+    Based on sample code from here:
+    https://freetype.org/freetype2/docs/tutorial/step2.html#:~:text=c.%20Kerning
+
+    uint prev_codepoint = 0;
+    foreach(c; s){
+        auto glyph = get_glyph(font, c);
+        auto kerning = get_codepoint_kerning_advance(font, prev_codepoint, glyph.codepoint);
+        pen_x += kerning;
+        draw_glyph(glyph, pen_x, pen_y);
+        pen_x += glyph.advance;
+        prev_codepoint = glyph.codepoint;
+    }
++/
+
+bool load_font_from_file(String file_name, Font* font, Pixels* pixels, Allocator* allocator){
+    push_frame(allocator.scratch);
+    scope(exit) pop_frame(allocator.scratch);
+
     bool result = false;
-    if(verify_asset_header!Font_Meta(file_name, header)){
-        Font_Metrics* metrics;
-        Font_Glyph[]  glyphs;
+    auto source = read_file_into_memory(file_name, allocator.scratch);
+    if(source.length){
+        auto reader = source;
+        auto header = stream_next!Asset_Header(reader);
 
-        while(auto section_header = stream_next!Asset_Section(reader)){
-            switch(cast(Font_Section)section_header.type){
-                default: break;
+        // TODO: Read sections based on the sizes in the section header.
+        // Have a function that will return the section payload, deflating compressed
+        // data as needed.
+        if(verify_asset_header!Font_Meta(file_name, header)){
+            Font_Metrics* metrics;
+            Font_Glyph[]  glyphs;
 
-                case Font_Section.Metrics:{
-                    metrics = stream_next!Font_Metrics(reader);
-                } break;
+            while(auto section_header = stream_next!Asset_Section(reader)){
+                switch(cast(Font_Section)section_header.type){
+                    default: break;
 
-                case Font_Section.Glyphs:{
-                    auto glyphs_count = stream_next!uint(reader);
-                    if(glyphs_count){
-                        glyphs = cast(Font_Glyph[])stream_next(reader, Font_Glyph.sizeof * (*glyphs_count));
-                    }
-                } break;
+                    case Font_Section.Metrics:{
+                        metrics = stream_next!Font_Metrics(reader);
+                    } break;
 
-                case Font_Section.Pixels:{
-                    auto width  = stream_next!uint(reader);
-                    auto height = stream_next!uint(reader);
-                    if(width && height){
-                        pixels.width  = *width;
-                        pixels.height = *height;
-                        pixels.data   = cast(uint[])stream_next(reader, (*width)*(*height)*uint.sizeof);
-                    }
-                } break;
+                    case Font_Section.Glyphs:{
+                        auto glyphs_count = stream_next!uint(reader);
+                        if(glyphs_count){
+                            glyphs = cast(Font_Glyph[])stream_next(reader, Font_Glyph.sizeof * (*glyphs_count));
+                        }
+                    } break;
+
+                    case Font_Section.Pixels:{
+                        auto width  = stream_next!uint(reader);
+                        auto height = stream_next!uint(reader);
+                        if(width && height){
+                            pixels.width  = *width;
+                            pixels.height = *height;
+                            pixels.data   = cast(uint[])stream_next(reader, (*width)*(*height)*uint.sizeof);
+                        }
+                    } break;
+                }
             }
-        }
 
-        if(metrics){
-            font.metrics = *metrics;
+            if(metrics){
+                font.metrics = *metrics;
+            }
+            result = metrics && glyphs.length && pixels.data.length;
         }
-        result = metrics && glyphs.length && pixels.data.length;
     }
 
     return result;

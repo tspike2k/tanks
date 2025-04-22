@@ -240,10 +240,13 @@ void end_building_font(Font_Builder* builder, Font_Entry *font_entry){
     auto canvas = Pixels(atlas.canvas_width, atlas.canvas_height);
     canvas.data = alloc_array!uint(builder.allocator, canvas.width*canvas.height);
 
+    auto allocator = builder.allocator;
+
     auto node = atlas.items;
     while(node){
-        auto glyph = cast(Rasterized_Glyph*)node.source;
-        auto source = glyph.pixels;
+        auto glyph      = cast(Rasterized_Glyph*)node.source;
+        auto glyph_info = glyph.glyph;
+        auto source     = glyph.pixels;
 
         auto dest_x = node.x;
         auto dest_y = node.y;
@@ -256,59 +259,62 @@ void end_building_font(Font_Builder* builder, Font_Entry *font_entry){
             }
         }
 
+        // TODO: Sample from texel centers (add 0.5 to uv_min, subtract 0.5 from uv_max)?
+        glyph_info.uv_min = Vec2(
+            (cast(float)dest_x) / (cast(float)canvas.width),
+            (cast(float)dest_y) / (cast(float)canvas.height)
+        );
+
+        glyph_info.uv_max = Vec2(
+            (cast(float)(dest_x + source.width))  / (cast(float)canvas.width),
+            (cast(float)(dest_y + source.height)) / (cast(float)canvas.height)
+        );
+
         node = node.next;
     }
 
-    save_to_tga("test.tga", canvas.data.ptr, canvas.width, canvas.height, builder.allocator);
+    save_to_tga("test.tga", canvas.data.ptr, canvas.width, canvas.height, allocator);
 
-/+
-    Slice writer = {(char*)&file_memory[0], Array_Length(file_memory)};
-    Asset_File_Header *header = push_writer_type(writer, Asset_File_Header);
-    header.magic        = Asset_File_Magic;
-    header.file_version = Asset_File_Version;
-    header.asset_type   = Asset_Type_Font;
+    auto file = open_file(font_entry.dest_file_name, File_Flag_Write|File_Flag_Trunc);
+    if(is_open(&file)){
+        push_frame(allocator.scratch);
+        scope(exit) pop_frame(allocator.scratch);
 
-    Asset_File_Section *section = push_writer_type(writer, Asset_File_Section);
-    section.type = Font_Section_Metrics;
-    section.size = sizeof(Font_Metrics);
+        auto dest = alloc_array!void(allocator, 8*1024*1024);
+        auto writer = dest;
 
-    Font_Metrics *metrics = push_writer_type(writer, Font_Metrics);
-    *metrics = builder.metrics;
+        auto header         = stream_next!Asset_Header(writer);
+        header.magic        = Font_Meta.magic;
+        header.file_version = Font_Meta.file_version;
+        header.asset_type   = Font_Meta.type;
 
-    section = push_writer_type(writer, Asset_File_Section);
-    section.type = Font_Section_Glyphs;
+        auto section = begin_writing_section(writer, Font_Section.Metrics);
+        auto metrics = stream_next!Font_Metrics(writer);
+        *metrics = builder.metrics;
+        section.size = cast(uint)(dest.ptr - cast(void*)section);
+        end_writing_section(writer, section);
 
-    // TODO: The null glyph must be the first entry in the list!
-    Glyph_Entry *entry = builder.glyph_entries;
-    while(entry){
-        Font_Glyph *g = push_writer_type(writer, Font_Glyph);
-        *g = entry.glyph;
-        section.size += sizeof(Font_Glyph);
+        section = begin_writing_section(writer, Font_Section.Pixels);
+        auto dest_pixels_size = canvas.width*canvas.height*uint.sizeof;
+        auto dest_pixels = cast(uint[])stream_next(writer, dest_pixels_size);
+        copy(canvas.data, dest_pixels);
+        end_writing_section(writer, section);
 
-        entry = entry.next;
-    }
+        section = begin_writing_section(writer, Font_Section.Glyphs);
+        auto dest_glyphs = cast(Font_Glyph[])stream_next(writer, atlas.items_count*Font_Glyph.sizeof);
+        uint glyph_index = 0;
+        node = atlas.items;
+        while(node){
+            auto entry = cast(Rasterized_Glyph*)node.source;
+            dest_glyphs[glyph_index++] = entry.glyph;
+            node = node.next;
+        }
+        end_writing_section(writer, section);
 
-    section = push_writer_type(writer, Asset_File_Section);
-    section.type = Font_Section_Pixels;
-
-    Font_Pixels_Header *pixels_header = push_writer_type(writer, Font_Pixels_Header);
-    pixels_header.compression = Font_Compression_None;
-    pixels_header.width  = pixels.width;
-    pixels_header.height = pixels.height;
-    slice_write(&writer, pixels.data, pixels.width*pixels.height*sizeof(u32));
-    section.size = writer.data - cast(char*)section - sizeof(Asset_File_Section);
-
-    // TODO: Depricate File_Flag_Trunc. It's too easy to forget it. Most of the time we want to
-    // truncate anyway. Add a flag for appending to a file instead.
-    File file;
-    if(open_file(&file, font_entry.dest_file_name, File_Flag_Write|File_Flag_Trunc)){
-        write_file(&file, 0, &file_memory[0], &writer.data[0] - &file_memory[0]);
+        write_file(&file, 0, dest[0 .. writer.ptr - dest.ptr]);
         close_file(&file);
     }
 
-    // TODO: Pick a filename based on the name of the destination filename
-    save_to_tga("test.tga", &pixels.data[0], pixels.width, pixels.height, builder.allocator);
-+/
     if(font_entry.stroke) FT_Stroker_Done(builder.stroker);
     FT_Done_Face(builder.face);
 

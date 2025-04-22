@@ -58,7 +58,7 @@ void save_campaign_file(App_State* s){
         auto writer = buffer;
 
         auto header = stream_next!Asset_Header(writer);
-        header.magic        = Campaign_Meta.type;
+        header.magic        = Campaign_Meta.magic;
         header.file_version = Campaign_Meta.file_version;
         header.asset_type   = Campaign_Meta.type;
 

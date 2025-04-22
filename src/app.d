@@ -250,6 +250,8 @@ struct App_State{
 
     Campaign campaign;
 
+    Font font_main;
+
     Mesh cube_mesh;
     Mesh tank_base_mesh;
     Mesh tank_top_mesh;
@@ -1045,6 +1047,7 @@ extern(C) int main(int args_count, char** args){
         s.frame_memory.scratch = &scratch_memory;
     }
 
+    /+
     {
         auto allocator = &s.frame_memory;
         foreach(entry; recurse_directory("./build", allocator)){
@@ -1053,7 +1056,7 @@ extern(C) int main(int args_count, char** args){
             log("Name: {0} type: {1}\n", path, entry.type);
             pop_frame(allocator);
         }
-    }
+    }+/
 
     if(!open_display("Tanks", 1920, 1080, 0)){
         log_error("Unable to open display.\n");
