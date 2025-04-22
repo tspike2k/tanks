@@ -23,6 +23,9 @@ import assets;
 private{
     import display;
     import logging;
+
+    Allocator* g_allocator;
+    Texture    g_current_texture;
 }
 
 enum Z_Far  =  1000.0f;
@@ -42,14 +45,6 @@ struct Vertex{
 
 struct Mesh{
     Vertex[] vertices;
-}
-
-version(none) struct Font{
-    Font_Metrics metrics;
-    Font_Glyph[] glyphs; // TODO: Make this a hash table?
-    Texture      texture;
-
-    alias metrics this;
 }
 
 // TODO: Ensure members are correctly aligned with both HLSL and GLSL requirements
@@ -240,6 +235,31 @@ Rect calc_scaling_viewport(float res_x, float res_y, float window_w, float windo
 
 private:
 
+/+
+void draw_rect(Vertex[] v, Rect r, Rect uvs){
+    Vec2 p0 = Vec2(right(r), top(r));
+    Vec2 p1 = Vec2(left(r),  top(r));
+    Vec2 p2 = Vec2(left(r),  bottom(r));
+    Vec2 p3 = Vec2(right(r), bottom(r));
+
+    v[0].pos = v2_to_v3(p0, 0);
+    v[0].color = color;
+    v[0].uv = vec2(right(uvs), bottom(uvs));
+
+    v[1].pos = v2_to_v3(p1, 0);
+    v[1].color = color;
+    v[1].uv = vec2(left(uvs), bottom(uvs));
+
+    v[2].pos = v2_to_v3(p2, 0);
+    v[2].color = color;
+    v[2].uv = vec2(left(uvs), top(uvs));
+
+    v[3].pos = v2_to_v3(p3, 0);
+    v[3].color = color;
+    v[3].uv = vec2(right(uvs), top(uvs));
+}+/
+
+
 version(linux){
     version = opengl;
 }
@@ -256,6 +276,7 @@ version(opengl){
         Vertex_Attribute_ID_Pos,
         Vertex_Attribute_ID_Normal,
         Vertex_Attribute_ID_UV,
+        Vertex_Attribute_ID_Color,
     }
 
     alias Quad_Index_Type = GLuint;
@@ -309,6 +330,8 @@ version(opengl){
     }
 
     public bool render_open(Allocator* allocator){
+        g_allocator = allocator;
+
         assert(allocator.scratch);
         push_frame(allocator.scratch);
         scope(exit) pop_frame(allocator.scratch);
@@ -454,6 +477,7 @@ version(opengl){
         glBindAttribLocation(program, Vertex_Attribute_ID_Pos,    "v_pos");
         glBindAttribLocation(program, Vertex_Attribute_ID_Normal, "v_normal");
         glBindAttribLocation(program, Vertex_Attribute_ID_UV,     "v_uv");
+        glBindAttribLocation(program, Vertex_Attribute_ID_Color,  "v_color");
 
         GLuint vertex_shader = compile_shader_pass(GL_VERTEX_SHADER, "Vertex Shader", vertex_source.ptr);
         if(!vertex_shader){
@@ -587,6 +611,31 @@ version(opengl){
         glBufferData(GL_ARRAY_BUFFER, cast(GLsizeiptr)(mesh.vertices.length * Vertex.sizeof), &mesh.vertices[0], GL_DYNAMIC_DRAW);
         glDrawArrays(GL_TRIANGLES, 0, cast(uint)mesh.vertices.length);
     }
+
+    public void render_set_texture(Texture texture){
+        if(g_current_texture != texture){
+            glBindTexture(GL_TEXTURE_2D, cast(GLuint)texture);
+            g_current_texture = texture;
+        }
+    }
+
+    /+
+    public void render_text(Font* font, String text, Vec2 baseline){
+        push_frame(g_allocator.scratch);
+        scope(exit) pop_frame(g_allocator.scratch);
+
+        auto vertex_buffer = alloc_array!Vertex(g_allocator.scratch, text.length * 4);
+        uint vertex_buffer_used;
+
+        auto bounds = rect_from_min_max(Vec2(0, 0), Vec2(8, 8));
+        //draw_rect(vertex_buffer[vertex_buffer_used .. $], bounds, rect_from_min_max(Vec2(0, 0), Vec2(1, 1)));
+        vertex_buffer_used += 4;
+
+        render_set_texture(font.texture_id);
+        glBindBuffer(GL_ARRAY_BUFFER, g_quads_vbo);
+        glBufferData(GL_ARRAY_BUFFER, cast(GLsizeiptr)(vertex_bufferused * Vertex.sizeof), vertex_buffer.ptr, GL_DYNAMIC_DRAW);
+        glDrawArrays(GL_TRIANGLES, 0, cast(uint)vertices_buffer.length);
+    }+/
 
     public void render_end_frame(){
         swap_render_backbuffer();

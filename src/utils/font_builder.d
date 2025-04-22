@@ -280,6 +280,8 @@ void end_building_font(Font_Builder* builder, Font_Entry *font_entry){
         push_frame(allocator.scratch);
         scope(exit) pop_frame(allocator.scratch);
 
+        // TODO: Can we use the buffer_writer instead?
+
         auto dest = alloc_array!void(allocator, 8*1024*1024);
         auto writer = dest;
 
@@ -291,17 +293,24 @@ void end_building_font(Font_Builder* builder, Font_Entry *font_entry){
         auto section = begin_writing_section(writer, Font_Section.Metrics);
         auto metrics = stream_next!Font_Metrics(writer);
         *metrics = builder.metrics;
-        section.size = cast(uint)(dest.ptr - cast(void*)section);
         end_writing_section(writer, section);
 
         section = begin_writing_section(writer, Font_Section.Pixels);
+        auto dest_pixels_width  = cast(uint*)stream_next(writer, uint.sizeof);
+        auto dest_pixels_height = cast(uint*)stream_next(writer, uint.sizeof);
+
         auto dest_pixels_size = canvas.width*canvas.height*uint.sizeof;
         auto dest_pixels = cast(uint[])stream_next(writer, dest_pixels_size);
+
+        *dest_pixels_width  = canvas.width;
+        *dest_pixels_height = canvas.height;
         copy(canvas.data, dest_pixels);
         end_writing_section(writer, section);
 
         section = begin_writing_section(writer, Font_Section.Glyphs);
-        auto dest_glyphs = cast(Font_Glyph[])stream_next(writer, atlas.items_count*Font_Glyph.sizeof);
+        auto glyphs_count = cast(uint*)stream_next(writer, uint.sizeof);
+        *glyphs_count = atlas.items_count;
+        auto dest_glyphs = cast(Font_Glyph[])stream_next(writer, (*glyphs_count)*Font_Glyph.sizeof);
         uint glyph_index = 0;
         node = atlas.items;
         while(node){

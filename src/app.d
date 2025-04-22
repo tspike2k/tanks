@@ -1016,6 +1016,22 @@ Vec2 integrate(Vec2* vel, Vec2 accel, float dt){
     return result;
 }
 
+bool load_font(String file_name, Font* font, Allocator* allocator){
+    Font_Source source;
+    bool result = false;
+    if(load_font_from_file(file_name, &source, allocator)){
+        font.metrics = *source.metrics;
+        font.glyphs  = dup_array(source.glyphs, allocator);
+        if(source.kerning_pairs.length && source.kerning_pairs.length == source.kerning_offset.length){
+            font.kerning_pairs  = dup_array(source.kerning_pairs, allocator);
+            font.kerning_offset = dup_array(source.kerning_offset, allocator);
+        }
+
+        font.texture_id = create_texture(source.pixels, source.pixels_width, source.pixels_height);
+    }
+    return result;
+}
+
 extern(C) int main(int args_count, char** args){
     auto app_memory = os_alloc(Main_Memory_Size + Scratch_Memory_Size + Frame_Memory_Size, 0);
     scope(exit) os_dealloc(app_memory);
@@ -1070,6 +1086,8 @@ extern(C) int main(int args_count, char** args){
     }
     scope(exit) render_close();
 
+    load_font("./build/test_en.fnt", &s.font_main, &s.main_memory);
+
     //auto teapot_mesh = load_mesh_from_obj("./build/teapot.obj", &s.main_memory);
     s.cube_mesh        = load_mesh_from_obj("./build/cube.obj", &s.main_memory);
     s.tank_base_mesh   = load_mesh_from_obj("./build/tank_base.obj", &s.main_memory);
@@ -1082,6 +1100,9 @@ extern(C) int main(int args_count, char** args){
     auto shaders_dir = "./build/shaders";
     Shader shader;
     load_shader(&shader, "default", shaders_dir, &s.frame_memory);
+
+    Shader text_shader;
+    load_shader(&text_shader, "text", shaders_dir, &s.frame_memory);
 
     float target_dt = 1.0f/60.0f;
 

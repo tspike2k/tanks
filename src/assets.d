@@ -51,23 +51,18 @@ bool verify_asset_header(alias target)(const(char)[] file_name, Asset_Header* he
         return false;
     }
 
-    if(header.file_version >= target.min_version){
+    if(header.file_version < target.min_version){
         log("Error reading file {0}. Minimum supported file version is {2} but got {1}.\n", file_name, header.file_version, target.min_version);
         return false;
     }
 
-    if(header.file_version <= target.file_version){
+    if(header.file_version > target.file_version){
         log("Error reading file {0}. Maximum supported file version is {2} but got {1}.\n", file_name, header.file_version, target.file_version);
         return false;
     }
 
-    if(header.file_version <= target.file_version){
-        log("Error reading file {0}. Maximum supported file version is {2} but got {1}.\n", file_name, header.file_version, target.file_version);
-        return false;
-    }
-
-    if(header.asset_type == target.type){
-        log("Error reading file {0}. Asset type is marked as {1} when expecting {2}.\n", file_name, header.asset_type, target.type);
+    if(header.asset_type != cast(uint)target.type){
+        log("Error reading file {0}. Asset type is marked as {1} when expecting {2}.\n", file_name, cast(typeof(target.type))header.asset_type, target.type);
         return false;
     }
 
@@ -76,6 +71,7 @@ bool verify_asset_header(alias target)(const(char)[] file_name, Asset_Header* he
 
 Asset_Section* begin_writing_section(ref void[] writer, uint section_type){
     auto result = stream_next!Asset_Section(writer);
+    result.type = section_type;
     return result;
 }
 
@@ -297,9 +293,20 @@ struct Font_Glyph{
 struct Font{
     Font_Metrics metrics;
     Font_Glyph[] glyphs;
-    ulong texture_id;
     Kerning_Pair[] kerning_pairs;
     float[]        kerning_offset;
+    ulong texture_id;
+}
+
+struct Font_Source{
+    Font_Metrics*  metrics;
+    Font_Glyph[]   glyphs;
+    Kerning_Pair[] kerning_pairs;
+    float[]        kerning_offset;
+
+    uint   pixels_width;
+    uint   pixels_height;
+    uint[] pixels;
 }
 
 float get_codepoint_kerning_advance(Font* font, uint prev_codepoint, uint codepoint){
@@ -335,10 +342,8 @@ float get_codepoint_kerning_advance(Font* font, uint prev_codepoint, uint codepo
     }
 +/
 
-bool load_font_from_file(String file_name, Font* font, Pixels* pixels, Allocator* allocator){
-    push_frame(allocator.scratch);
-    scope(exit) pop_frame(allocator.scratch);
-
+// NOTE: Data passed
+bool load_font_from_file(String file_name, Font_Source* font, Allocator* allocator){
     bool result = false;
     auto source = read_file_into_memory(file_name, allocator.scratch);
     if(source.length){
@@ -349,21 +354,18 @@ bool load_font_from_file(String file_name, Font* font, Pixels* pixels, Allocator
         // Have a function that will return the section payload, deflating compressed
         // data as needed.
         if(verify_asset_header!Font_Meta(file_name, header)){
-            Font_Metrics* metrics;
-            Font_Glyph[]  glyphs;
-
             while(auto section_header = stream_next!Asset_Section(reader)){
                 switch(cast(Font_Section)section_header.type){
                     default: break;
 
                     case Font_Section.Metrics:{
-                        metrics = stream_next!Font_Metrics(reader);
+                        font.metrics = stream_next!Font_Metrics(reader);
                     } break;
 
                     case Font_Section.Glyphs:{
                         auto glyphs_count = stream_next!uint(reader);
                         if(glyphs_count){
-                            glyphs = cast(Font_Glyph[])stream_next(reader, Font_Glyph.sizeof * (*glyphs_count));
+                            font.glyphs = cast(Font_Glyph[])stream_next(reader, Font_Glyph.sizeof * (*glyphs_count));
                         }
                     } break;
 
@@ -371,18 +373,15 @@ bool load_font_from_file(String file_name, Font* font, Pixels* pixels, Allocator
                         auto width  = stream_next!uint(reader);
                         auto height = stream_next!uint(reader);
                         if(width && height){
-                            pixels.width  = *width;
-                            pixels.height = *height;
-                            pixels.data   = cast(uint[])stream_next(reader, (*width)*(*height)*uint.sizeof);
+                            font.pixels_width  = *width;
+                            font.pixels_height = *height;
+                            font.pixels        = cast(uint[])stream_next(reader, (*width)*(*height)*uint.sizeof);
                         }
                     } break;
                 }
             }
 
-            if(metrics){
-                font.metrics = *metrics;
-            }
-            result = metrics && glyphs.length && pixels.data.length;
+            result = font.metrics && font.glyphs.length && font.pixels.length;
         }
     }
 
