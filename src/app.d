@@ -1413,7 +1413,7 @@ extern(C) int main(int args_count, char** args){
         clear_target_to_color(Vec4(0, 0.05f, 0.12f, 1));
 
         Shader_Constants constants;
-        constants.camera = transpose(mat_camera); //
+        constants.camera = transpose(mat_camera);
         constants.camera_pos = camera_pos;
         constants.time = s.t;
 
@@ -1514,12 +1514,25 @@ extern(C) int main(int args_count, char** args){
             }
         }
 
-        set_shader(text_shader);
-        render_text(&s.font_main, "Test", Vec2(0, 0));
+        // TODO: We need to be able to set the camera here. The HUD needs a seperate camera.
 
         if(editor_is_open){
             editor_render(s);
         }
+
+        camera_extents = Vec2(window.width, window.height)*0.5f;
+        camera_pos = Vec3(0, 0, 0);
+        mat_proj = orthographic_projection(Rect(Vec2(0, 0), camera_extents));
+
+        constants.camera = transpose(mat_proj.mat);
+        constants.camera_pos = camera_pos;
+        constants.time = s.t;
+        set_constants(0, &constants, constants.sizeof);
+
+        enable_depth_testing(false);
+        set_shader(text_shader);
+        render_text(&s.font_main, "Testing the text", Vec2(0, 0));
+        enable_depth_testing(true);
 
         render_end_frame();
         end_frame();

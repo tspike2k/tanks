@@ -617,10 +617,32 @@ version(opengl){
         push_frame(g_allocator.scratch);
         scope(exit) pop_frame(g_allocator.scratch);
 
-        auto bounds = rect_from_min_max(Vec2(0, 0), Vec2(4, 8));
-        auto uvs = rect_from_min_max(Vec2(0, 0), Vec2(1, 1));
-        Vertex[4] v;
-        draw_quad(v[], bounds, uvs);
+        auto v_buffer = alloc_array!Vertex(g_allocator.scratch, text.length*4);
+        uint v_buffer_used = 0;
+
+        Font_Metrics *metrics = &font.metrics;
+        auto pen = baseline;
+
+        foreach(c; text){
+            if(c == ' '){
+                pen.x += metrics.space_width;
+            }
+            else{
+                auto glyph = get_glyph(font, c);
+
+                auto v = v_buffer[v_buffer_used .. v_buffer_used+4];
+                v_buffer_used += 4;
+
+                auto min_corner = pen + glyph.offset;
+                auto bounds = rect_from_min_max(min_corner, min_corner + Vec2(glyph.width, glyph.height));
+                auto uvs = rect_from_min_max(glyph.uv_min, glyph.uv_max);
+                draw_quad(v, bounds, uvs);
+
+                pen.x += cast(float)glyph.advance;
+            }
+        }
+
+        auto v = v_buffer[0 .. v_buffer_used];
 
         set_texture(font.texture_id);
         glBindBuffer(GL_ARRAY_BUFFER, g_quad_vbo);

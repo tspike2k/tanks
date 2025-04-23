@@ -292,12 +292,13 @@ struct Font_Glyph{
 
 struct Font{
     Font_Metrics metrics;
-    Font_Glyph[] glyphs;
+    Font_Glyph[] glyphs; // TODO: Use a seperate array for the glyph codepoints. This way, lookups will be fast
     Kerning_Pair[] kerning_pairs;
     float[]        kerning_offset;
     ulong texture_id;
 }
 
+// This type is silly. Go back to using a Font/Pixel pair.
 struct Font_Source{
     Font_Metrics*  metrics;
     Font_Glyph[]   glyphs;
@@ -307,6 +308,17 @@ struct Font_Source{
     uint   pixels_width;
     uint   pixels_height;
     uint[] pixels;
+}
+
+Font_Glyph* get_glyph(Font* font, uint codepoint){
+    Font_Glyph* result = null; // TODO: Use a fallback glyph.
+    foreach(ref glyph; font.glyphs){
+        if(glyph.codepoint == codepoint){
+            result = &glyph;
+            break;
+        }
+    }
+    return result;
 }
 
 float get_codepoint_kerning_advance(Font* font, uint prev_codepoint, uint codepoint){
