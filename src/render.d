@@ -39,8 +39,8 @@ enum Max_Quads_Per_Batch = 2048; // TODO: Isn't this a bit high? 512 would be a 
 
 struct Vertex{
     Vec3 pos;
-    Vec3 normal;
     Vec2 uv;
+    Vec3 normal;
 }
 
 struct Mesh{
@@ -233,32 +233,26 @@ Rect calc_scaling_viewport(float res_x, float res_y, float window_w, float windo
     return result;
 }
 
-private:
-
-/+
-void draw_rect(Vertex[] v, Rect r, Rect uvs){
-    Vec2 p0 = Vec2(right(r), top(r));
-    Vec2 p1 = Vec2(left(r),  top(r));
-    Vec2 p2 = Vec2(left(r),  bottom(r));
-    Vec2 p3 = Vec2(right(r), bottom(r));
+void draw_quad(Vertex[] v, Rect r, Rect uvs){
+    auto p0 = Vec2(right(r), top(r));
+    auto p1 = Vec2(left(r),  top(r));
+    auto p2 = Vec2(left(r),  bottom(r));
+    auto p3 = Vec2(right(r), bottom(r));
 
     v[0].pos = v2_to_v3(p0, 0);
-    v[0].color = color;
-    v[0].uv = vec2(right(uvs), bottom(uvs));
+    v[0].uv = Vec2(right(uvs), bottom(uvs));
 
     v[1].pos = v2_to_v3(p1, 0);
-    v[1].color = color;
-    v[1].uv = vec2(left(uvs), bottom(uvs));
+    v[1].uv = Vec2(left(uvs), bottom(uvs));
 
     v[2].pos = v2_to_v3(p2, 0);
-    v[2].color = color;
-    v[2].uv = vec2(left(uvs), top(uvs));
+    v[2].uv = Vec2(left(uvs), top(uvs));
 
     v[3].pos = v2_to_v3(p3, 0);
-    v[3].color = color;
-    v[3].uv = vec2(right(uvs), top(uvs));
-}+/
+    v[3].uv = Vec2(right(uvs), top(uvs));
+}
 
+private:
 
 version(linux){
     version = opengl;
@@ -287,7 +281,7 @@ version(opengl){
     __gshared GLuint                     g_shader_material_buffer;
     __gshared GLuint                     g_shader_light_buffer;
     __gshared Shader[Render_Shaders_Max] g_shaders;
-    __gshared GLuint                     g_quads_vbo;
+    __gshared GLuint                     g_quad_vbo;
     __gshared GLuint                     g_quad_index_buffer;
     __gshared Texture                    g_default_texture;
 
@@ -336,6 +330,10 @@ version(opengl){
         push_frame(allocator.scratch);
         scope(exit) pop_frame(allocator.scratch);
 
+        glEnable(GL_DEBUG_OUTPUT);
+        glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
+        glDebugMessageCallback(&debug_msg_callback, null);
+
         glEnable(GL_BLEND);
         glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA); // Using premultiplied alpha
         //glEnable(GL_SCISSOR_TEST);
@@ -350,16 +348,46 @@ version(opengl){
         glDepthRange(0.0f, Z_Far);
         //glEnable(GL_DEPTH_CLAMP); // TODO: Is this a good idea? Probably not
 
-        // TODO: Do we only need one vao? Figure out what a vao is used for, really
+        // According to Casey Muratori (Handmade Hero ep 372), driver vendors realized that
+        // state changes through VAOs is actually quite inefficient.
         GLuint vao;
         glGenVertexArrays(1, &vao);
         glBindVertexArray(vao);
 
-        glEnable(GL_DEBUG_OUTPUT);
-        glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
-        glDebugMessageCallback(&debug_msg_callback, null);
+        glGenBuffers(1, &g_quad_vbo);
+        glBindBuffer(GL_ARRAY_BUFFER, g_quad_vbo);
 
-        glGenBuffers(1, &g_quads_vbo);
+        glEnableVertexAttribArray(Vertex_Attribute_ID_Pos);
+        glVertexAttribPointer(Vertex_Attribute_ID_Pos, 3, GL_FLOAT, GL_FALSE, Vertex.sizeof, cast(GLvoid*)Vertex.pos.offsetof);
+
+        glEnableVertexAttribArray(Vertex_Attribute_ID_Normal);
+        glVertexAttribPointer(Vertex_Attribute_ID_Normal, 3, GL_FLOAT, GL_FALSE, Vertex.sizeof, cast(GLvoid*)Vertex.normal.offsetof);
+
+        glEnableVertexAttribArray(Vertex_Attribute_ID_UV);
+        glVertexAttribPointer(Vertex_Attribute_ID_UV, 2, GL_FLOAT, GL_FALSE, Vertex.sizeof, cast(GLvoid*)Vertex.uv.offsetof);
+
+        // TODO: If we use glDrawElementsBaseVertex, we can use an index buffer with smaller precision (say GL_UNSIGNED_BYTE).
+        // Then we tell call glDrawElementsBaseVertex rather than glDrawElements and pass the stride. OpenGL will add the
+        // correct offset for each element drawn. Handy.
+        // Basically, OpenGL would take care of the "+ (quad_index*4)" part internally, and we could remove that.
+        {
+            auto index_buffer = alloc_array!Quad_Index_Type(allocator.scratch, Max_Quads_Per_Batch*Vertex_Indeces_Per_Quad);
+
+            foreach(quad_index; 0 .. Max_Quads_Per_Batch){
+                auto i = quad_index * Vertex_Indeces_Per_Quad;
+                index_buffer[i + 0] = 0 + (quad_index*4);
+                index_buffer[i + 1] = 1 + (quad_index*4);
+                index_buffer[i + 2] = 2 + (quad_index*4);
+                index_buffer[i + 3] = 2 + (quad_index*4);
+                index_buffer[i + 4] = 3 + (quad_index*4);
+                index_buffer[i + 5] = 0 + (quad_index*4);
+            }
+
+            glGenBuffers(1, &g_quad_index_buffer);
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_quad_index_buffer);
+            glBufferData(GL_ELEMENT_ARRAY_BUFFER, Max_Quads_Per_Batch*Quad_Index_Type.sizeof, index_buffer.ptr, GL_STATIC_DRAW);
+        }
+
 
         version(none){
             /*
@@ -367,28 +395,6 @@ version(opengl){
             if(g_common_shader_data_buffer == -1){
                 log(Cyu_Err "Unable to create buffer for common shader.\n");
             }*/
-
-            // TODO: If we use glDrawElementsBaseVertex, we can use an index buffer with smaller precision (say GL_UNSIGNED_BYTE).
-            // Then we tell call glDrawElementsBaseVertex rather than glDrawElements and pass the stride. OpenGL will add the
-            // correct offset for each element drawn. Handy.
-            // Basically, OpenGL would take care of the "+ (quad_index*4)" part internally, and we could remove that.
-            {
-                auto index_buffer = alloc_array!Quad_Index_Type(allocator.scratch, Max_Quads_Per_Batch*Vertex_Indeces_Per_Quad);
-
-                foreach(quad_index; 0 .. Max_Quads_Per_Batch){
-                    auto i = quad_index * Vertex_Indeces_Per_Quad;
-                    index_buffer[i + 0] = 0 + (quad_index*4);
-                    index_buffer[i + 1] = 1 + (quad_index*4);
-                    index_buffer[i + 2] = 2 + (quad_index*4);
-                    index_buffer[i + 3] = 2 + (quad_index*4);
-                    index_buffer[i + 4] = 3 + (quad_index*4);
-                    index_buffer[i + 5] = 0 + (quad_index*4);
-                }
-
-                glGenBuffers(1, &g_quad_index_buffer);
-                glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_quad_index_buffer);
-                glBufferData(GL_ELEMENT_ARRAY_BUFFER, Max_Quads_Per_Batch*Quad_Index_Type.sizeof, index_buffer.ptr, GL_STATIC_DRAW);
-            }
 
             {
                 auto fallback_w = 4;
@@ -518,25 +524,13 @@ version(opengl){
         glDeleteShader(vertex_shader);
         glDeleteShader(fragment_shader);
 
+        make_uniform_binding(program, "Constants", Constants_Uniform_Binding);
+        make_uniform_binding(program, "Material", Material_Uniform_Binding);
+        make_uniform_binding(program, "Light", Light_Uniform_Binding);
+
         bool success = link_status != GL_FALSE;
         if(success){
             *shader = program;
-
-            make_uniform_binding(program, "Constants", Constants_Uniform_Binding);
-            make_uniform_binding(program, "Material", Material_Uniform_Binding);
-            make_uniform_binding(program, "Light", Light_Uniform_Binding);
-
-            glBindBuffer(GL_ARRAY_BUFFER, g_quads_vbo); // TODO: Do we need this here?
-
-            GLsizei stride = Vertex.sizeof;
-            glEnableVertexAttribArray(Vertex_Attribute_ID_Pos);
-            glVertexAttribPointer(Vertex_Attribute_ID_Pos, 3, GL_FLOAT, GL_FALSE, stride, cast(GLvoid*)Vertex.pos.offsetof);
-
-            glEnableVertexAttribArray(Vertex_Attribute_ID_Normal);
-            glVertexAttribPointer(Vertex_Attribute_ID_Normal, 3, GL_FLOAT, GL_FALSE, stride, cast(GLvoid*)Vertex.normal.offsetof);
-
-            glEnableVertexAttribArray(Vertex_Attribute_ID_UV);
-            glVertexAttribPointer(Vertex_Attribute_ID_UV, 2, GL_FLOAT, GL_FALSE, stride, cast(GLvoid*)Vertex.uv.offsetof);
         }
         return success;
     }
@@ -580,9 +574,9 @@ version(opengl){
         glUseProgram(cast(GLuint)shader);
     }
 
-    public void render_test_triangle(Mat4 translate){
+    version(none) public void render_test_triangle(Mat4 translate){
         Vec4 color = Vec4(1, 0, 0, 1);
-        Vertex[3] v = void;
+        Vertex_Sprite[3] v = void;
         v[0].pos = Vec3(-0.5f, -0.5f, 0);
         v[0].normal = Vec3(0, 0);
         v[0].uv = Vec2(0, 0);
@@ -598,7 +592,7 @@ version(opengl){
         Mat4 mat_final = transpose(translate);
         set_constants(Shader_Constants.model.offsetof, &mat_final, mat_final.sizeof);
 
-        glBindBuffer(GL_ARRAY_BUFFER, g_quads_vbo);
+        glBindBuffer(GL_ARRAY_BUFFER, g_quad_vbo);
         glBufferData(GL_ARRAY_BUFFER, cast(GLsizeiptr)(v.length * Vertex.sizeof), &v[0], GL_DYNAMIC_DRAW);
         glDrawArrays(GL_TRIANGLES, 0, cast(uint)v.length);
     }
@@ -607,35 +601,33 @@ version(opengl){
         auto mat_final = transpose(transform);
         set_constants(Shader_Constants.model.offsetof, &mat_final, mat_final.sizeof);
 
-        glBindBuffer(GL_ARRAY_BUFFER, g_quads_vbo);
+        glBindBuffer(GL_ARRAY_BUFFER, g_quad_vbo);
         glBufferData(GL_ARRAY_BUFFER, cast(GLsizeiptr)(mesh.vertices.length * Vertex.sizeof), &mesh.vertices[0], GL_DYNAMIC_DRAW);
         glDrawArrays(GL_TRIANGLES, 0, cast(uint)mesh.vertices.length);
     }
 
-    public void render_set_texture(Texture texture){
+    public void set_texture(Texture texture){
         if(g_current_texture != texture){
             glBindTexture(GL_TEXTURE_2D, cast(GLuint)texture);
             g_current_texture = texture;
         }
     }
 
-    /+
     public void render_text(Font* font, String text, Vec2 baseline){
         push_frame(g_allocator.scratch);
         scope(exit) pop_frame(g_allocator.scratch);
 
-        auto vertex_buffer = alloc_array!Vertex(g_allocator.scratch, text.length * 4);
-        uint vertex_buffer_used;
+        auto bounds = rect_from_min_max(Vec2(0, 0), Vec2(4, 8));
+        auto uvs = rect_from_min_max(Vec2(0, 0), Vec2(1, 1));
+        Vertex[4] v;
+        draw_quad(v[], bounds, uvs);
 
-        auto bounds = rect_from_min_max(Vec2(0, 0), Vec2(8, 8));
-        //draw_rect(vertex_buffer[vertex_buffer_used .. $], bounds, rect_from_min_max(Vec2(0, 0), Vec2(1, 1)));
-        vertex_buffer_used += 4;
-
-        render_set_texture(font.texture_id);
-        glBindBuffer(GL_ARRAY_BUFFER, g_quads_vbo);
-        glBufferData(GL_ARRAY_BUFFER, cast(GLsizeiptr)(vertex_bufferused * Vertex.sizeof), vertex_buffer.ptr, GL_DYNAMIC_DRAW);
-        glDrawArrays(GL_TRIANGLES, 0, cast(uint)vertices_buffer.length);
-    }+/
+        set_texture(font.texture_id);
+        glBindBuffer(GL_ARRAY_BUFFER, g_quad_vbo);
+        glBufferData(GL_ARRAY_BUFFER, cast(GLsizeiptr)(v.length * Vertex.sizeof), v.ptr, GL_DYNAMIC_DRAW);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_quad_index_buffer);
+        glDrawElements(GL_TRIANGLES, cast(GLsizei)(v.length * Vertex_Indeces_Per_Quad), GL_UNSIGNED_INT, cast(GLvoid*)0);
+    }
 
     public void render_end_frame(){
         swap_render_backbuffer();

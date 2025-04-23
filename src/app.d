@@ -370,7 +370,6 @@ Mesh obj_to_mesh(Obj_Data* obj, Allocator* allocator){
         return result;
     }
 
-    // TODO: Remove repeat vertices? Doesn't obj do that for us already?
     Mesh mesh;
     mesh.vertices = alloc_array!Vertex(allocator, obj.faces.length*3);
     ulong mesh_vertices_count;
@@ -1514,6 +1513,9 @@ extern(C) int main(int args_count, char** args){
                 } break;
             }
         }
+
+        set_shader(text_shader);
+        render_text(&s.font_main, "Test", Vec2(0, 0));
 
         if(editor_is_open){
             editor_render(s);
