@@ -190,7 +190,7 @@ bool rasterize_glyph_and_copy_metrics(Font_Builder *builder, uint codepoint, Fon
         blit_to_dest(bitmap_glyph, pixels, builder.fill_color, fill_offset_x, fill_offset_y);
 
         glyph.offset.x += fill_offset_x;
-        //glyph.offset.y += fille_offset_y; // TODO: Should we do this?
+        //glyph.offset.y += fill_offset_y; // TODO: Should we account for stroke on the y-axis?
     }
 
     return succeeded;
