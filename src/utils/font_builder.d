@@ -163,9 +163,19 @@ bool rasterize_glyph_and_copy_metrics(Font_Builder *builder, uint codepoint, Fon
     glyph.codepoint = codepoint;
     glyph.width     = pixels.width;
     glyph.height    = pixels.height;
-    glyph.offset.x  = bitmap_glyph.left;
-    glyph.offset.y  = bitmap_glyph.bitmap.rows - bitmap_glyph.top;
     glyph.advance   = (cast(uint)face.glyph.advance.x) >> 6;
+
+    // NOTE: The offset values are added to the pen position to correctly align the glyph bitmap
+    // when rendering text. The x-offset is the left-side bearing of the glyph. The y-offset
+    // expects glyph bitmaps to be drawn from the bottom-left, with the y-axis growing upwards.
+    // The value of the y-offset is the descender and will be negative for glyphs that extend
+    // below the baseline.
+    //
+    // FT_BitmapGlyph.left:        left-side bearing
+    // FT_BitmapGlyph.top:         top-side bearing (ascender?)
+    // FT_BitmapGlyph.bitmap.rows: glyph pixel height
+    glyph.offset.x  = bitmap_glyph.left;
+    glyph.offset.y  = -(cast(float)(bitmap_glyph.bitmap.rows - bitmap_glyph.top)); // Must cast before negation as the metrics are unsigned integers
 
     uint target_color = font_entry.stroke == 0 ? builder.fill_color : builder.stroke_color;
     blit_to_dest(bitmap_glyph, pixels, target_color, 0, 0);

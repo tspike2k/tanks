@@ -633,8 +633,8 @@ version(opengl){
                 auto v = v_buffer[v_buffer_used .. v_buffer_used+4];
                 v_buffer_used += 4;
 
-                auto min_corner = pen + glyph.offset;
-                auto bounds = rect_from_min_max(min_corner, min_corner + Vec2(glyph.width, glyph.height));
+                auto min_p = pen + glyph.offset;
+                auto bounds = rect_from_min_max(min_p, min_p + Vec2(glyph.width, glyph.height));
                 auto uvs = rect_from_min_max(glyph.uv_min, glyph.uv_max);
                 draw_quad(v, bounds, uvs);
 
