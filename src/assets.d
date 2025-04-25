@@ -479,7 +479,7 @@ void save_to_tga(String file_name, uint *pixels, uint width, uint height, Alloca
     push_frame(scratch);
     scope(exit) pop_frame(scratch);
 
-    auto file = open_file(file_name, File_Flag_Write|File_Flag_Trunc);
+    auto file = open_file(file_name, File_Flag_Write);
     if(is_open(&file)){
         size_t dest_size = TGA_Header.sizeof + uint.sizeof*width*height;
         auto dest = alloc_array!void(scratch, dest_size);

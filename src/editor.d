@@ -57,6 +57,9 @@ void save_campaign_file(App_State* s){
     auto dest_buffer = begin_reserve_all(scratch);
     auto serializer = Serializer(dest_buffer);
 
+    /+
+    // TODO: Write header as well!
+
     // TODO: Upgrade to using Asset_Sections instead.
     auto section = get_type!Campaign_Section(&serializer);
     section.type = Campaign_Section_Type.Blocks;
@@ -84,10 +87,10 @@ void save_campaign_file(App_State* s){
     }
 
     end_reserve_all(scratch, serializer.buffer, serializer.buffer_used);
-
     if(!serializer.error){
         write_file_from_memory(Campaign_File_Name, serializer.buffer[0 .. serializer.buffer_used]);
     }
++/
 }
 
 bool block_exists_on_tile(World* world, Vec2 tile){

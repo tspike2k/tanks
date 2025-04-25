@@ -91,8 +91,8 @@ bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* al
     push_frame(scratch);
     scope(exit) pop_frame(scratch);
 
-    auto memory = read_file_into_memory(file_name, scratch);
     bool success = false;
+    auto memory = read_file_into_memory(file_name, scratch);
     if(memory.length){
         auto serializer = Serializer(memory);
 

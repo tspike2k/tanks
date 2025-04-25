@@ -614,6 +614,8 @@ version(opengl){
     }
 
     public void render_text(Font* font, String text, Vec2 baseline){
+        if(font.glyphs.length == 0) return;
+
         push_frame(g_allocator.scratch);
         scope(exit) pop_frame(g_allocator.scratch);
 

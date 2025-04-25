@@ -17,10 +17,10 @@ else{
 }
 
 enum{
-    File_Flag_Read    = (1 << 1),
-    File_Flag_Write   = (1 << 2),
-    File_Flag_Trunc   = (1 << 3),
-    File_Flag_Is_Open = (1 << 4),
+    File_Flag_Read     = (1 << 1),
+    File_Flag_Write    = (1 << 2),
+    File_Flag_No_Trunc = (1 << 3),
+    File_Flag_Is_Open  = (1 << 4),
 }
 
 struct File{
@@ -118,7 +118,7 @@ File open_file(const(char)[] file_name, uint flags){
         permissions = Dest_File_Permissions;
     }
 
-    if((flags & File_Flag_Write) && (flags & File_Flag_Trunc)){
+    if((flags & File_Flag_Write) && !(flags & File_Flag_No_Trunc)){
         oflags |= O_TRUNC;
     }
 
