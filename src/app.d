@@ -111,7 +111,7 @@ bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* al
             uint level_index;
 
             // TODO: Switch to using Asset_Section instead
-            while(auto section = get_type!Campaign_Section(&serializer)){
+            outer: while(auto section = get_type!Campaign_Section(&serializer)){
                 switch(section.type){
                     default: break;
 
@@ -128,12 +128,18 @@ bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* al
                         auto count = section.size / Cmd_Make_Tank.sizeof;
                         level.tanks = alloc_array!Cmd_Make_Tank(allocator, count);
                         read(&serializer, level.tanks);
+                        break outer; // TODO: Ugly hack! Truncate the campaign file!
                     } break;
                 }
             }
             success = !serializer.error;
         }
     }
+
+    if(!success){
+        log_error("Unable to load campaign from file {0}\n", file_name);
+    }
+
     return success;
 }
 
