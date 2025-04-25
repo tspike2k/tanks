@@ -69,14 +69,14 @@ bool verify_asset_header(alias target)(const(char)[] file_name, Asset_Header* he
     return true;
 }
 
-Asset_Section* begin_writing_section(ref void[] writer, uint section_type){
-    auto result = stream_next!Asset_Section(writer);
+Asset_Section* begin_writing_section(Serializer* dest, uint section_type){
+    auto result = get_type!Asset_Section(dest);
     result.type = section_type;
     return result;
 }
 
-void end_writing_section(ref void[] writer, Asset_Section* section){
-    section.size = cast(uint)(writer.ptr - cast(void*)section);
+void end_writing_section(Serializer* dest, Asset_Section* section){
+    section.size = cast(uint)(&dest.buffer[dest.buffer_used] - cast(void*)section);
 }
 
 struct Pixels{
@@ -291,23 +291,11 @@ struct Font_Glyph{
 }
 
 struct Font{
-    Font_Metrics metrics;
-    Font_Glyph[] glyphs; // TODO: Use a seperate array for the glyph codepoints. This way, lookups will be fast
+    Font_Metrics   metrics;
+    Font_Glyph[]   glyphs; // TODO: Use a seperate array for the glyph codepoints. This way, lookups will be fast
     Kerning_Pair[] kerning_pairs;
-    float[]        kerning_offset;
-    ulong texture_id;
-}
-
-// This type is silly. Go back to using a Font/Pixel pair.
-struct Font_Source{
-    Font_Metrics*  metrics;
-    Font_Glyph[]   glyphs;
-    Kerning_Pair[] kerning_pairs;
-    float[]        kerning_offset;
-
-    uint   pixels_width;
-    uint   pixels_height;
-    uint[] pixels;
+    float[]        kerning_advance;
+    ulong          texture_id;
 }
 
 Font_Glyph* get_glyph(Font* font, uint codepoint){
@@ -331,69 +319,50 @@ float get_codepoint_kerning_advance(Font* font, uint prev_codepoint, uint codepo
     // In the future we may wish to switch to a HashTable, though.
     foreach(i, ref entry; font.kerning_pairs){
         if(entry == key){
-            result = font.kerning_offset[i];
+            result = font.kerning_advance[i];
             break;
         }
     }
     return result;
 }
 
-/+
-    TODO: When rendering the font, we should do something like this:
-    Based on sample code from here:
-    https://freetype.org/freetype2/docs/tutorial/step2.html#:~:text=c.%20Kerning
-
-    uint prev_codepoint = 0;
-    foreach(c; s){
-        auto glyph = get_glyph(font, c);
-        auto kerning = get_codepoint_kerning_advance(font, prev_codepoint, glyph.codepoint);
-        pen_x += kerning;
-        draw_glyph(glyph, pen_x, pen_y);
-        pen_x += glyph.advance;
-        prev_codepoint = glyph.codepoint;
-    }
-+/
-
-// NOTE: Data passed
-bool load_font_from_file(String file_name, Font_Source* font, Allocator* allocator){
+bool load_font_from_file(String file_name, Font* font, Pixels* pixels, Allocator* allocator){
     bool result = false;
     auto source = read_file_into_memory(file_name, allocator.scratch);
     if(source.length){
-        auto reader = source;
-        auto header = stream_next!Asset_Header(reader);
-
-        // TODO: Read sections based on the sizes in the section header.
-        // Have a function that will return the section payload, deflating compressed
-        // data as needed.
-        if(verify_asset_header!Font_Meta(file_name, header)){
-            while(auto section_header = stream_next!Asset_Section(reader)){
+        auto serializer = Serializer(source);
+        Asset_Header header;
+        read(&serializer, to_void(&header));
+        if(verify_asset_header!Font_Meta(file_name, &header)){
+            // TODO: Read sections based on the sizes in the section header.
+            // Have a function that will return the section payload, deflating compressed
+            // data as needed.
+            while(auto section_header = get_type!Asset_Section(&serializer)){
                 switch(cast(Font_Section)section_header.type){
                     default: break;
 
                     case Font_Section.Metrics:{
-                        font.metrics = stream_next!Font_Metrics(reader);
+                        read(&serializer, to_void(&font.metrics));
                     } break;
 
                     case Font_Section.Glyphs:{
-                        auto glyphs_count = stream_next!uint(reader);
-                        if(glyphs_count){
-                            font.glyphs = cast(Font_Glyph[])stream_next(reader, Font_Glyph.sizeof * (*glyphs_count));
+                        uint glyphs_count;
+                        read(&serializer, to_void(&glyphs_count));
+                        if(glyphs_count > 0){
+                            font.glyphs = get_array!Font_Glyph(&serializer, glyphs_count);
                         }
                     } break;
 
                     case Font_Section.Pixels:{
-                        auto width  = stream_next!uint(reader);
-                        auto height = stream_next!uint(reader);
-                        if(width && height){
-                            font.pixels_width  = *width;
-                            font.pixels_height = *height;
-                            font.pixels        = cast(uint[])stream_next(reader, (*width)*(*height)*uint.sizeof);
-                        }
+                        uint width, height;
+                        read(&serializer, to_void(&width));
+                        read(&serializer, to_void(&height));
+                        pixels.data = get_array!uint(&serializer, width*height);
                     } break;
                 }
             }
 
-            result = font.metrics && font.glyphs.length && font.pixels.length;
+            result = !serializer.error;
         }
     }
 

@@ -225,6 +225,18 @@ Allocator make_sub_allocator(Allocator* allocator, size_t size, uint flags = 0, 
     return result;
 }
 
+void[] begin_reserve_all(Allocator* allocator, uint alignment = Default_Align){
+    auto push = calc_alignment_push(&allocator.memory[allocator.used], alignment);
+    auto result = allocator.memory[allocator.used + push .. $];
+    allocator.used = allocator.memory.length;
+    return result;
+}
+
+void end_reserve_all(Allocator* allocator, void[] buffer, size_t used){
+    allocator.used = &buffer[used] - allocator.memory.ptr;
+    assert(allocator.used <= allocator.memory.length);
+}
+
 ////
 //
 // Strings
@@ -245,15 +257,13 @@ struct Buffer_Writer{
 }
 
 Buffer_Writer begin_buffer_writer(Allocator* allocator, uint alignment = Default_Align){
-    auto push = calc_alignment_push(&allocator.memory[allocator.used], alignment);
-    auto result = Buffer_Writer(cast(char[])allocator.memory[allocator.used + push .. $]);
-    allocator.used = allocator.memory.length;
+    auto memory = begin_reserve_all(allocator, alignment);
+    auto result = Buffer_Writer(cast(char[])memory);
     return result;
 }
 
 char[] end_buffer_writer(Allocator* allocator, Buffer_Writer* writer){
-    allocator.used = &writer.buffer[writer.used] - cast(char*)allocator.memory.ptr;
-    assert(allocator.used <= allocator.memory.length);
+    end_reserve_all(allocator, writer.buffer, writer.used);
     auto result = writer.buffer[0 .. writer.used];
     return result;
 }
@@ -407,35 +417,54 @@ bool to_float(float* f, String s){
 //
 ///
 
-alias Serialize = void function(ref void[] stream, void[] data);
-
-void stream_write(ref void[] stream, void[] data){
-    copy(data, stream[0 .. data.length]);
-    stream = stream[data.length .. $];
+struct Serializer{
+    void[] buffer;
+    size_t buffer_used;
+    bool   error;
 }
 
-void stream_read(ref void[] stream, void[] data){
-    copy(stream[0 .. data.length], data);
-    stream = stream[data.length .. $];
-}
-
-void[] stream_next(ref void[] stream, size_t size){
+void[] get_bytes(Serializer* dest, size_t bytes){
     void[] result;
-    if(stream.length >= size){
-        result = stream[0 .. size];
-        stream = stream[size .. $];
+    if(!dest.error){
+        if(dest.buffer.length - dest.buffer_used >= bytes){
+            result = dest.buffer[dest.buffer_used .. dest.buffer_used + bytes];
+            dest.buffer_used += bytes;
+        }
+        else{
+            dest.error = true;
+        }
     }
     return result;
 }
 
-T* stream_next(T)(ref void[] stream){
-    T* result = null;
-    auto memory = stream_next(stream, T.sizeof);
-    if(memory.length){
-        result = cast(T*)memory;
-    }
-
+T* get_type(T)(Serializer* dest){
+    auto raw = get_bytes(dest, T.sizeof);
+    auto result = cast(T*)raw.ptr; // Do this to avoid bounds checking on casts. We need to allow for null pointers.
     return result;
+}
+
+T[] get_array(T)(Serializer* dest, size_t count){
+    // TODO: Does this work if dest is fully consumed? Will it return an array of length 0?
+    auto result = cast(T[])get_bytes(dest, T.sizeof*count);
+    return result;
+}
+
+void write(Serializer* dest, void[] data){
+    if(!dest.error){
+        auto buffer = get_bytes(dest, data.length);
+        if(buffer.length){
+            copy(data, buffer);
+        }
+    }
+}
+
+void read(Serializer* dest, void[] data){
+    if(!dest.error){
+        auto buffer = get_bytes(dest, data.length);
+        if(buffer.length){
+            copy(buffer, data);
+        }
+    }
 }
 
 version(none){
@@ -472,221 +501,3 @@ version(none){
         }
     }
 }
-
-
-
-/+
-
-//
-// Slices
-//
-
-Slice slice_and_advance(Slice *slice, u64 length){
-    assert(slice->length >= length);
-    Slice result = {slice->data, length};
-    slice_advance(slice, length);
-    return result;
-}
-
-void slice_advance_char(Slice* slice){
-    slice_advance(slice, 1);
-}
-
-bool slice_eat_line(Slice* reader, Slice* slice){
-    *slice = *reader;
-    bool result = reader->length > 0;
-
-    while(reader->length > 0){
-        if(reader->data[0] == '\n'){
-            slice->length = &reader->data[0] - &slice->data[0];
-            slice_advance_char(reader);
-            break;
-        }
-        slice_advance_char(reader);
-    }
-
-    return result;
-}
-
-bool slice_eat_until_char(Slice* reader, char c){
-    bool result = false;
-    while(reader->length > 0){
-        if(reader->data[0] == c){
-            result = true;
-            break;
-        }
-        slice_advance_char(reader);
-    }
-    return result;
-}
-
-void slice_skip_whitespace(Slice *slice){
-    while(slice->length > 0){
-        if(!is_char_whitespace(slice->data[0]))
-            break;
-        slice_advance_char(slice);
-    }
-}
-
-bool slice_eat_next_word(Slice *reader, Slice *word){
-    slice_skip_whitespace(reader);
-
-    *word = *reader;
-    while(reader->length > 0){
-        if(is_char_whitespace(reader->data[0])){
-            word->length = reader->data - word->data;
-            break;
-        }
-        slice_advance_char(reader);
-    }
-
-    return word->length > 0;
-}
-
-// TODO: Make this take two Slices and just expect the user to call make_Slice for the last parameter?
-bool slice_matches_cstr(Slice slice, const char* str){
-    // TODO: This would be much more efficient if we don't get the length of str and just
-    // loop until we hit the null terminator.
-    size_t len = strlen(str);
-    bool result = false;
-
-    if(len == slice.length){
-        result = true;
-        for(size_t i = 0; i < len; i++){
-            if(slice.data[i] != str[i]){
-                result = false;
-                break;
-            }
-        }
-    }
-
-    return result;
-}
-
-bool slice_begins_with(Slice a, Slice b){
-    bool result = false;
-    if(a.length >= b.length){
-        result = true;
-        for(size_t i = 0; i < b.length; i++){
-            if(a.data[i] != b.data[i]){
-                result = false;
-                break;
-            }
-        }
-    }
-    return result;
-}
-
-void slice_to_cstr(Slice* s, char *buffer, size_t buffer_size){
-    size_t to_copy = s->length > buffer_size - 1 ? buffer_size - 1 : s->length;
-    memcpy(buffer, s->data, to_copy);
-    assert(to_copy+1 < buffer_size);
-    buffer[to_copy+1] = '\0';
-}
-
-Cyu_API void slice_write(Slice *writer, const void* data, size_t size){
-    assert(size < writer->length);
-    memcpy(&writer->data[0], data, size);
-    slice_advance(writer, size);
-}
-
-Cyu_API void slice_write_str(Slice* writer, char* text, size_t length){
-    if (writer->length <= 0) return;
-
-    size_t to_write = length < writer->length ? length : writer->length;
-    memcpy(&writer->data[0], text, to_write);
-
-    if(to_write == writer->length){
-        writer->data[writer->length-1] = '\0';
-    }
-
-    slice_advance(writer, to_write);
-}
-
-Cyu_API void slice_terminate_str(Slice* writer){
-    if (writer->length <= 0) return;
-
-    writer->data[0] = '\0';
-    slice_advance(writer, 1);
-}
-
-Cyu_API void slice_advance(Slice* slice, size_t size){
-    assert(slice->length >= size);
-    slice->length -= size;
-    slice->data   += size;
-}
-
-//
-// Memory Blocks
-//
-
-Memory_Block make_memory_block(void* memory, size_t size){
-    Memory_Block result = {};
-
-    result.base = (u8*)memory;
-    result.size = size;
-
-    return result;
-}
-
-void *memory_alloc(Memory_Block *block, size_t size, u32 flags, size_t align){
-    assert(block->used <= block->size);
-    assert(size < block->size - block->used);
-
-    size_t memory_loc = (size_t)&block->base[block->used];
-    size_t align_push = (align - memory_loc) & (align - 1); // Alignment code thanks to Handmade Hero day 131
-
-    size_t index = block->used + align_push;
-    assert(index + size < block->size);
-    void *result = &block->base[index];
-    memset(result, 0, size);
-
-    block->used += size + align_push;
-
-    return result;
-}
-
-void memory_drop(Memory_Block *block){
-    block->used = 0;
-}
-
-void memory_write(Memory_Block *block, void *data, size_t size){
-    assert(size < block->size - block->used);
-    memcpy(&block->base[block->used], data, size);
-    block->used += size;
-}
-
-void *memory_read(Memory_Block* block, size_t size){
-    assert(block->used <= block->size);
-
-    void *result = NULL;
-    if(size <= block->size - block->used){
-        result = &block->base[block->used];
-        block->used += size;
-    }
-    else{
-        block->used = block->size;
-    }
-
-    return result;
-}
-
-void combine_strings_raw(Memory_Block *block, Slice* result, Slice *strings, size_t strings_count){
-    size_t size = 1;
-    for(u32 i = 0; i < strings_count; i++){
-        size += strings[i].length;
-    }
-
-    char *memory = memory_alloc(block, size, 0, Default_Align);
-    memory[size] = '\0';
-    *result = slice(memory, size);
-
-    char *cursor = memory;
-    for(u32 i = 0; i < strings_count; i++){
-        Slice s = strings[i];
-        memcpy(cursor, s.data, s.length);
-        cursor += s.length;
-        assert(cursor <= &memory[size]);
-    }
-}
-+/

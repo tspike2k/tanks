@@ -52,6 +52,17 @@ void[] read_file_into_memory(const(char)[] file_name, Allocator* allocator){
     return result;
 }
 
+bool write_file_from_memory(const(char)[] file_name, void[] data){
+    bool success = false;
+    auto file = open_file(file_name, File_Flag_Read);
+    if(is_open(&file)){
+        auto written = write_file(&file, 0, data);
+        success = written == data.length;
+        close_file(&file);
+    }
+    return success;
+}
+
 // TODO: Make sure the source args are Strings.
 char[] make_file_path(Args...)(Args args, Allocator* allocator)
 if(Args.length > 0){

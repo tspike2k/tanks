@@ -621,14 +621,20 @@ version(opengl){
         uint v_buffer_used = 0;
 
         Font_Metrics *metrics = &font.metrics;
-        auto pen = baseline;
 
+        auto pen = baseline;
+        uint prev_codepoint = 0;
         foreach(c; text){
+            // TODO: Due to kerning, we probably need "space" to be a valid glyph, just not one we render.
             if(c == ' '){
                 pen.x += metrics.space_width;
             }
             else{
-                auto glyph = get_glyph(font, c);
+                // When to apply kerning based on sample code from here:
+                // https://freetype.org/freetype2/docs/tutorial/step2.html#:~:text=c.%20Kerning
+                auto glyph   = get_glyph(font, c);
+                //auto kerning = get_codepoint_kerning_advance(font, prev_codepoint, glyph.codepoint);
+                //pen.x += kerning;
 
                 auto v = v_buffer[v_buffer_used .. v_buffer_used+4];
                 v_buffer_used += 4;
@@ -639,6 +645,7 @@ version(opengl){
                 draw_quad(v, bounds, uvs);
 
                 pen.x += cast(float)glyph.advance;
+                prev_codepoint = c;
             }
         }
 

@@ -88,55 +88,51 @@ struct Campaign{
 
 bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* allocator){
     auto scratch = allocator.scratch;
+    push_frame(scratch);
+    scope(exit) pop_frame(scratch);
+
     auto memory = read_file_into_memory(file_name, scratch);
-    auto reader = memory;
-
     bool success = false;
+    if(memory.length){
+        auto serializer = Serializer(memory);
 
-    // TODO: More robust reading code
-    // TODO: Validate header
-    auto header = stream_next!Asset_Header(reader);
-    if(header){
-        // TODO: Get these from Campaign_Info once we start saving that out.
-        auto levels_count = 1;
-        auto maps_count   = 1;
+        Asset_Header header;
+        read(&serializer, to_void(&header));
+        //if(verify_asset_header!Campaign_Meta(file_name, &header)){
+        if(true){
+            // TODO: Get these from Campaign_Info once we start saving that out.
+            auto levels_count = 1;
+            auto maps_count   = 1;
 
-        campaign.maps   = alloc_array!Campaign_Map(allocator, maps_count);
-        campaign.levels = alloc_array!Campaign_Level(allocator, levels_count);
+            campaign.maps   = alloc_array!Campaign_Map(allocator, maps_count);
+            campaign.levels = alloc_array!Campaign_Level(allocator, levels_count);
 
-        uint map_index;
-        uint level_index;
+            uint map_index;
+            uint level_index;
 
-        while(auto section = stream_next!Campaign_Section(reader)){
-            switch(section.type){
-                default: break;
+            // TODO: Switch to using Asset_Section instead
+            while(auto section = get_type!Campaign_Section(&serializer)){
+                switch(section.type){
+                    default: break;
 
-                case Campaign_Section_Type.Blocks:{
-                    auto map = &campaign.maps[map_index++];
+                    case Campaign_Section_Type.Blocks:{
+                        auto map = &campaign.maps[map_index++];
 
-                    auto count = section.size / Cmd_Make_Block.sizeof;
-                    map.blocks = alloc_array!Cmd_Make_Block(allocator, count);
+                        auto count = section.size / Cmd_Make_Block.sizeof;
+                        map.blocks = alloc_array!Cmd_Make_Block(allocator, count);
+                        read(&serializer, map.blocks);
+                    } break;
 
-                    foreach(i; 0 .. count){
-                        auto cmd = stream_next!Cmd_Make_Block(reader);
-                        map.blocks[i] = *cmd;
-                    }
-                } break;
-
-                case Campaign_Section_Type.Tanks:{
-                    auto level = &campaign.levels[level_index++];
-                    auto count = section.size / Cmd_Make_Tank.sizeof;
-                    level.tanks = alloc_array!Cmd_Make_Tank(allocator, count);
-
-                    foreach(i; 0 .. count){
-                        auto cmd = stream_next!Cmd_Make_Tank(reader);
-                        level.tanks[i] = *cmd;
-                    }
-                } break;
+                    case Campaign_Section_Type.Tanks:{
+                        auto level = &campaign.levels[level_index++];
+                        auto count = section.size / Cmd_Make_Tank.sizeof;
+                        level.tanks = alloc_array!Cmd_Make_Tank(allocator, count);
+                        read(&serializer, level.tanks);
+                    } break;
+                }
             }
+            success = !serializer.error;
         }
-
-        success = campaign.maps.length > 0 && campaign.levels.length > 0;
     }
     return success;
 }
@@ -1016,17 +1012,18 @@ Vec2 integrate(Vec2* vel, Vec2 accel, float dt){
 }
 
 bool load_font(String file_name, Font* font, Allocator* allocator){
-    Font_Source source;
     bool result = false;
-    if(load_font_from_file(file_name, &source, allocator)){
-        font.metrics = *source.metrics;
+    Font source;
+    Pixels pixels;
+    if(load_font_from_file(file_name, &source, &pixels, allocator)){
+        font.metrics = source.metrics;
         font.glyphs  = dup_array(source.glyphs, allocator);
-        if(source.kerning_pairs.length && source.kerning_pairs.length == source.kerning_offset.length){
+        if(source.kerning_pairs.length && source.kerning_pairs.length == source.kerning_advance.length){
             font.kerning_pairs  = dup_array(source.kerning_pairs, allocator);
-            font.kerning_offset = dup_array(source.kerning_offset, allocator);
+            font.kerning_advance = dup_array(source.kerning_advance, allocator);
         }
 
-        font.texture_id = create_texture(source.pixels, source.pixels_width, source.pixels_height);
+        font.texture_id = create_texture(pixels.data, pixels.width, pixels.height);
     }
     return result;
 }

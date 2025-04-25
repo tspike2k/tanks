@@ -283,6 +283,40 @@ void end_building_font(Font_Builder* builder, Font_Entry *font_entry){
         node = node.next;
     }
 
+    auto kerning_count   = atlas.items_count*atlas.items_count;
+    auto kerning_pairs   = alloc_array!Kerning_Pair(allocator, kerning_count);
+    auto kerning_advance = alloc_array!float(allocator, kerning_count);
+
+    auto face = builder.face;
+
+    uint kerning_index = 0;
+    auto item_a = atlas.items;
+    while(item_a){
+        auto item_b = atlas.items;
+        auto glyph_a = cast(Rasterized_Glyph*)item_a.source;
+        while(item_b){
+            auto glyph_b = cast(Rasterized_Glyph*)item_b.source;
+
+            auto codepoint_a = glyph_a.glyph.codepoint;
+            auto codepoint_b = glyph_b.glyph.codepoint;
+
+            auto glyph_index_a = FT_Get_Char_Index(face, codepoint_a);
+            auto glyph_index_b = FT_Get_Char_Index(face, codepoint_b);
+
+            FT_Vector kerning = FT_Vector(0, 0);
+            FT_Get_Kerning(builder.face, glyph_index_a, glyph_index_b, FT_KERNING_DEFAULT, &kerning);
+
+            kerning_pairs[kerning_index]   = Kerning_Pair(codepoint_a, codepoint_b);
+            kerning_advance[kerning_index] = kerning.x;
+            kerning_index++;
+
+            item_b = item_b.next;
+        }
+
+        item_a = item_a.next;
+    }
+    assert(kerning_index == kerning_count);
+
     save_to_tga("test.tga", canvas.data.ptr, canvas.width, canvas.height, allocator);
 
     auto file = open_file(font_entry.dest_file_name, File_Flag_Write|File_Flag_Trunc);
@@ -290,7 +324,7 @@ void end_building_font(Font_Builder* builder, Font_Entry *font_entry){
         push_frame(allocator.scratch);
         scope(exit) pop_frame(allocator.scratch);
 
-        // TODO: Can we use the buffer_writer instead?
+        // TODO: Can we use the buffer_writer instead? Or should we use a serializer function?
 
         auto dest = alloc_array!void(allocator, 8*1024*1024);
         auto writer = dest;
@@ -330,6 +364,11 @@ void end_building_font(Font_Builder* builder, Font_Entry *font_entry){
         }
         end_writing_section(writer, section);
 
+        section = begin_writing_section(writer, Font_Section.Kerning);
+
+
+        end_writing_section(writer, section);
+
         write_file(&file, 0, dest[0 .. writer.ptr - dest.ptr]);
         close_file(&file);
     }
@@ -353,7 +392,6 @@ extern(C) int main(){
             auto src_file_path = get_path_for_ttf_file(entry.source_file_name, &allocator);
             if(src_file_path.length){
                 if(begin_building_font(&builder, src_file_path, &entry)){
-                    // TODO: Add the null glyph!
                     foreach(c; '!' .. '~'+1){
                         add_codepoint(&builder, c);
                     }

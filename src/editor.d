@@ -10,6 +10,8 @@ TODO:
     - Fix memory leak with calls to load_campaign_from_file. This should load the campaign into
     an allocator specially reserved for campaign memory. When we load, we should reset the
     allocator each time.
+    - In the future, don't use the "world" as the place for the editor to edit
+    entities? Maybe.
 +/
 
 import app;
@@ -52,48 +54,39 @@ void save_campaign_file(App_State* s){
 
     auto world = &s.world;
 
-    auto file = open_file(Campaign_File_Name, File_Flag_Write);
-    if(is_open(&file)){
-        auto buffer = alloc_array!void(scratch, 2*1024*1024);
-        auto writer = buffer;
+    auto dest_buffer = begin_reserve_all(scratch);
+    auto serializer = Serializer(dest_buffer);
 
-        auto header = stream_next!Asset_Header(writer);
-        header.magic        = Campaign_Meta.magic;
-        header.file_version = Campaign_Meta.file_version;
-        header.asset_type   = Campaign_Meta.type;
+    // TODO: Upgrade to using Asset_Sections instead.
+    auto section = get_type!Campaign_Section(&serializer);
+    section.type = Campaign_Section_Type.Blocks;
+    section.size = 0;
 
-        auto section = stream_next!Campaign_Section(writer);
-        section.type = Campaign_Section_Type.Blocks;
-        section.size = 0;
+    foreach(ref e; iterate_entities(world)){
+        if(e.type == Entity_Type.Block){
+            auto cmd = get_type!Cmd_Make_Block(&serializer);
+            encode(cmd, &e);
 
-        // TODO: After the section header, the Block and Tanks sections should state the
-        // map_id.
-
-        // TODO: In the future, don't use the "world" as the place for the editor to edit
-        // entities? Maybe.
-        foreach(ref e; iterate_entities(world)){
-            if(e.type == Entity_Type.Block){
-                auto cmd = stream_next!Cmd_Make_Block(writer);
-                encode(cmd, &e);
-
-                section.size += Cmd_Make_Block.sizeof;
-            }
+            section.size += Cmd_Make_Block.sizeof;
         }
+    }
 
-        section = stream_next!Campaign_Section(writer);
-        section.type = Campaign_Section_Type.Tanks;
-        section.size = 0;
+    section = get_type!Campaign_Section(&serializer);
+    section.type = Campaign_Section_Type.Tanks;
+    section.size = 0;
 
-        foreach(ref e; iterate_entities(world)){
-            if(e.type == Entity_Type.Tank){
-                auto cmd = stream_next!Cmd_Make_Tank(writer);
-                encode(cmd, &e);
-                section.size += Cmd_Make_Tank.sizeof;
-            }
+    foreach(ref e; iterate_entities(world)){
+        if(e.type == Entity_Type.Tank){
+            auto cmd = get_type!Cmd_Make_Tank(&serializer);
+            encode(cmd, &e);
+            section.size += Cmd_Make_Tank.sizeof;
         }
+    }
 
-        write_file(&file, 0, buffer[0 .. writer.ptr - buffer.ptr]);
-        close_file(&file);
+    end_reserve_all(scratch, serializer.buffer, serializer.buffer_used);
+
+    if(!serializer.error){
+        write_file_from_memory(Campaign_File_Name, serializer.buffer[0 .. serializer.buffer_used]);
     }
 }
 

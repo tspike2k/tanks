@@ -47,6 +47,12 @@ enum{
     FT_RENDER_MODE_MAX
 }
 
+enum {
+    FT_KERNING_DEFAULT = 0,
+    FT_KERNING_UNFITTED,
+    FT_KERNING_UNSCALED
+}
+
 // Additional integer size conversion information can be found here:
 // https://wiki.dlang.org/D_binding_for_C
 import core.stdc.config : c_ulong, c_long;
@@ -67,6 +73,7 @@ alias FT_Stroker_LineCap  = c_enum;
 alias FT_Stroker_LineJoin = c_enum;
 alias FT_Glyph_Format     = c_enum;
 alias FT_Render_Mode      = c_enum;
+alias FT_Kerning_Mode     = c_enum;
 
 struct FT_LibraryRec;
 struct FT_CharMapRec;
@@ -296,6 +303,8 @@ extern(C){
     FT_Error FT_Glyph_StrokeBorder(FT_Glyph* pglyph, FT_Stroker stroker, FT_Bool inside, FT_Bool destroy);
     FT_Error FT_Get_Glyph(FT_GlyphSlot slot, FT_Glyph* aglyph);
     FT_Error FT_Glyph_To_Bitmap(FT_Glyph* the_glyph, FT_Render_Mode render_mode, const(FT_Vector)* origin, FT_Bool destroy);
+    FT_UInt  FT_Get_Char_Index(FT_Face face, FT_ULong charcode);
+    FT_Error FT_Get_Kerning(FT_Face face, FT_UInt left_glyph, FT_UInt right_glyph, FT_UInt kern_mode, FT_Vector* akerning);
 }
 
 // This is a compromise. The Freetype2 uses a macro that takes the result as the first parameter and
