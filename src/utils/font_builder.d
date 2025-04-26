@@ -244,13 +244,16 @@ void add_codepoint(Font_Builder* builder, uint codepoint){
 }
 
 void end_building_font(Font_Builder* builder, Font_Entry *font_entry){
+    auto allocator = builder.allocator;
+
+    push_frame(allocator.scratch);
+    scope(exit) pop_frame(allocator.scratch);
+
     auto atlas = &builder.atlas;
     end_atlas_packing(atlas, Atlas_Padding, true);
 
     auto canvas = Pixels(atlas.canvas_width, atlas.canvas_height);
     canvas.data = alloc_array!uint(builder.allocator, canvas.width*canvas.height);
-
-    auto allocator = builder.allocator;
 
     auto node = atlas.items;
     while(node){
@@ -319,59 +322,52 @@ void end_building_font(Font_Builder* builder, Font_Entry *font_entry){
 
     save_to_tga("test.tga", canvas.data.ptr, canvas.width, canvas.height, allocator);
 
-    auto file = open_file(font_entry.dest_file_name, File_Flag_Write|File_Flag_Trunc);
-    if(is_open(&file)){
-        push_frame(allocator.scratch);
-        scope(exit) pop_frame(allocator.scratch);
+    auto dest_memory = begin_reserve_all(allocator);
+    auto writer = Serializer(dest_memory);
 
-        // TODO: Can we use the buffer_writer instead? Or should we use a serializer function?
+    Asset_Header header;
+    header.magic        = Font_Meta.magic;
+    header.file_version = Font_Meta.file_version;
+    header.asset_type   = Font_Meta.type;
+    write(&writer, to_void(&header));
 
-        auto dest = alloc_array!void(allocator, 8*1024*1024);
-        auto writer = dest;
+    auto section = begin_writing_section(&writer, Font_Section.Metrics);
+    write(&writer, to_void(&builder.metrics));
+    end_writing_section(&writer, section);
 
-        auto header         = stream_next!Asset_Header(writer);
-        header.magic        = Font_Meta.magic;
-        header.file_version = Font_Meta.file_version;
-        header.asset_type   = Font_Meta.type;
+    section = begin_writing_section(&writer, Font_Section.Pixels);
+    write(&writer, to_void(&canvas.width));
+    write(&writer, to_void(&canvas.height));
+    write(&writer, canvas.data);
+    end_writing_section(&writer, section);
 
-        auto section = begin_writing_section(writer, Font_Section.Metrics);
-        auto metrics = stream_next!Font_Metrics(writer);
-        *metrics = builder.metrics;
-        end_writing_section(writer, section);
-
-        section = begin_writing_section(writer, Font_Section.Pixels);
-        auto dest_pixels_width  = cast(uint*)stream_next(writer, uint.sizeof);
-        auto dest_pixels_height = cast(uint*)stream_next(writer, uint.sizeof);
-
-        auto dest_pixels_size = canvas.width*canvas.height*uint.sizeof;
-        auto dest_pixels = cast(uint[])stream_next(writer, dest_pixels_size);
-
-        *dest_pixels_width  = canvas.width;
-        *dest_pixels_height = canvas.height;
-        copy(canvas.data, dest_pixels);
-        end_writing_section(writer, section);
-
-        section = begin_writing_section(writer, Font_Section.Glyphs);
-        auto glyphs_count = cast(uint*)stream_next(writer, uint.sizeof);
-        *glyphs_count = atlas.items_count;
-        auto dest_glyphs = cast(Font_Glyph[])stream_next(writer, (*glyphs_count)*Font_Glyph.sizeof);
-        uint glyph_index = 0;
-        node = atlas.items;
-        while(node){
-            auto entry = cast(Rasterized_Glyph*)node.source;
-            dest_glyphs[glyph_index++] = entry.glyph;
-            node = node.next;
-        }
-        end_writing_section(writer, section);
-
-        section = begin_writing_section(writer, Font_Section.Kerning);
-
-
-        end_writing_section(writer, section);
-
-        write_file(&file, 0, dest[0 .. writer.ptr - dest.ptr]);
-        close_file(&file);
+    section = begin_writing_section(&writer, Font_Section.Glyphs);
+    uint glyphs_count = atlas.items_count;
+    write(&writer, to_void(&glyphs_count));
+    while(node){
+        auto entry = cast(Rasterized_Glyph*)node.source;
+        write(&writer, to_void(&entry.glyph));
+        node = node.next;
     }
+    end_writing_section(&writer, section);
+
+    if(kerning_count > 0){
+        section = begin_writing_section(&writer, Font_Section.Kerning);
+        write(&writer, to_void(&kerning_count));
+
+        foreach(ref entry; kerning_pairs){
+            write(&writer, to_void(&entry));
+        }
+
+        foreach(ref entry; kerning_advance){
+            write(&writer, to_void(&entry));
+        }
+
+        end_writing_section(&writer, section);
+    }
+
+    write_file_from_memory(font_entry.dest_file_name, writer.buffer[0 .. writer.buffer_used]);
+    end_reserve_all(allocator, writer.buffer, writer.buffer_used);
 
     if(font_entry.stroke) FT_Stroker_Done(builder.stroker);
     FT_Done_Face(builder.face);

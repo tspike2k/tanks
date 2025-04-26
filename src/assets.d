@@ -376,7 +376,6 @@ bool load_font_from_file(String file_name, Font* font, Pixels* pixels, Allocator
                             pixels.data   = eat_array!uint(&serializer, width*height);
                             pixels.width  = width;
                             pixels.height = height;
-                            save_to_tga("t.tga", pixels.data.ptr, width, height, allocator);
                         }
                     } break;
                 }
