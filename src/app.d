@@ -86,6 +86,15 @@ struct Campaign{
     Campaign_Level[] levels;
 }
 
+Campaign_Section* get_campaign_section(Serializer* serializer){
+    auto result = eat_type!Campaign_Section(serializer);
+    if(result && result.size > bytes_left(serializer)){
+        result = null;
+    }
+
+    return result;
+}
+
 bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* allocator){
     auto scratch = allocator.scratch;
     push_frame(scratch);
@@ -111,9 +120,11 @@ bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* al
             uint level_index;
 
             // TODO: Switch to using Asset_Section instead
-            outer: while(auto section = get_type!Campaign_Section(&serializer)){
+            while(auto section = get_campaign_section(&serializer)){
                 switch(section.type){
-                    default: break;
+                    default:
+                        eat_bytes(&serializer, section.size);
+                        break;
 
                     case Campaign_Section_Type.Blocks:{
                         auto map = &campaign.maps[map_index++];
@@ -128,11 +139,11 @@ bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* al
                         auto count = section.size / Cmd_Make_Tank.sizeof;
                         level.tanks = alloc_array!Cmd_Make_Tank(allocator, count);
                         read(&serializer, level.tanks);
-                        break outer; // TODO: Ugly hack! Truncate the campaign file!
                     } break;
                 }
             }
-            success = !serializer.error;
+            success = map_index == campaign.maps.length
+                      && level_index == campaign.levels.length;;
         }
     }
 
@@ -1030,6 +1041,9 @@ bool load_font(String file_name, Font* font, Allocator* allocator){
         }
 
         font.texture_id = create_texture(pixels.data, pixels.width, pixels.height);
+    }
+    else{
+        log_error("Unable to load font from file {0}\n", file_name);
     }
     return result;
 }

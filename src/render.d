@@ -295,6 +295,7 @@ version(opengl){
     }
 
     public Texture create_texture(uint[] pixels, uint width, uint height, uint flags = 0){
+        assert(width > 0 && height > 0);
         GLint  internal_format = GL_RGBA8; // TODO: Do we care? Can we tell OpenGL we don't care?
         GLenum source_format   = GL_RGBA;
 
@@ -325,6 +326,8 @@ version(opengl){
 
     public bool render_open(Allocator* allocator){
         g_allocator = allocator;
+
+        g_current_texture = -1;
 
         assert(allocator.scratch);
         push_frame(allocator.scratch);

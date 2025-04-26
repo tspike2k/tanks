@@ -57,40 +57,40 @@ void save_campaign_file(App_State* s){
     auto dest_buffer = begin_reserve_all(scratch);
     auto serializer = Serializer(dest_buffer);
 
-    /+
-    // TODO: Write header as well!
+    Asset_Header header;
+    header.magic        = Campaign_Meta.magic;
+    header.file_version = Campaign_Meta.file_version;
+    header.asset_type   = Campaign_Meta.type;
+    write(&serializer, to_void(&header));
 
     // TODO: Upgrade to using Asset_Sections instead.
-    auto section = get_type!Campaign_Section(&serializer);
+    auto section = eat_type!Campaign_Section(&serializer);
     section.type = Campaign_Section_Type.Blocks;
     section.size = 0;
 
     foreach(ref e; iterate_entities(world)){
         if(e.type == Entity_Type.Block){
-            auto cmd = get_type!Cmd_Make_Block(&serializer);
+            auto cmd = eat_type!Cmd_Make_Block(&serializer);
             encode(cmd, &e);
 
             section.size += Cmd_Make_Block.sizeof;
         }
     }
 
-    section = get_type!Campaign_Section(&serializer);
+    section = eat_type!Campaign_Section(&serializer);
     section.type = Campaign_Section_Type.Tanks;
     section.size = 0;
 
     foreach(ref e; iterate_entities(world)){
         if(e.type == Entity_Type.Tank){
-            auto cmd = get_type!Cmd_Make_Tank(&serializer);
+            auto cmd = eat_type!Cmd_Make_Tank(&serializer);
             encode(cmd, &e);
             section.size += Cmd_Make_Tank.sizeof;
         }
     }
 
     end_reserve_all(scratch, serializer.buffer, serializer.buffer_used);
-    if(!serializer.error){
-        write_file_from_memory(Campaign_File_Name, serializer.buffer[0 .. serializer.buffer_used]);
-    }
-+/
+    write_file_from_memory(Campaign_File_Name, serializer.buffer[0 .. serializer.buffer_used]);
 }
 
 bool block_exists_on_tile(World* world, Vec2 tile){

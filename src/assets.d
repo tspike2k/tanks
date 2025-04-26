@@ -70,13 +70,24 @@ bool verify_asset_header(alias target)(const(char)[] file_name, Asset_Header* he
 }
 
 Asset_Section* begin_writing_section(Serializer* dest, uint section_type){
-    auto result = get_type!Asset_Section(dest);
+    auto result = eat_type!Asset_Section(dest);
     result.type = section_type;
     return result;
 }
 
 void end_writing_section(Serializer* dest, Asset_Section* section){
     section.size = cast(uint)(&dest.buffer[dest.buffer_used] - cast(void*)section);
+}
+
+Asset_Section* get_asset_section(Serializer* serializer){
+    auto result = eat_type!Asset_Section(serializer);
+    if(result && result.size > bytes_left(serializer)){
+        result = null;
+    }
+
+    return result;
+
+    return result;
 }
 
 struct Pixels{
@@ -337,19 +348,23 @@ bool load_font_from_file(String file_name, Font* font, Pixels* pixels, Allocator
             // TODO: Read sections based on the sizes in the section header.
             // Have a function that will return the section payload, deflating compressed
             // data as needed.
-            while(auto section_header = get_type!Asset_Section(&serializer)){
-                switch(cast(Font_Section)section_header.type){
-                    default: break;
+            Font_Metrics* metrics;
+            while(auto section = get_asset_section(&serializer)){
+                switch(cast(Font_Section)section.type){
+                    default:
+                        eat_bytes(&serializer, section.size);
+                        break;
 
                     case Font_Section.Metrics:{
-                        read(&serializer, to_void(&font.metrics));
+                        metrics = eat_type!Font_Metrics(&serializer);
+                        font.metrics = *metrics;
                     } break;
 
                     case Font_Section.Glyphs:{
                         uint glyphs_count;
                         read(&serializer, to_void(&glyphs_count));
                         if(glyphs_count > 0){
-                            font.glyphs = get_array!Font_Glyph(&serializer, glyphs_count);
+                            font.glyphs = eat_array!Font_Glyph(&serializer, glyphs_count);
                         }
                     } break;
 
@@ -357,12 +372,17 @@ bool load_font_from_file(String file_name, Font* font, Pixels* pixels, Allocator
                         uint width, height;
                         read(&serializer, to_void(&width));
                         read(&serializer, to_void(&height));
-                        pixels.data = get_array!uint(&serializer, width*height);
+                        if(width && height){
+                            pixels.data   = eat_array!uint(&serializer, width*height);
+                            pixels.width  = width;
+                            pixels.height = height;
+                            save_to_tga("t.tga", pixels.data.ptr, width, height, allocator);
+                        }
                     } break;
                 }
             }
 
-            result = !serializer.error;
+            result = metrics && pixels.data.length && font.glyphs.length;
         }
     }
 

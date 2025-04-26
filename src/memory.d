@@ -420,50 +420,53 @@ bool to_float(float* f, String s){
 struct Serializer{
     void[] buffer;
     size_t buffer_used;
-    bool   error;
 }
 
-void[] get_bytes(Serializer* dest, size_t bytes){
+size_t bytes_left(Serializer* serializer){
+    assert(serializer.buffer_used <= serializer.buffer.length);
+    size_t result = serializer.buffer.length - serializer.buffer_used;
+    return result;
+}
+
+void end_stream(Serializer* dest){
+    dest.buffer_used = dest.buffer.length;
+}
+
+void[] eat_bytes(Serializer* dest, size_t bytes){
     void[] result;
-    if(!dest.error){
-        if(dest.buffer.length - dest.buffer_used >= bytes){
-            result = dest.buffer[dest.buffer_used .. dest.buffer_used + bytes];
-            dest.buffer_used += bytes;
-        }
-        else{
-            dest.error = true;
-        }
+    if(bytes_left(dest) >= bytes){
+        result = dest.buffer[dest.buffer_used .. dest.buffer_used + bytes];
+        dest.buffer_used += bytes;
+    }
+    else{
+        end_stream(dest);
     }
     return result;
 }
 
-T* get_type(T)(Serializer* dest){
-    auto raw = get_bytes(dest, T.sizeof);
+T* eat_type(T)(Serializer* dest){
+    auto raw    = eat_bytes(dest, T.sizeof);
     auto result = cast(T*)raw.ptr; // Do this to avoid bounds checking on casts. We need to allow for null pointers.
     return result;
 }
 
-T[] get_array(T)(Serializer* dest, size_t count){
+T[] eat_array(T)(Serializer* dest, size_t count){
     // TODO: Does this work if dest is fully consumed? Will it return an array of length 0?
-    auto result = cast(T[])get_bytes(dest, T.sizeof*count);
+    auto result = cast(T[])eat_bytes(dest, T.sizeof*count);
     return result;
 }
 
 void write(Serializer* dest, void[] data){
-    if(!dest.error){
-        auto buffer = get_bytes(dest, data.length);
-        if(buffer.length){
-            copy(data, buffer);
-        }
+    auto buffer = eat_bytes(dest, data.length);
+    if(buffer.length){
+        copy(data, buffer);
     }
 }
 
 void read(Serializer* dest, void[] data){
-    if(!dest.error){
-        auto buffer = get_bytes(dest, data.length);
-        if(buffer.length){
-            copy(buffer, data);
-        }
+    auto buffer = eat_bytes(dest, data.length);
+    if(buffer.length){
+        copy(buffer, data);
     }
 }
 

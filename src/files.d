@@ -54,7 +54,7 @@ void[] read_file_into_memory(const(char)[] file_name, Allocator* allocator){
 
 bool write_file_from_memory(const(char)[] file_name, void[] data){
     bool success = false;
-    auto file = open_file(file_name, File_Flag_Read);
+    auto file = open_file(file_name, File_Flag_Write);
     if(is_open(&file)){
         auto written = write_file(&file, 0, data);
         success = written == data.length;
