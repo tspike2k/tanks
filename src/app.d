@@ -1036,7 +1036,7 @@ bool load_font(String file_name, Font* font, Allocator* allocator){
         font.metrics = source.metrics;
         font.glyphs  = dup_array(source.glyphs, allocator);
         if(source.kerning_pairs.length && source.kerning_pairs.length == source.kerning_advance.length){
-            font.kerning_pairs  = dup_array(source.kerning_pairs, allocator);
+            font.kerning_pairs   = dup_array(source.kerning_pairs, allocator);
             font.kerning_advance = dup_array(source.kerning_advance, allocator);
         }
 

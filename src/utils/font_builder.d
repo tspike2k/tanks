@@ -286,7 +286,7 @@ void end_building_font(Font_Builder* builder, Font_Entry *font_entry){
         node = node.next;
     }
 
-    auto kerning_count   = atlas.items_count*atlas.items_count;
+    uint kerning_count   = atlas.items_count*atlas.items_count;
     auto kerning_pairs   = alloc_array!Kerning_Pair(allocator, kerning_count);
     auto kerning_advance = alloc_array!float(allocator, kerning_count);
 
@@ -310,7 +310,7 @@ void end_building_font(Font_Builder* builder, Font_Entry *font_entry){
             FT_Get_Kerning(builder.face, glyph_index_a, glyph_index_b, FT_KERNING_DEFAULT, &kerning);
 
             kerning_pairs[kerning_index]   = Kerning_Pair(codepoint_a, codepoint_b);
-            kerning_advance[kerning_index] = kerning.x;
+            kerning_advance[kerning_index] = (kerning.x >> 6);
             kerning_index++;
 
             item_b = item_b.next;

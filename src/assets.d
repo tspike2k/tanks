@@ -76,7 +76,8 @@ Asset_Section* begin_writing_section(Serializer* dest, uint section_type){
 }
 
 void end_writing_section(Serializer* dest, Asset_Section* section){
-    section.size = cast(uint)(&dest.buffer[dest.buffer_used] - cast(void*)section);
+    assert(cast(void*)(section + 1) <= &dest.buffer[dest.buffer_used]);
+    section.size = cast(uint)(&dest.buffer[dest.buffer_used] - cast(void*)(section + 1));
 }
 
 Asset_Section* get_asset_section(Serializer* serializer){
