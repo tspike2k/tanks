@@ -368,6 +368,23 @@ bool load_font_from_file(String file_name, Font* font, Pixels* pixels, Allocator
                         }
                     } break;
 
+                    case Font_Section.Kerning:{
+                        uint kerning_count;
+                        read(&serializer, to_void(&kerning_count));
+                        if(kerning_count > 0){
+                            font.kerning_pairs   = alloc_array!Kerning_Pair(allocator.scratch, kerning_count);
+                            font.kerning_advance = alloc_array!float(allocator.scratch, kerning_count);
+
+                            foreach(ref entry; font.kerning_pairs){
+                                read(&serializer, to_void(&entry));
+                            }
+
+                            foreach(ref entry; font.kerning_advance){
+                                read(&serializer, to_void(&entry));
+                            }
+                        }
+                    } break;
+
                     case Font_Section.Pixels:{
                         uint width, height;
                         read(&serializer, to_void(&width));

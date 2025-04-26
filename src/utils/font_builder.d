@@ -344,6 +344,7 @@ void end_building_font(Font_Builder* builder, Font_Entry *font_entry){
     section = begin_writing_section(&writer, Font_Section.Glyphs);
     uint glyphs_count = atlas.items_count;
     write(&writer, to_void(&glyphs_count));
+    node = atlas.items;
     while(node){
         auto entry = cast(Rasterized_Glyph*)node.source;
         write(&writer, to_void(&entry.glyph));

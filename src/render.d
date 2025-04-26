@@ -638,8 +638,8 @@ version(opengl){
                 // When to apply kerning based on sample code from here:
                 // https://freetype.org/freetype2/docs/tutorial/step2.html#:~:text=c.%20Kerning
                 auto glyph   = get_glyph(font, c);
-                //auto kerning = get_codepoint_kerning_advance(font, prev_codepoint, glyph.codepoint);
-                //pen.x += kerning;
+                auto kerning = get_codepoint_kerning_advance(font, prev_codepoint, glyph.codepoint);
+                pen.x += kerning;
 
                 auto v = v_buffer[v_buffer_used .. v_buffer_used+4];
                 v_buffer_used += 4;
