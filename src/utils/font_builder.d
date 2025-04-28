@@ -50,7 +50,7 @@ struct Font_Builder{
 
 __gshared Font_Entry[] Font_Entries = [
     {
-        height: 82, stroke: 1,
+        height: 82, stroke: 0,
         fill_color: Vec4(1, 1, 1, 1), stroke_color: Vec4(0.16f, 0.34f, 0.68f, 1),
         dest_file_name: "./build/test_en.fnt", source_file_name: "LiberationSans-Regular.ttf"
     },

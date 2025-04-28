@@ -23,6 +23,7 @@ import assets;
 private{
     import display;
     import logging;
+    import math;
 
     Allocator* g_allocator;
     Texture    g_current_texture;
@@ -34,9 +35,6 @@ enum Z_Near = -Z_Far;
 alias Shader  = ulong;
 alias Texture = ulong;
 
-enum Render_Shaders_Max  = 16;
-enum Max_Quads_Per_Batch = 2048; // TODO: Isn't this a bit high? 512 would be a lot.
-
 struct Vertex{
     Vec3 pos;
     Vec2 uv;
@@ -47,26 +45,38 @@ struct Mesh{
     Vertex[] vertices;
 }
 
+struct Command_Buffer{
+    Command_Buffer * next;
+    void[] buffer;
+    uint   used;
+}
+
+struct Render_Pass{
+    Render_Pass* next;
+
+    Mat4_Pair camera;
+    ulong flags;
+
+    // TODO: Have buffer blocks, where we allocate more when we run out of space for more commands.
+    void[] buffer;
+    uint   buffer_used;
+}
+
+enum Max_Quads_Per_Batch = 2048; // TODO: Isn't this a bit high? 512 would be a lot.
+
 // TODO: Ensure members are correctly aligned with both HLSL and GLSL requirements
 struct Shader_Constants{
-    align(16):
-    Mat4 camera;
-    Mat4 model;
-    Vec3 camera_pos;
     float time;
 }
 
 struct Material{
     Vec3  ambient;
-    float pad_0;
     Vec3  diffuse;
-    float pad_1;
     Vec3  specular;
     float shininess;
 }
 
 struct Shader_Light{
-    align(16):
     Vec3 pos;
     Vec3 ambient;
     Vec3 diffuse;
@@ -252,7 +262,37 @@ void draw_quad(Vertex[] v, Rect r, Rect uvs){
     v[3].uv = Vec2(right(uvs), top(uvs));
 }
 
+void clear_target_to_color(Render_Pass* pass, Vec4 color){
+    auto cmd = push_command!Clear_Target(pass);
+    cmd.color = color;
+}
+
 private:
+
+enum Command : uint{
+    None,
+    No_Op,
+    Clear_Target,
+}
+
+struct Clear_Target{
+    enum Type = Command.Clear_Target;
+
+    Command type;
+    Vec4    color;
+}
+
+void[] push_bytes(Render_Pass* pass, size_t count){
+    auto result = pass.buffer[pass.buffer_used .. pass.buffer_used + count];
+    pass.buffer_used += count;
+    return result;
+}
+
+T* push_command(T)(Render_Pass* pass){
+    auto result = cast(T*)push_bytes(pass, T.sizeof);
+    result.type = T.Type;
+    return result;
+}
 
 version(linux){
     version = opengl;
@@ -280,10 +320,11 @@ version(opengl){
     __gshared GLuint                     g_shader_constants_buffer;
     __gshared GLuint                     g_shader_material_buffer;
     __gshared GLuint                     g_shader_light_buffer;
-    __gshared Shader[Render_Shaders_Max] g_shaders;
     __gshared GLuint                     g_quad_vbo;
     __gshared GLuint                     g_quad_index_buffer;
     __gshared Texture                    g_default_texture;
+    __gshared Render_Pass*                g_render_pass_first;
+    __gshared Render_Pass*               g_render_pass_last;
 
     extern(C) void debug_msg_callback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length,
                                       const(GLchar)* message, const(void*) userParam){
@@ -429,6 +470,21 @@ version(opengl){
 
     }
 
+    public Render_Pass* render_pass(){ // TODO: Take a camera transform
+        auto result = alloc_type!Render_Pass(g_allocator);
+        if(!g_render_pass_first)
+            g_render_pass_first = result;
+
+        if(g_render_pass_last)
+            g_render_pass_last.next = result;
+
+        // TODO: Make smaller buffers, but do it in blocks.
+        result.buffer = alloc_array!void(g_allocator, 1*1024*1024);
+
+        g_render_pass_last = result;
+        return result;
+    }
+
     public void render_enable_color(bool enable){
         // For more information on OpenGL Write Masks, see here:
         // https://www.khronos.org/opengl/wiki/Write_Mask
@@ -543,19 +599,16 @@ version(opengl){
         *shader = 0;
     }
 
-    public void render_begin_frame(Allocator* memory){
+    public void render_begin_frame(uint viewport_width, uint viewport_height, Allocator* memory){
         // TODO: Set viewport and the like?
 
+        g_allocator = memory;
+        g_render_pass_first = null;
+        g_render_pass_last  = null;
     }
 
     public void set_viewport(float x, float y, float w, float h){
         glViewport(cast(int)x, cast(int)y, cast(int)w, cast(int)h);
-    }
-
-    public void clear_target_to_color(Vec4 color){
-        glClearColor(color.r, color.g, color.b, color.a);
-        glClearDepth(Z_Far);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     }
 
     public void set_constants(uint offset, void *data, uint size){
@@ -602,7 +655,7 @@ version(opengl){
 
     public void render_mesh(Mesh* mesh, Mat4 transform){
         auto mat_final = transpose(transform);
-        set_constants(Shader_Constants.model.offsetof, &mat_final, mat_final.sizeof);
+        //set_constants(Shader_Constants.model.offsetof, &mat_final, mat_final.sizeof);
 
         glBindBuffer(GL_ARRAY_BUFFER, g_quad_vbo);
         glBufferData(GL_ARRAY_BUFFER, cast(GLsizeiptr)(mesh.vertices.length * Vertex.sizeof), &mesh.vertices[0], GL_DYNAMIC_DRAW);
@@ -664,6 +717,31 @@ version(opengl){
     }
 
     public void render_end_frame(){
+        auto pass = g_render_pass_first;
+        while(pass){
+            auto reader = Serializer(pass.buffer[0 .. pass.buffer_used]);
+            while(bytes_left(&reader) > uint.sizeof){
+                auto cmd_type = *cast(Command*)&reader.buffer[reader.buffer_used];
+                switch(cmd_type){
+                    default:
+                        end_stream(&reader);
+                        break;
+
+                    case Command.Clear_Target:{
+                        auto cmd = eat_type!Clear_Target(&reader);
+
+                        auto color = cmd.color;
+                        glClearColor(color.r, color.g, color.b, color.a);
+                        glClearDepth(Z_Far);
+                        // TODO: Only clear depth if the depth testing is enabled
+                        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+                    } break;
+                }
+            }
+
+            pass = pass.next;
+        }
+
         swap_render_backbuffer();
     }
 }

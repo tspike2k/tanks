@@ -1189,6 +1189,9 @@ extern(C) int main(int args_count, char** args){
     while(s.running){
         begin_frame();
 
+        push_frame(&s.frame_memory);
+        scope(exit) pop_frame(&s.frame_memory);
+
         auto window = get_window_info();
 
         float aspect_ratio = (cast(float)window.width) / (cast(float)window.height);
@@ -1424,8 +1427,12 @@ extern(C) int main(int args_count, char** args){
         }
         prev_timestamp = current_timestamp;
 
-        render_begin_frame(&s.frame_memory);
+        render_begin_frame(window.width, window.height, &s.frame_memory);
 
+        auto pass = render_pass();
+        clear_target_to_color(pass, Vec4(0, 0.05f, 0.12f, 1));
+
+        /+
         set_viewport(0, 0, window.width, window.height);
         clear_target_to_color(Vec4(0, 0.05f, 0.12f, 1));
 
@@ -1548,9 +1555,9 @@ extern(C) int main(int args_count, char** args){
 
         enable_depth_testing(false);
         set_shader(text_shader);
-        render_text(&s.font_main, "Testing the text", Vec2(0, 0));
+        render_text(&s.font_main, "AVA WA TA", Vec2(0, 0));
         enable_depth_testing(true);
-
++/
         render_end_frame();
         end_frame();
     }
