@@ -7,8 +7,9 @@ in vec2 v_uv;
 out vec2 f_uv;
 out vec4 f_color;
 
+uniform mat4 mat_camera;
+
 layout(std140) uniform Common_Data{
-    mat4  mat_camera;
     float time;
 };
 

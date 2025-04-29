@@ -32,7 +32,6 @@ private{
 enum Z_Far  =  1000.0f;
 enum Z_Near = -Z_Far;
 
-alias Shader  = ulong;
 alias Texture = ulong;
 
 struct Vertex{
@@ -54,7 +53,7 @@ struct Command_Buffer{
 struct Render_Pass{
     Render_Pass* next;
 
-    Mat4_Pair camera;
+    Mat4 camera;
     ulong flags;
 
     // TODO: Have buffer blocks, where we allocate more when we run out of space for more commands.
@@ -267,12 +266,27 @@ void clear_target_to_color(Render_Pass* pass, Vec4 color){
     cmd.color = color;
 }
 
+void set_shader(Render_Pass* pass, Shader* shader){
+    auto cmd   = push_command!Set_Shader(pass);
+    cmd.shader = shader;
+}
+
+void render_text(Render_Pass* pass, Font* font, String text, Vec2 pos){
+    auto cmd   = push_command!Render_Text(pass);
+    cmd.text = text;
+    cmd.font = font;
+    cmd.pos  = pos;
+}
+
 private:
 
 enum Command : uint{
     None,
     No_Op,
     Clear_Target,
+    Set_Shader,
+    Render_Mesh,
+    Render_Text,
 }
 
 struct Clear_Target{
@@ -280,6 +294,28 @@ struct Clear_Target{
 
     Command type;
     Vec4    color;
+}
+
+struct Set_Shader{
+    enum Type = Command.Set_Shader;
+    Command type;
+    Shader* shader;
+}
+
+struct Render_Mesh{
+    enum Type = Command.Render_Mesh;
+    Command   type;
+    Mesh*     mesh;
+    Material* material;
+    Mat4      transform;
+}
+
+struct Render_Text{
+    enum Type = Command.Render_Text;
+    Command type;
+    Font*   font;
+    String  text;
+    Vec2    pos;
 }
 
 void[] push_bytes(Render_Pass* pass, size_t count){
@@ -317,25 +353,27 @@ version(opengl){
     enum Vertex_Indeces_Per_Quad = 6;
     enum Default_Texture_Filter = GL_LINEAR;
 
-    __gshared GLuint                     g_shader_constants_buffer;
-    __gshared GLuint                     g_shader_material_buffer;
-    __gshared GLuint                     g_shader_light_buffer;
-    __gshared GLuint                     g_quad_vbo;
-    __gshared GLuint                     g_quad_index_buffer;
-    __gshared Texture                    g_default_texture;
-    __gshared Render_Pass*                g_render_pass_first;
-    __gshared Render_Pass*               g_render_pass_last;
+    __gshared GLuint        g_shader_constants_buffer;
+    __gshared GLuint        g_shader_material_buffer;
+    __gshared GLuint        g_shader_light_buffer;
+    __gshared GLuint        g_quad_vbo;
+    __gshared GLuint        g_quad_index_buffer;
+    __gshared Texture       g_default_texture;
+    __gshared Render_Pass*  g_render_pass_first;
+    __gshared Render_Pass*  g_render_pass_last;
+    __gshared Rect          g_base_viewport;
 
-    extern(C) void debug_msg_callback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length,
-                                      const(GLchar)* message, const(void*) userParam){
+    public:
 
-        if(severity != GL_DEBUG_SEVERITY_NOTIFICATION){
-            log(message[0 .. strlen(message)]);
-            log("\n");
-        }
+    struct Shader{
+        private:
+
+        GLuint handle;
+        GLint  uniform_loc_model;
+        GLint  uniform_loc_camera;
     }
 
-    public Texture create_texture(uint[] pixels, uint width, uint height, uint flags = 0){
+    Texture create_texture(uint[] pixels, uint width, uint height, uint flags = 0){
         assert(width > 0 && height > 0);
         GLint  internal_format = GL_RGBA8; // TODO: Do we care? Can we tell OpenGL we don't care?
         GLenum source_format   = GL_RGBA;
@@ -358,14 +396,7 @@ version(opengl){
         return result;
     }
 
-    void init_uniform_buffer(GLuint* buffer, GLuint binding_id, size_t buffer_size){
-        glGenBuffers(1, buffer);
-        glBindBuffer(GL_UNIFORM_BUFFER, *buffer);
-        glBindBufferRange(GL_UNIFORM_BUFFER, binding_id, *buffer, 0, buffer_size);
-        glBufferData(GL_UNIFORM_BUFFER, buffer_size, null, GL_DYNAMIC_DRAW); // TODO: Is static draw correct? We re-upload every frame.
-    }
-
-    public bool render_open(Allocator* allocator){
+    bool render_open(Allocator* allocator){
         g_allocator = allocator;
 
         g_current_texture = -1;
@@ -466,72 +497,79 @@ version(opengl){
         return true;
     }
 
-    public void render_close(){
+    void render_close(){
 
     }
 
-    public Render_Pass* render_pass(){ // TODO: Take a camera transform
-        auto result = alloc_type!Render_Pass(g_allocator);
-        if(!g_render_pass_first)
-            g_render_pass_first = result;
-
-        if(g_render_pass_last)
-            g_render_pass_last.next = result;
-
-        // TODO: Make smaller buffers, but do it in blocks.
-        result.buffer = alloc_array!void(g_allocator, 1*1024*1024);
-
-        g_render_pass_last = result;
-        return result;
+    void render_begin_frame(uint viewport_width, uint viewport_height, Allocator* memory){
+        // TODO: Set viewport and the like?
+        g_allocator = memory;
+        g_render_pass_first = null;
+        g_render_pass_last  = null;
+        g_base_viewport     = rect_from_min_max(Vec2(0, 0), Vec2(viewport_width, viewport_height));
     }
 
-    public void render_enable_color(bool enable){
-        // For more information on OpenGL Write Masks, see here:
-        // https://www.khronos.org/opengl/wiki/Write_Mask
-        glColorMask(enable, enable, enable, enable);
-    }
+    void render_end_frame(){
+        auto pass = g_render_pass_first;
 
-    public void enable_depth_testing(bool enable){
-        if(enable)
-            glEnable(GL_DEPTH_TEST);
-        else
-            glDisable(GL_DEPTH_TEST);
-    }
+        while(pass){
+            set_viewport(g_base_viewport);
 
-    public void enable_culling(bool enable){
-        if(enable)
-            glEnable(GL_CULL_FACE);
-        else
-            glDisable(GL_CULL_FACE);
-    }
+            Shader* shader;
 
-    GLuint compile_shader_pass(GLenum pass_type, const(char)* shader_type_str, const(char)* source){
-        GLuint shader = glCreateShader(pass_type);
-        glShaderSource(shader, 1, &source, null);
-        glCompileShader(shader);
+            auto reader = Serializer(pass.buffer[0 .. pass.buffer_used]);
+            while(bytes_left(&reader) > uint.sizeof){
+                auto cmd_type = *cast(Command*)&reader.buffer[reader.buffer_used];
+                switch(cmd_type){
+                    default:
+                        end_stream(&reader);
+                        break;
 
-        GLint compile_status;
-        glGetShaderiv(shader, GL_COMPILE_STATUS, &compile_status);
-        if (compile_status == GL_FALSE){
-            char[512] buffer;
-            glGetShaderInfoLog(shader, buffer.length, null, buffer.ptr);
-            log("Unable to compile shader:\n");
-            log(buffer[0 .. strlen(&buffer[0])]);
-            glDeleteShader(shader);
-            shader = 0;
+                    case Command.Clear_Target:{
+                        auto cmd = eat_type!Clear_Target(&reader);
+
+                        auto color = cmd.color;
+                        glClearColor(color.r, color.g, color.b, color.a);
+                        glClearDepth(Z_Far);
+                        // TODO: Only clear depth if the depth testing is enabled
+                        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+                    } break;
+
+                    case Command.Set_Shader:{
+                        auto cmd = eat_type!Set_Shader(&reader);
+                        if(shader != cmd.shader){
+                            shader = cmd.shader;
+                            glUseProgram(shader.handle);
+
+                            set_uniform(shader.uniform_loc_camera, &pass.camera);
+                        }
+                    } break;
+
+                    case Command.Render_Mesh:{
+                        auto cmd = eat_type!Render_Mesh(&reader);
+                        set_uniform(shader.uniform_loc_model, &cmd.transform);
+
+                        auto mesh = cmd.mesh;
+
+                        glBindBuffer(GL_ARRAY_BUFFER, g_quad_vbo);
+                        glBufferData(GL_ARRAY_BUFFER, cast(GLsizeiptr)(mesh.vertices.length * Vertex.sizeof), &mesh.vertices[0], GL_DYNAMIC_DRAW);
+                        glDrawArrays(GL_TRIANGLES, 0, cast(uint)mesh.vertices.length);
+                    } break;
+
+                    case Command.Render_Text:{
+                        auto cmd = eat_type!Render_Text(&reader);
+                        render_text(cmd.font, cmd.text, cmd.pos);
+                    } break;
+                }
+            }
+
+            pass = pass.next;
         }
 
-        return shader;
+        swap_render_backbuffer();
     }
 
-    void make_uniform_binding(GLuint shader_handle, const(char)[] name, GLuint binding_id){
-        auto block_index = glGetUniformBlockIndex(shader_handle, name.ptr);
-        if(block_index != GL_INVALID_INDEX){
-            glUniformBlockBinding(shader_handle, block_index, binding_id);
-        }
-    }
-
-    public bool compile_shader(Shader* shader, const(char)[] program_name, const(char)[] vertex_source, const(char)[] fragment_source){
+    bool compile_shader(Shader* shader, const(char)[] program_name, const(char)[] vertex_source, const(char)[] fragment_source){
         GLuint program = glCreateProgram();
         if(!program){
             // TODO(tspike): Get error string!
@@ -589,24 +627,177 @@ version(opengl){
 
         bool success = link_status != GL_FALSE;
         if(success){
-            *shader = program;
+            shader.handle = program;
+            void get_uniform_loc(GLint* loc, String name){
+                *loc = glGetUniformLocation(program, name.ptr);
+                if(*loc == -1){
+                    log_warn("Unable to get uniform \"{0}\" for shader \"{1}\".\n", name, program_name);
+                }
+            }
+
+            get_uniform_loc(&shader.uniform_loc_camera, "mat_camera");
+            get_uniform_loc(&shader.uniform_loc_model, "mat_model");
         }
         return success;
     }
 
-    public void destroy_shader(Shader* shader){
+    void destroy_shader(Shader* shader){
         glDeleteProgram(*cast(GLuint*)shader);
-        *shader = 0;
+        shader.handle = 0;
     }
 
-    public void render_begin_frame(uint viewport_width, uint viewport_height, Allocator* memory){
-        // TODO: Set viewport and the like?
+    Render_Pass* render_pass(Mat4* camera){
+        auto result = alloc_type!Render_Pass(g_allocator);
+        result.camera = *camera;
 
-        g_allocator = memory;
-        g_render_pass_first = null;
-        g_render_pass_last  = null;
+        if(!g_render_pass_first)
+            g_render_pass_first = result;
+
+        if(g_render_pass_last)
+            g_render_pass_last.next = result;
+
+        // TODO: Make smaller buffers, but do it in blocks.
+        result.buffer = alloc_array!void(g_allocator, 1*1024*1024);
+
+        g_render_pass_last = result;
+        return result;
     }
 
+    private:
+
+    extern(C) void debug_msg_callback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length,
+                                      const(GLchar)* message, const(void*) userParam){
+        if(severity != GL_DEBUG_SEVERITY_NOTIFICATION){
+            log(message[0 .. strlen(message)]);
+            log("\n");
+        }
+    }
+
+    void init_uniform_buffer(GLuint* buffer, GLuint binding_id, size_t buffer_size){
+        glGenBuffers(1, buffer);
+        glBindBuffer(GL_UNIFORM_BUFFER, *buffer);
+        glBindBufferRange(GL_UNIFORM_BUFFER, binding_id, *buffer, 0, buffer_size);
+        glBufferData(GL_UNIFORM_BUFFER, buffer_size, null, GL_DYNAMIC_DRAW); // TODO: Is static draw correct? We re-upload every frame.
+    }
+
+    void set_viewport(Rect r){
+        auto min_p = min(r);
+        glViewport(cast(int)min_p.x, cast(int)min_p.y, cast(int)width(r), cast(int)height(r));
+    }
+
+    void set_uniform(T)(GLint uniform_loc, T* value){
+        static if(is(T == Mat4)){
+            if(uniform_loc != -1){
+                glUniformMatrix4fv(uniform_loc, 1, true, cast(float*)value);
+            }
+        }
+        else{
+            static assert(0);
+        }
+    }
+
+    void set_texture(Texture texture){
+        if(g_current_texture != texture){
+            glBindTexture(GL_TEXTURE_2D, cast(GLuint)texture);
+            g_current_texture = texture;
+        }
+    }
+
+    void render_text(Font* font, String text, Vec2 baseline){
+        if(font.glyphs.length == 0) return;
+
+        push_frame(g_allocator.scratch);
+        scope(exit) pop_frame(g_allocator.scratch);
+
+        auto v_buffer = alloc_array!Vertex(g_allocator.scratch, text.length*4);
+        uint v_buffer_used = 0;
+
+        Font_Metrics *metrics = &font.metrics;
+
+        auto pen = baseline;
+        uint prev_codepoint = 0;
+        foreach(c; text){
+            // TODO: Due to kerning, we probably need "space" to be a valid glyph, just not one we render.
+            if(c == ' '){
+                pen.x += metrics.space_width;
+            }
+            else{
+                // When to apply kerning based on sample code from here:
+                // https://freetype.org/freetype2/docs/tutorial/step2.html#:~:text=c.%20Kerning
+                auto glyph   = get_glyph(font, c);
+                auto kerning = get_codepoint_kerning_advance(font, prev_codepoint, glyph.codepoint);
+                pen.x += kerning;
+
+                auto v = v_buffer[v_buffer_used .. v_buffer_used+4];
+                v_buffer_used += 4;
+
+                auto min_p = pen + glyph.offset;
+                auto bounds = rect_from_min_max(min_p, min_p + Vec2(glyph.width, glyph.height));
+                auto uvs = rect_from_min_max(glyph.uv_min, glyph.uv_max);
+                draw_quad(v, bounds, uvs);
+
+                pen.x += cast(float)glyph.advance;
+                prev_codepoint = c;
+            }
+        }
+
+        auto v = v_buffer[0 .. v_buffer_used];
+
+        set_texture(font.texture_id);
+        glBindBuffer(GL_ARRAY_BUFFER, g_quad_vbo);
+        glBufferData(GL_ARRAY_BUFFER, cast(GLsizeiptr)(v.length * Vertex.sizeof), v.ptr, GL_DYNAMIC_DRAW);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_quad_index_buffer);
+        glDrawElements(GL_TRIANGLES, cast(GLsizei)(v.length * Vertex_Indeces_Per_Quad), GL_UNSIGNED_INT, cast(GLvoid*)0);
+    }
+
+    /+
+    public void render_enable_color(bool enable){
+        // For more information on OpenGL Write Masks, see here:
+        // https://www.khronos.org/opengl/wiki/Write_Mask
+        glColorMask(enable, enable, enable, enable);
+    }
+
+    public void enable_depth_testing(bool enable){
+        if(enable)
+            glEnable(GL_DEPTH_TEST);
+        else
+            glDisable(GL_DEPTH_TEST);
+    }
+
+    public void enable_culling(bool enable){
+        if(enable)
+            glEnable(GL_CULL_FACE);
+        else
+            glDisable(GL_CULL_FACE);
+    }+/
+
+    GLuint compile_shader_pass(GLenum pass_type, const(char)* shader_type_str, const(char)* source){
+        GLuint shader = glCreateShader(pass_type);
+        glShaderSource(shader, 1, &source, null);
+        glCompileShader(shader);
+
+        GLint compile_status;
+        glGetShaderiv(shader, GL_COMPILE_STATUS, &compile_status);
+        if (compile_status == GL_FALSE){
+            char[512] buffer;
+            glGetShaderInfoLog(shader, buffer.length, null, buffer.ptr);
+            log("Unable to compile shader:\n");
+            log(buffer[0 .. strlen(&buffer[0])]);
+            glDeleteShader(shader);
+            shader = 0;
+        }
+
+        return shader;
+    }
+
+    void make_uniform_binding(GLuint shader_handle, const(char)[] name, GLuint binding_id){
+        auto block_index = glGetUniformBlockIndex(shader_handle, name.ptr);
+        if(block_index != GL_INVALID_INDEX){
+            glUniformBlockBinding(shader_handle, block_index, binding_id);
+        }
+    }
+
+    /+
     public void set_viewport(float x, float y, float w, float h){
         glViewport(cast(int)x, cast(int)y, cast(int)w, cast(int)h);
     }
@@ -661,87 +852,5 @@ version(opengl){
         glBufferData(GL_ARRAY_BUFFER, cast(GLsizeiptr)(mesh.vertices.length * Vertex.sizeof), &mesh.vertices[0], GL_DYNAMIC_DRAW);
         glDrawArrays(GL_TRIANGLES, 0, cast(uint)mesh.vertices.length);
     }
-
-    public void set_texture(Texture texture){
-        if(g_current_texture != texture){
-            glBindTexture(GL_TEXTURE_2D, cast(GLuint)texture);
-            g_current_texture = texture;
-        }
-    }
-
-    public void render_text(Font* font, String text, Vec2 baseline){
-        if(font.glyphs.length == 0) return;
-
-        push_frame(g_allocator.scratch);
-        scope(exit) pop_frame(g_allocator.scratch);
-
-        auto v_buffer = alloc_array!Vertex(g_allocator.scratch, text.length*4);
-        uint v_buffer_used = 0;
-
-        Font_Metrics *metrics = &font.metrics;
-
-        auto pen = baseline;
-        uint prev_codepoint = 0;
-        foreach(c; text){
-            // TODO: Due to kerning, we probably need "space" to be a valid glyph, just not one we render.
-            if(c == ' '){
-                pen.x += metrics.space_width;
-            }
-            else{
-                // When to apply kerning based on sample code from here:
-                // https://freetype.org/freetype2/docs/tutorial/step2.html#:~:text=c.%20Kerning
-                auto glyph   = get_glyph(font, c);
-                auto kerning = get_codepoint_kerning_advance(font, prev_codepoint, glyph.codepoint);
-                pen.x += kerning;
-
-                auto v = v_buffer[v_buffer_used .. v_buffer_used+4];
-                v_buffer_used += 4;
-
-                auto min_p = pen + glyph.offset;
-                auto bounds = rect_from_min_max(min_p, min_p + Vec2(glyph.width, glyph.height));
-                auto uvs = rect_from_min_max(glyph.uv_min, glyph.uv_max);
-                draw_quad(v, bounds, uvs);
-
-                pen.x += cast(float)glyph.advance;
-                prev_codepoint = c;
-            }
-        }
-
-        auto v = v_buffer[0 .. v_buffer_used];
-
-        set_texture(font.texture_id);
-        glBindBuffer(GL_ARRAY_BUFFER, g_quad_vbo);
-        glBufferData(GL_ARRAY_BUFFER, cast(GLsizeiptr)(v.length * Vertex.sizeof), v.ptr, GL_DYNAMIC_DRAW);
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_quad_index_buffer);
-        glDrawElements(GL_TRIANGLES, cast(GLsizei)(v.length * Vertex_Indeces_Per_Quad), GL_UNSIGNED_INT, cast(GLvoid*)0);
-    }
-
-    public void render_end_frame(){
-        auto pass = g_render_pass_first;
-        while(pass){
-            auto reader = Serializer(pass.buffer[0 .. pass.buffer_used]);
-            while(bytes_left(&reader) > uint.sizeof){
-                auto cmd_type = *cast(Command*)&reader.buffer[reader.buffer_used];
-                switch(cmd_type){
-                    default:
-                        end_stream(&reader);
-                        break;
-
-                    case Command.Clear_Target:{
-                        auto cmd = eat_type!Clear_Target(&reader);
-
-                        auto color = cmd.color;
-                        glClearColor(color.r, color.g, color.b, color.a);
-                        glClearDepth(Z_Far);
-                        // TODO: Only clear depth if the depth testing is enabled
-                        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-                    } break;
-                }
-            }
-
-            pass = pass.next;
-        }
-
-        swap_render_backbuffer();
-    }
++/
 }

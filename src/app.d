@@ -488,10 +488,6 @@ bool load_shader(Shader* shader, String name, String path, Allocator* allocator)
     push_frame(allocator.scratch);
     scope(exit) pop_frame(allocator.scratch);
 
-    if(*shader){
-        destroy_shader(shader);
-    }
-
     auto scratch = allocator.scratch;
     auto vertex_file_name   = make_file_path(path, concat(name, "_vert.glsl", scratch), scratch);
     auto fragment_file_name = make_file_path(path, concat(name, "_frag.glsl", scratch), scratch);
@@ -501,7 +497,6 @@ bool load_shader(Shader* shader, String name, String path, Allocator* allocator)
 
     // TODO: Error handling?
     auto succeeded = compile_shader(shader, name, vertex_source, fragment_source);
-
     return succeeded;
 }
 
@@ -1048,6 +1043,12 @@ bool load_font(String file_name, Font* font, Allocator* allocator){
     return result;
 }
 
+Mat4_Pair make_hud_camera(uint window_width, uint window_height){
+    auto extents = Vec2(window_width, window_height)*0.5f;
+    auto result = orthographic_projection(Rect(extents, extents));
+    return result;
+}
+
 extern(C) int main(int args_count, char** args){
     auto app_memory = os_alloc(Main_Memory_Size + Scratch_Memory_Size + Frame_Memory_Size, 0);
     scope(exit) os_dealloc(app_memory);
@@ -1429,8 +1430,14 @@ extern(C) int main(int args_count, char** args){
 
         render_begin_frame(window.width, window.height, &s.frame_memory);
 
-        auto pass = render_pass();
-        clear_target_to_color(pass, Vec4(0, 0.05f, 0.12f, 1));
+        Mat4 world_camera = Mat4_Identity;
+        auto rp_world = render_pass(&world_camera);
+        clear_target_to_color(rp_world, Vec4(0, 0.05f, 0.12f, 1));
+
+        auto hud_camera = make_hud_camera(window.width, window.height);
+        auto rp_hud = render_pass(&hud_camera.mat);
+        set_shader(rp_hud, &text_shader);
+        render_text(rp_hud, &s.font_main, "Hello, dude!", Vec2(0,0));
 
         /+
         set_viewport(0, 0, window.width, window.height);

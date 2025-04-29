@@ -352,6 +352,7 @@ void editor_simulate(App_State* s, float dt){
 }
 
 void editor_render(App_State* s){
+/+
     switch(g_edit_mode){
         default: break;
 
@@ -377,7 +378,7 @@ void editor_render(App_State* s){
                 }
             }
         } break;
-    }
+    }+/
 }
 
 void editor_toggle(App_State* s){
