@@ -1431,7 +1431,7 @@ extern(C) int main(int args_count, char** args){
         render_begin_frame(window.width, window.height, &s.frame_memory);
 
         Mat4 world_camera = Mat4_Identity;
-        auto rp_world = render_pass(&mat_camera, camera_pos + Vec3(0, 20, 0));
+        auto rp_world = render_pass(&mat_camera, camera_pos);
         clear_target_to_color(rp_world, Vec4(0, 0.05f, 0.12f, 1));
 
         set_shader(rp_world, &shader);
@@ -1441,8 +1441,8 @@ extern(C) int main(int args_count, char** args){
 
         auto hud_camera = make_hud_camera(window.width, window.height);
         auto rp_hud = render_pass(&hud_camera.mat, Vec3(0, 0, 0));
-        set_shader(rp_hud, &text_shader);
-        render_text(rp_hud, &s.font_main, "Hello, dude!", Vec2(0,0));
+        //set_shader(rp_hud, &text_shader);
+        //render_text(rp_hud, &s.font_main, "Hello, dude!", Vec2(0,0));
 
         /+
         set_viewport(0, 0, window.width, window.height);

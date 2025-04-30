@@ -77,16 +77,22 @@ struct Shader_Constants{
 
 struct Material{
     Vec3  ambient;
+    float pad0;
     Vec3  diffuse;
+    float pad1;
     Vec3  specular;
     float shininess;
 }
 
 struct Shader_Light{
-    Vec3 pos;
-    Vec3 ambient;
-    Vec3 diffuse;
-    Vec3 specular;
+    Vec3  pos;
+    float pad0;
+    Vec3  ambient;
+    float pad1;
+    Vec3  diffuse;
+    float pad2;
+    Vec3  specular;
+    float pad4;
 }
 
 Mat4_Pair orthographic_projection(Rect camera_bounds){
@@ -669,9 +675,9 @@ version(opengl){
                 }
             }
 
-            make_uniform_binding(program, "Constants", Constants_Uniform_Binding);
-            make_uniform_binding(program, "Material", Material_Uniform_Binding);
-            make_uniform_binding(program, "Light", Light_Uniform_Binding);
+            make_uniform_binding(program_name, program, "Constants", Constants_Uniform_Binding);
+            make_uniform_binding(program_name, program, "Material", Material_Uniform_Binding);
+            make_uniform_binding(program_name, program, "Light", Light_Uniform_Binding);
 
             get_uniform_loc(&shader.uniform_loc_camera, "mat_camera");
             get_uniform_loc(&shader.uniform_loc_camera_pos, "camera_pos");
@@ -736,16 +742,16 @@ version(opengl){
     }
 
     void set_uniform(T)(GLint uniform_loc, T* value){
-        static if(is(T == Mat4)){
-            if(uniform_loc != -1){
-                glUniformMatrix4fv(uniform_loc, 1, true, cast(float*)value);
+        if(uniform_loc != -1){
+            static if(is(T == Mat4)){
+                glUniformMatrix4fv(uniform_loc, 1, GL_TRUE, cast(float*)value);
             }
-        }
-        else static if(is(T == Vec3)){
-            glUniform3f(uniform_loc, value.x, value.y, value.z);
-        }
-        else{
-            static assert(0);
+            else static if(is(T == Vec3)){
+                glUniform3f(uniform_loc, value.x, value.y, value.z);
+            }
+            else{
+                static assert(0);
+            }
         }
     }
 
@@ -843,10 +849,13 @@ version(opengl){
         return shader;
     }
 
-    void make_uniform_binding(GLuint shader_handle, const(char)[] name, GLuint binding_id){
-        auto block_index = glGetUniformBlockIndex(shader_handle, name.ptr);
+    void make_uniform_binding(String shader_name, GLuint shader_handle, const(char)[] block_name, GLuint binding_id){
+        auto block_index = glGetUniformBlockIndex(shader_handle, block_name.ptr);
         if(block_index != GL_INVALID_INDEX){
             glUniformBlockBinding(shader_handle, block_index, binding_id);
+        }
+        else{
+            log_warn("Unable to set binding for uniform block \"{0}\" in shader \"{1}\".\n", block_name, shader_name);
         }
     }
 

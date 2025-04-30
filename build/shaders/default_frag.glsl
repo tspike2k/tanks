@@ -1,14 +1,14 @@
 #version 330
 
+uniform mat4 mat_camera;
+uniform mat4 mat_model;
+uniform vec3 camera_pos; // TODO: Is there some way to do lighting without this?
+
 in vec2  f_uv;
 in vec3  f_normal;
 in vec3  f_world_pos;
 
 out vec4 out_color;
-
-uniform mat4 mat_camera;
-uniform mat4 mat_model;
-uniform vec3 camera_pos; // TODO: Is there some way to do lighting without this?
 
 layout(std140) uniform Constants{
     float time;
