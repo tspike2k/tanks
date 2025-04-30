@@ -839,6 +839,7 @@ extern(C){
     alias glUniformMatrix4fvFunc = void function(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value);
     alias glUniform1fFunc = void function(GLint location, GLfloat v0);
     alias glUniform2fFunc = void function(GLint location, GLfloat v0, GLfloat v1);
+    alias glUniform3fFunc = void function(GLint location, GLfloat v0, GLfloat v1, GLfloat v2);
     alias glDrawElementsFunc = void function(GLenum mode, GLsizei count, GLenum type, const GLvoid *indices);
     alias glBindTextureFunc = void function(GLenum target, GLuint texture);
     alias glGenTexturesFunc = void function(GLsizei n, GLuint *textures);
@@ -895,6 +896,7 @@ __gshared glGetUniformLocationFunc glGetUniformLocation;
 __gshared glUniformMatrix4fvFunc glUniformMatrix4fv;
 __gshared glUniform1fFunc glUniform1f;
 __gshared glUniform2fFunc glUniform2f;
+__gshared glUniform3fFunc glUniform3f;
 __gshared glDrawElementsFunc glDrawElements;
 __gshared glBindTextureFunc glBindTexture;
 __gshared glGenTexturesFunc glGenTextures;
@@ -953,6 +955,7 @@ void load_opengl_functions(OpenGL_Load_Sym_Func load){
     glUniformMatrix4fv = cast(glUniformMatrix4fvFunc)load("glUniformMatrix4fv");
     glUniform1f = cast(glUniform1fFunc)load("glUniform1f");
     glUniform2f = cast(glUniform2fFunc)load("glUniform2f");
+    glUniform3f = cast(glUniform3fFunc)load("glUniform3f");
     glDrawElements = cast(glDrawElementsFunc)load("glDrawElements");
     glBindTexture = cast(glBindTextureFunc)load("glBindTexture");
     glGenTextures = cast(glGenTexturesFunc)load("glGenTextures");

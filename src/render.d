@@ -34,6 +34,12 @@ enum Z_Near = -Z_Far;
 
 alias Texture = ulong;
 
+struct Camera{
+    Vec3 pos;
+    Vec3 target;
+    Vec3 up;
+}
+
 struct Vertex{
     Vec3 pos;
     Vec2 uv;
@@ -54,6 +60,7 @@ struct Render_Pass{
     Render_Pass* next;
 
     Mat4 camera;
+    Vec3 camera_pos;
     ulong flags;
 
     // TODO: Have buffer blocks, where we allocate more when we run out of space for more commands.
@@ -271,11 +278,23 @@ void set_shader(Render_Pass* pass, Shader* shader){
     cmd.shader = shader;
 }
 
+void render_mesh(Render_Pass* pass, Mesh* mesh, Material* material, Mat4 transform){
+    auto cmd   = push_command!Render_Mesh(pass);
+    cmd.mesh      = mesh;
+    cmd.material  = material;
+    cmd.transform = transform;
+}
+
 void render_text(Render_Pass* pass, Font* font, String text, Vec2 pos){
     auto cmd   = push_command!Render_Text(pass);
     cmd.text = text;
     cmd.font = font;
     cmd.pos  = pos;
+}
+
+void set_light(Render_Pass* pass, Shader_Light* light){
+    auto cmd   = push_command!Set_Light(pass);
+    cmd.light = light;
 }
 
 private:
@@ -287,6 +306,7 @@ enum Command : uint{
     Set_Shader,
     Render_Mesh,
     Render_Text,
+    Set_Light,
 }
 
 struct Clear_Target{
@@ -316,6 +336,12 @@ struct Render_Text{
     Font*   font;
     String  text;
     Vec2    pos;
+}
+
+struct Set_Light{
+    enum Type = Command.Set_Light;
+    Command type;
+    Shader_Light* light;
 }
 
 void[] push_bytes(Render_Pass* pass, size_t count){
@@ -371,6 +397,7 @@ version(opengl){
         GLuint handle;
         GLint  uniform_loc_model;
         GLint  uniform_loc_camera;
+        GLint  uniform_loc_camera_pos;
     }
 
     Texture create_texture(uint[] pixels, uint width, uint height, uint flags = 0){
@@ -516,6 +543,7 @@ version(opengl){
             set_viewport(g_base_viewport);
 
             Shader* shader;
+            Shader_Light* light;
 
             auto reader = Serializer(pass.buffer[0 .. pass.buffer_used]);
             while(bytes_left(&reader) > uint.sizeof){
@@ -542,12 +570,16 @@ version(opengl){
                             glUseProgram(shader.handle);
 
                             set_uniform(shader.uniform_loc_camera, &pass.camera);
+                            set_uniform(shader.uniform_loc_camera_pos, &pass.camera_pos);
                         }
                     } break;
 
                     case Command.Render_Mesh:{
+                        assert(shader);
                         auto cmd = eat_type!Render_Mesh(&reader);
+                        assert(shader.uniform_loc_model != -1);
                         set_uniform(shader.uniform_loc_model, &cmd.transform);
+                        set_material(cmd.material);
 
                         auto mesh = cmd.mesh;
 
@@ -559,6 +591,12 @@ version(opengl){
                     case Command.Render_Text:{
                         auto cmd = eat_type!Render_Text(&reader);
                         render_text(cmd.font, cmd.text, cmd.pos);
+                    } break;
+
+                    case Command.Set_Light:{
+                        auto cmd = eat_type!Set_Light(&reader);
+                        if(light != cmd.light)
+                            shader_light_source(cmd.light);
                     } break;
                 }
             }
@@ -621,10 +659,6 @@ version(opengl){
         glDeleteShader(vertex_shader);
         glDeleteShader(fragment_shader);
 
-        make_uniform_binding(program, "Constants", Constants_Uniform_Binding);
-        make_uniform_binding(program, "Material", Material_Uniform_Binding);
-        make_uniform_binding(program, "Light", Light_Uniform_Binding);
-
         bool success = link_status != GL_FALSE;
         if(success){
             shader.handle = program;
@@ -635,7 +669,12 @@ version(opengl){
                 }
             }
 
+            make_uniform_binding(program, "Constants", Constants_Uniform_Binding);
+            make_uniform_binding(program, "Material", Material_Uniform_Binding);
+            make_uniform_binding(program, "Light", Light_Uniform_Binding);
+
             get_uniform_loc(&shader.uniform_loc_camera, "mat_camera");
+            get_uniform_loc(&shader.uniform_loc_camera_pos, "camera_pos");
             get_uniform_loc(&shader.uniform_loc_model, "mat_model");
         }
         return success;
@@ -646,9 +685,10 @@ version(opengl){
         shader.handle = 0;
     }
 
-    Render_Pass* render_pass(Mat4* camera){
+    Render_Pass* render_pass(Mat4* camera, Vec3 camera_pos){
         auto result = alloc_type!Render_Pass(g_allocator);
-        result.camera = *camera;
+        result.camera     = *camera;
+        result.camera_pos = camera_pos;
 
         if(!g_render_pass_first)
             g_render_pass_first = result;
@@ -664,6 +704,16 @@ version(opengl){
     }
 
     private:
+
+    void set_material(Material* material){
+        glBindBuffer(GL_UNIFORM_BUFFER, g_shader_material_buffer);
+        glBufferSubData(GL_UNIFORM_BUFFER, 0, Material.sizeof, material);
+    }
+
+    void shader_light_source(Shader_Light* light){
+        glBindBuffer(GL_UNIFORM_BUFFER, g_shader_light_buffer);
+        glBufferSubData(GL_UNIFORM_BUFFER, 0, Shader_Light.sizeof, light);
+    }
 
     extern(C) void debug_msg_callback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length,
                                       const(GLchar)* message, const(void*) userParam){
@@ -690,6 +740,9 @@ version(opengl){
             if(uniform_loc != -1){
                 glUniformMatrix4fv(uniform_loc, 1, true, cast(float*)value);
             }
+        }
+        else static if(is(T == Vec3)){
+            glUniform3f(uniform_loc, value.x, value.y, value.z);
         }
         else{
             static assert(0);
@@ -805,16 +858,6 @@ version(opengl){
     public void set_constants(uint offset, void *data, uint size){
         glBindBuffer(GL_UNIFORM_BUFFER, g_shader_constants_buffer);
         glBufferSubData(GL_UNIFORM_BUFFER, offset, size, data);
-    }
-
-    public void set_material(Material* material){
-        glBindBuffer(GL_UNIFORM_BUFFER, g_shader_material_buffer);
-        glBufferSubData(GL_UNIFORM_BUFFER, 0, Material.sizeof, material);
-    }
-
-    public void set_light(Shader_Light* light){
-        glBindBuffer(GL_UNIFORM_BUFFER, g_shader_light_buffer);
-        glBufferSubData(GL_UNIFORM_BUFFER, 0, Shader_Light.sizeof, light);
     }
 
     public void set_shader(Shader shader){
