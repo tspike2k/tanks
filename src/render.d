@@ -7,7 +7,8 @@ See accompanying file LICENSE_BOOST.txt or copy at http://www.boost.org/LICENSE_
 /+
 TODO:
     - Add destory texture function
-
+    - Have a shaders/common.glsl file and append it to the top of all the shaders we load in?
+    - Use list nodes rather than a 1m block for each render pass.
 
     Make a single shader constants block that is sensibly divided into chunks that can be block
     copied by the appropriate shader pass.
@@ -36,8 +37,9 @@ enum Z_Near = -Z_Far;
 alias Texture = ulong;
 
 enum{
-    Render_Flag_Disable_Culling = (1 << 0),
-    Render_Flag_Disable_Color   = (1 << 1),
+    Render_Flag_Disable_Culling    = (1 << 0),
+    Render_Flag_Disable_Color      = (1 << 1),
+    Render_Flag_Disable_Depth_Test = (1 << 2),
 }
 
 struct Camera{
@@ -400,6 +402,7 @@ version(opengl){
     __gshared Render_Pass*  g_render_pass_first;
     __gshared Render_Pass*  g_render_pass_last;
     __gshared Rect          g_base_viewport;
+    __gshared Vec4          g_clear_color;
 
     public:
 
@@ -540,19 +543,39 @@ version(opengl){
 
     }
 
-    void render_begin_frame(uint viewport_width, uint viewport_height, Allocator* memory){
+    void render_begin_frame(uint viewport_width, uint viewport_height, Vec4 clear_color, Allocator* memory){
         // TODO: Set viewport and the like?
         g_allocator = memory;
         g_render_pass_first = null;
         g_render_pass_last  = null;
         g_base_viewport     = rect_from_min_max(Vec2(0, 0), Vec2(viewport_width, viewport_height));
+        g_clear_color       = clear_color;
     }
 
     void render_end_frame(){
         auto pass = g_render_pass_first;
 
+        {
+            auto color = g_clear_color;
+            glClearColor(color.r, color.g, color.b, color.a);
+            glClearDepth(Z_Far);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        }
+
         while(pass){
             set_viewport(g_base_viewport);
+
+            if(pass.flags & Render_Flag_Disable_Color){
+                glColorMask(false, false, false, false);
+            }
+
+            if(pass.flags & Render_Flag_Disable_Culling){
+                glDisable(GL_CULL_FACE);
+            }
+
+            if(pass.flags & Render_Flag_Disable_Depth_Test){
+                glDisable(GL_DEPTH_TEST);
+            }
 
             Shader* shader;
             Shader_Light* light;
@@ -611,6 +634,18 @@ version(opengl){
                             shader_light_source(cmd.light);
                     } break;
                 }
+            }
+
+            if(pass.flags & Render_Flag_Disable_Color){
+                glColorMask(true, true, true, true);
+            }
+
+            if(pass.flags & Render_Flag_Disable_Culling){
+                glEnable(GL_CULL_FACE);
+            }
+
+            if(pass.flags & Render_Flag_Disable_Depth_Test){
+                glEnable(GL_DEPTH_TEST);
             }
 
             pass = pass.next;

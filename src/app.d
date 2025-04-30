@@ -1428,11 +1428,14 @@ extern(C) int main(int args_count, char** args){
         }
         prev_timestamp = current_timestamp;
 
-        render_begin_frame(window.width, window.height, &s.frame_memory);
+        render_begin_frame(window.width, window.height, Vec4(0, 0.05f, 0.12f, 1), &s.frame_memory);
 
         auto rp_holes = render_pass(&mat_camera, camera_pos);
-        clear_target_to_color(rp_holes, Vec4(0, 0.05f, 0.12f, 1));
-        rp_holes.flags = Render_Flag_Disable_Culling|Render_Flag_Disable_Color;
+        set_shader(rp_holes, &shader);
+
+        auto rp_hole_cutouts = render_pass(&mat_camera, camera_pos);
+        set_shader(rp_hole_cutouts, &shader); // TODO: We should use a more stripped-down shader for this. We don't need lighting!
+        rp_hole_cutouts.flags = Render_Flag_Disable_Culling|Render_Flag_Disable_Color;
 
         auto rp_world = render_pass(&mat_camera, camera_pos);
         set_shader(rp_world, &shader);
@@ -1445,18 +1448,49 @@ extern(C) int main(int args_count, char** args){
             switch(e.type){
                 default: break;
 
+                case Entity_Type.Block:{
+                    assert(is_valid_block(&e));
+                    if(!is_hole(&e)){
+                        float height = 1.0f + 0.5f*cast(float)(e.block_height-1);
+                        auto scale = Vec3(1, height, 1);
+                        auto pos = p + Vec3(0, height*0.5f, 0);
+
+                        auto material = choose_material(s, &e);
+                        render_mesh(
+                            rp_world, &s.cube_mesh, material,
+                            mat4_translate(pos)*mat4_scale(scale)
+                        );
+                    }
+                    else{
+                        auto hole_scale  = Vec3(0.70f, 0.25f, 0.70f);
+                        auto hole_offset = Vec3(0, -0.5f*hole_scale.y+0.01f, 0);
+
+                        auto material = choose_material(s, &e);
+                        auto xform = mat4_translate(p + hole_offset)*mat4_scale(hole_scale);
+                        render_mesh(rp_holes, &s.hole_mesh, material, xform);
+                        render_mesh(rp_hole_cutouts, &s.hole_mesh, material, xform);
+                    }
+                } break;
+
                 case Entity_Type.Tank:{
                     auto material = choose_material(s, &e);
                     auto mat_tran = mat4_translate(p + Vec3(0, 0.18f, 0));
-                    render_mesh(rp_world, &s.tank_base_mesh, material, mat_tran*mat4_rot_y(e.angle));
-                    render_mesh(rp_world, &s.tank_top_mesh, material, mat_tran*mat4_rot_y(e.turret_angle));
+                    render_mesh(
+                        rp_world, &s.tank_base_mesh, material,
+                        mat_tran*mat4_rot_y(e.angle)
+                    );
+                    render_mesh(
+                        rp_world, &s.tank_top_mesh, material,
+                        mat_tran*mat4_rot_y(e.turret_angle)
+                    );
                 } break;
             }
         }
 
         auto hud_camera = make_hud_camera(window.width, window.height);
         auto rp_hud = render_pass(&hud_camera.mat, Vec3(0, 0, 0));
-        //set_shader(rp_hud, &text_shader);
+        set_shader(rp_hud, &text_shader);
+        rp_hud.flags = Render_Flag_Disable_Depth_Test;
         //render_text(rp_hud, &s.font_main, "Hello, dude!", Vec2(0,0));
 
         /+
