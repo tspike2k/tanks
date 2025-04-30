@@ -1430,14 +1430,29 @@ extern(C) int main(int args_count, char** args){
 
         render_begin_frame(window.width, window.height, &s.frame_memory);
 
-        Mat4 world_camera = Mat4_Identity;
-        auto rp_world = render_pass(&mat_camera, camera_pos);
-        clear_target_to_color(rp_world, Vec4(0, 0.05f, 0.12f, 1));
+        auto rp_holes = render_pass(&mat_camera, camera_pos);
+        clear_target_to_color(rp_holes, Vec4(0, 0.05f, 0.12f, 1));
+        rp_holes.flags = Render_Flag_Disable_Culling|Render_Flag_Disable_Color;
 
+        auto rp_world = render_pass(&mat_camera, camera_pos);
         set_shader(rp_world, &shader);
         set_light(rp_world, &light);
         auto ground_xform = mat4_translate(grid_center)*mat4_scale(Vec3(grid_extents.x, 1.0f, grid_extents.y));
         render_mesh(rp_world, &s.ground_mesh, &s.material_ground, ground_xform);
+
+        foreach(ref e; iterate_entities(&s.world)){
+            Vec3 p = world_to_render_pos(e.pos);
+            switch(e.type){
+                default: break;
+
+                case Entity_Type.Tank:{
+                    auto material = choose_material(s, &e);
+                    auto mat_tran = mat4_translate(p + Vec3(0, 0.18f, 0));
+                    render_mesh(rp_world, &s.tank_base_mesh, material, mat_tran*mat4_rot_y(e.angle));
+                    render_mesh(rp_world, &s.tank_top_mesh, material, mat_tran*mat4_rot_y(e.turret_angle));
+                } break;
+            }
+        }
 
         auto hud_camera = make_hud_camera(window.width, window.height);
         auto rp_hud = render_pass(&hud_camera.mat, Vec3(0, 0, 0));

@@ -6,17 +6,18 @@ See accompanying file LICENSE_BOOST.txt or copy at http://www.boost.org/LICENSE_
 
 /+
 TODO:
+    - Add destory texture function
 
-Figure out how to make the API easier to use. We're passing shaders and texture to every single draw function.
-What is the best way to handle this? Here's some ideas:
-    A) We pass the shader to everything that takes it.
-    B) We push a command to the command buffer to set the shader.
-    C) We have specific shaders for specific render function. If we need to use a different shader, we make a different function. (draw_quad, draw_water_quad)
-    D) Each function takes a shader param, but it uses a default.
+
+    Make a single shader constants block that is sensibly divided into chunks that can be block
+    copied by the appropriate shader pass.
+
+    We need to have data for the following:
+        - Per frame data
+        - Per pass data
+        - Per model data
+
 +/
-//
-
-// TODO: Add destory texture function
 
 import memory;
 import assets;
@@ -33,6 +34,11 @@ enum Z_Far  =  1000.0f;
 enum Z_Near = -Z_Far;
 
 alias Texture = ulong;
+
+enum{
+    Render_Flag_Disable_Culling = (1 << 0),
+    Render_Flag_Disable_Color   = (1 << 1),
+}
 
 struct Camera{
     Vec3 pos;
