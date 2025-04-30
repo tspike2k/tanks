@@ -1547,7 +1547,7 @@ extern(C) int main(int args_count, char** args){
         //render_text(rp_hud, &s.font_main, "Hello, dude!", Vec2(0,0));
 
         if(editor_is_open){
-            //editor_render(s, rp_world, rp_hud);
+            editor_render(s, rp_world, rp_hud);
         }
         render_end_frame();
         end_frame();

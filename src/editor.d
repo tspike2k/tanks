@@ -351,34 +351,34 @@ void editor_simulate(App_State* s, float dt){
     }
 }
 
-void editor_render(App_State* s){
-/+
+void editor_render(App_State* s, Render_Pass* rp_world, Render_Pass* rp_hud){
     switch(g_edit_mode){
         default: break;
 
         case Edit_Mode.Select:{
             // Draw cursor
             auto p = world_to_render_pos(s.mouse_world);
-            set_material(&s.material_block);
-            render_mesh(&s.cube_mesh, mat4_translate(p)*mat4_scale(Vec3(0.25f, 0.25f, 0.25f)));
+            auto material = &s.material_block;
+            render_mesh(
+                rp_world, &s.cube_mesh, material,
+                mat4_translate(p)*mat4_scale(Vec3(0.25f, 0.25f, 0.25f))
+            );
         } break;
 
         case Edit_Mode.Place:{
             if(inside_grid(s.mouse_world)){
                 if(g_placement_mode == Place_Mode.Block){
-                    set_material(&s.material_block);
                     auto p = world_to_render_pos(floor(s.mouse_world)) + Vec3(0.5f, 0.5f, -0.5f);
-                    render_mesh(&s.cube_mesh, mat4_translate(p));
+                    render_mesh(rp_world, &s.cube_mesh, &s.material_block, mat4_translate(p));
                 }
                 else if(g_placement_mode == Place_Mode.Tank){
-                    set_material(&s.material_enemy_tank);
                     auto p = world_to_render_pos(s.mouse_world) + Vec3(0, 0.18f, 0);
-                    render_mesh(&s.tank_base_mesh, mat4_translate(p));
-                    render_mesh(&s.tank_top_mesh, mat4_translate(p));
+                    render_mesh(rp_world, &s.tank_base_mesh, &s.material_enemy_tank, mat4_translate(p));
+                    render_mesh(rp_world, &s.tank_top_mesh, &s.material_enemy_tank, mat4_translate(p));
                 }
             }
         } break;
-    }+/
+    }
 }
 
 void editor_toggle(App_State* s){
