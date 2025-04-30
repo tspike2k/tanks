@@ -1430,6 +1430,8 @@ extern(C) int main(int args_count, char** args){
 
         render_begin_frame(window.width, window.height, Vec4(0, 0.05f, 0.12f, 1), &s.frame_memory);
 
+        //light.pos = Vec3(cos(s.t)*18.0f, 2, sin(s.t)*18.0f);
+
         auto rp_holes = render_pass(&mat_camera, camera_pos);
         set_shader(rp_holes, &shader);
 
@@ -1462,6 +1464,27 @@ extern(C) int main(int args_count, char** args){
                         );
                     }
                     else{
+                        // A hole is modeled using an inside-out cylinder. This way the inner
+                        // faces will be visible when rendering. In order to see the hole through
+                        // the ground mesh, we need a way to "cut out" part of the ground. This
+                        // can be done by using the depth-buffer to mask off portions of the mesh.
+                        //
+                        // For each hole, we first draw the hole mesh as we normally would. We
+                        // then disable culling so the outer faces of the hole mesh will be
+                        // rendered. We also disable writing to the color buffer and render the
+                        // mesh again in order to fill the z-buffer with the outer faces of our
+                        // mesh.
+                        //
+                        // Based on information found here:
+                        // https://gamedev.stackexchange.com/questions/115501/how-to-combine-depth-and-stencil-tests
+                        // https://www.youtube.com/watch?v=cHhxs12ZfSQ
+                        // https://www.youtube.com/watch?v=uxXEV91xsSc
+                        //
+                        // A similar result can also be achieved by writing to the stencil buffer
+                        // and discarding the result when drawing the ground. See here:
+                        // https://community.khronos.org/t/masking-away-an-area-of-a-terrain-surface/104810/4
+                        // https://www.blog.radiator.debacle.us/2012/08/how-to-dig-holes-in-unity3d-terrains.html
+                        // https://www.youtube.com/watch?v=y-SEiDTbszk
                         auto hole_scale  = Vec3(0.70f, 0.25f, 0.70f);
                         auto hole_offset = Vec3(0, -0.5f*hole_scale.y+0.01f, 0);
 
@@ -1484,6 +1507,36 @@ extern(C) int main(int args_count, char** args){
                         mat_tran*mat4_rot_y(e.turret_angle)
                     );
                 } break;
+
+                case Entity_Type.Bullet:{
+                    auto material = choose_material(s, &e);
+                    //auto mat_tran = mat4_translate(p);
+                    auto mat_tran = mat4_translate(p + Vec3(0, 0.5f, 0)); // TODO: Use this offset when we're done testing the camera
+                    render_mesh(rp_world, &s.bullet_mesh, material, mat_tran*mat4_rot_y(e.angle));
+                } break;
+
+                case Entity_Type.Mine:{
+                    // TODO: Dynamic material? This thing needs to blink. Perhaps we should have
+                    // a shader for that?
+                    if(!is_exploding(&e)){
+                        render_mesh(
+                            rp_world, &s.half_sphere_mesh, choose_material(s, &e),
+                            mat4_translate(p)*mat4_scale(Vec3(0.5f, 0.5f, 0.5f))
+                        );
+                    }
+                    else{
+                        // TODO: The explosion should spin over time. This would only have any impact
+                        // once we add a texture to it.
+                        auto material = &s.material_eraser; // TODO: Have a dedicated explosion material
+
+                        auto radius = e.extents.x;
+                        auto scale = Vec3(radius, radius, radius)*2.0f;
+                        render_mesh(
+                            rp_world, &s.half_sphere_mesh, material,
+                            mat4_translate(p)*mat4_scale(scale)
+                        );
+                    }
+                } break;
             }
         }
 
@@ -1493,132 +1546,9 @@ extern(C) int main(int args_count, char** args){
         rp_hud.flags = Render_Flag_Disable_Depth_Test;
         //render_text(rp_hud, &s.font_main, "Hello, dude!", Vec2(0,0));
 
-        /+
-        set_viewport(0, 0, window.width, window.height);
-        clear_target_to_color(Vec4(0, 0.05f, 0.12f, 1));
-
-        Shader_Constants constants;
-        constants.camera = transpose(mat_camera);
-        constants.camera_pos = camera_pos;
-        constants.time = s.t;
-
-        light.pos = Vec3(cos(s.t)*18.0f, 2, sin(s.t)*18.0f);
-
-        set_constants(0, &constants, constants.sizeof);
-        set_light(&light);
-        set_shader(shader);
-
-        // To draw holes in the ground we use a cylinder with inverted normals so the inner faces will be visible
-        // when rendering. The mesh for the holes must extend below the surface of the ground mesh, so we need a
-        // way to "cut out" a cylindrical shape in the ground through which we can see the hole. This can be
-        // achieved by using the dept-buffer to mask off portions of the ground mesh. For this technique
-        // to work, holes will need to be rendered before the ground.
-        //
-        // For each hole, we first draw the hole mesh as we normally would. We then disable culling so the outer
-        // faces of the hole mesh will be rendered. We then disable writing to the color buffer and render the mesh
-        // again in order to fill the z-buffer with the outer faces of our mesh.
-        //
-        // Based on information found here:
-        // https://gamedev.stackexchange.com/questions/115501/how-to-combine-depth-and-stencil-tests
-        // https://www.youtube.com/watch?v=cHhxs12ZfSQ
-        // https://www.youtube.com/watch?v=uxXEV91xsSc
-        //
-        // A similar result can also be achieved by writing to the stencil buffer and discarding
-        // the result when drawing the ground. Examples of this are discussed here:
-        // https://community.khronos.org/t/masking-away-an-area-of-a-terrain-surface/104810/4
-        // https://www.blog.radiator.debacle.us/2012/08/how-to-dig-holes-in-unity3d-terrains.html
-        // https://www.youtube.com/watch?v=y-SEiDTbszk
-        auto hole_scale  = Vec3(0.70f, 0.25f, 0.70f);
-        auto hole_offset = Vec3(0, -0.5f*hole_scale.y+0.01f, 0);
-        foreach(ref e; iterate_entities(&s.world)){
-            Vec3 p = world_to_render_pos(e.pos);
-            if(is_hole(&e)){
-                set_material(choose_material(s, &e));
-                render_mesh(&s.hole_mesh, mat4_translate(p + hole_offset)*mat4_scale(hole_scale));
-
-                enable_culling(false);
-                render_enable_color(false);
-                render_mesh(&s.hole_mesh, mat4_translate(p + hole_offset)*mat4_scale(hole_scale));
-                render_enable_color(true);
-                enable_culling(true);
-            }
-        }
-
-        set_material(&s.material_ground);
-        auto ground_xform = mat4_translate(grid_center)*mat4_scale(Vec3(grid_extents.x, 1.0f, grid_extents.y));
-        render_mesh(&s.ground_mesh, ground_xform);
-
-        foreach(ref e; iterate_entities(&s.world)){
-            Vec3 p = world_to_render_pos(e.pos);
-            switch(e.type){
-                default: assert(0);
-
-                case Entity_Type.Block:{
-                    assert(is_valid_block(&e));
-                    if(!is_hole(&e)){
-                        set_material(choose_material(s, &e));
-
-                        float height = 1.0f + 0.5f*cast(float)(e.block_height-1);
-                        auto scale = Vec3(1, height, 1);
-                        auto pos = p + Vec3(0, height*0.5f, 0);
-                        render_mesh(&s.cube_mesh, mat4_translate(pos)*mat4_scale(scale));
-                    }
-                } break;
-
-                case Entity_Type.Tank:{
-                    set_material(choose_material(s, &e));
-                    auto mat_tran = mat4_translate(p + Vec3(0, 0.18f, 0));
-                    render_mesh(&s.tank_base_mesh, mat_tran*mat4_rot_y(e.angle));
-                    render_mesh(&s.tank_top_mesh, mat_tran*mat4_rot_y(e.turret_angle));
-                } break;
-
-                case Entity_Type.Bullet:{
-                    set_material(choose_material(s, &e));
-                    auto mat_tran = mat4_translate(p);
-                    //auto mat_tran = mat4_translate(p + Vec3(0, 0.5f, 0)); // TODO: Use this offset when we're done testing the camera
-                    render_mesh(&s.bullet_mesh, mat_tran*mat4_rot_y(e.angle));
-                } break;
-
-                case Entity_Type.Mine:{
-                    // TODO: Dynamic material? This thing needs to blink. Perhaps we should have
-                    // a shader for that?
-                    if(!is_exploding(&e)){
-                        set_material(choose_material(s, &e));
-                        render_mesh(&s.half_sphere_mesh, mat4_translate(p)*mat4_scale(Vec3(0.5f, 0.5f, 0.5f)));
-                    }
-                    else{
-                        // TODO: The explosion should spin over time. This would only have any impact
-                        // once we add a texture to it.
-                        set_material(&s.material_eraser);
-
-                        auto radius = e.extents.x;
-                        auto scale = Vec3(radius, radius, radius)*2.0f;
-                        render_mesh(&s.half_sphere_mesh, mat4_translate(p)*mat4_scale(scale));
-                    }
-                } break;
-            }
-        }
-
-        // TODO: We need to be able to set the camera here. The HUD needs a seperate camera.
-
         if(editor_is_open){
-            editor_render(s);
+            //editor_render(s, rp_world, rp_hud);
         }
-
-        camera_extents = Vec2(window.width, window.height)*0.5f;
-        camera_pos = Vec3(0, 0, 0);
-        mat_proj = orthographic_projection(Rect(Vec2(0, 0), camera_extents));
-
-        constants.camera = transpose(mat_proj.mat);
-        constants.camera_pos = camera_pos;
-        constants.time = s.t;
-        set_constants(0, &constants, constants.sizeof);
-
-        enable_depth_testing(false);
-        set_shader(text_shader);
-        render_text(&s.font_main, "AVA WA TA", Vec2(0, 0));
-        enable_depth_testing(true);
-+/
         render_end_frame();
         end_frame();
     }

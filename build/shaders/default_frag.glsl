@@ -30,7 +30,7 @@ layout(std140) uniform Light{
 
 void main(){
     vec3 view_dir  = normalize(camera_pos - f_world_pos);
-    //vec3 light_dir = normalize(light_pos - f_world_pos);
+    //vec3 light_dir = normalize(f_world_pos - light_pos);
     vec3 light_dir = vec3(0, -1, -0.75);
     vec3 normal    = normalize(f_normal); // Account for shortened normals thanks to interlolation. Thanks to https://stackoverflow.com/a/29720519
 
