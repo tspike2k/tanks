@@ -243,16 +243,19 @@ void end_reserve_all(Allocator* allocator, void[] buffer, size_t used){
 //
 ////
 
+// TODO: This should really be called "String_Writer."
 struct Buffer_Writer{
     char[] buffer;
     size_t used;
 
+    // TODO: Are methods almost impossible to debug in gdb? That would be a good reason
+    // to prefer not using them. The only reason we're using this method is to make it
+    // compatible with D Ranges.
     void put(String text){
         size_t bytes_left = buffer.length - used;
         size_t to_write = text.length > bytes_left ? bytes_left : text.length;
         copy(text[0 .. to_write], buffer[used .. used + to_write]);
         used += to_write;
-        buffer[used >= buffer.length ? $-1 : used] = '\0';
     }
 }
 
@@ -263,7 +266,12 @@ Buffer_Writer begin_buffer_writer(Allocator* allocator, uint alignment = Default
 }
 
 char[] end_buffer_writer(Allocator* allocator, Buffer_Writer* writer){
-    end_reserve_all(allocator, writer.buffer, writer.used);
+    if(writer.buffer.length > 0 && writer.used > writer.buffer.length-1){
+        writer.used = writer.buffer.length-1;
+    }
+
+    end_reserve_all(allocator, writer.buffer, writer.used+1);
+    writer.buffer[writer.used] = '\0';
     auto result = writer.buffer[0 .. writer.used];
     return result;
 }

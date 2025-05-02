@@ -19,6 +19,20 @@ version(linux){
     ];
 }
 
+__gshared Font_Entry[] Font_Entries = [
+    {
+        height: 82, stroke: 0,
+        fill_color: Vec4(1, 1, 1, 1), stroke_color: Vec4(0.16f, 0.34f, 0.68f, 1),
+        dest_file_name: "./build/test_en.fnt", source_file_name: "LiberationSans-Regular.ttf"
+    },
+
+    {
+        height: 14, stroke: 0,
+        fill_color: Vec4(1, 1, 1, 1), stroke_color: Vec4(0.16f, 0.34f, 0.68f, 1),
+        dest_file_name: "./build/editor_small_en.fnt", source_file_name: "DejaVuSerif.ttf"
+    },
+];
+
 enum Atlas_Padding = 1;
 
 struct Font_Entry{
@@ -47,14 +61,6 @@ struct Font_Builder{
     uint fill_color;
     uint stroke_color;
 };
-
-__gshared Font_Entry[] Font_Entries = [
-    {
-        height: 82, stroke: 0,
-        fill_color: Vec4(1, 1, 1, 1), stroke_color: Vec4(0.16f, 0.34f, 0.68f, 1),
-        dest_file_name: "./build/test_en.fnt", source_file_name: "LiberationSans-Regular.ttf"
-    },
-];
 
 char[] get_path_for_ttf_file(String name, Allocator* allocator){
     char[] result;
@@ -204,7 +210,7 @@ bool begin_building_font(Font_Builder *builder, String source_file_name, Font_En
     builder.stroke_color = rgba_to_uint(entry.stroke_color);
 
     if(FT_New_Face(builder.lib, source_file_name.ptr, 0, &builder.face) != 0){
-        log("Unable to load font file {0}. Aborting...\n", source_file_name);
+        log("Unable to load font file {0}. Aborting...\n", source_file_name.ptr);
         return false;
     }
 
