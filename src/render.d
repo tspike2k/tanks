@@ -299,7 +299,7 @@ void render_mesh(Render_Pass* pass, Mesh* mesh, Material* material, Mat4 transfo
     cmd.transform = transform;
 }
 
-void render_text(Render_Pass* pass, Font* font, String text, Vec2 pos){
+void render_text(Render_Pass* pass, Font* font, Vec2 pos, String text){
     auto cmd   = push_command!Render_Text(pass);
     cmd.text = text;
     cmd.font = font;

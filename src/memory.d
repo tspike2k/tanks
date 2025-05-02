@@ -276,6 +276,15 @@ char[] end_buffer_writer(Allocator* allocator, Buffer_Writer* writer){
     return result;
 }
 
+char[] gen_string(Args...)(String fmt_string, Args args, Allocator* allocator){
+    import fmt;
+
+    auto memory = begin_reserve_all(allocator);
+    auto result = format(cast(char[])memory, fmt_string, args);
+    end_reserve_all(allocator, memory, result.length+1);
+    return result;
+}
+
 bool is_whitespace(char c){
     bool result = (c == ' ')
                || (c == '\t')

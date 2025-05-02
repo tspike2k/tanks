@@ -249,8 +249,8 @@ struct App_State{
     Allocator frame_memory;
     Allocator campaign_memory;
 
-    bool running;
-    float t;
+    bool      running;
+    float     t;
     Entity_ID player_entity_id;
     uint      player_destroyed_tanks;
 
@@ -264,6 +264,7 @@ struct App_State{
     Campaign campaign;
 
     Font font_main;
+    Font font_editor_small;
 
     Mesh cube_mesh;
     Mesh tank_base_mesh;
@@ -1103,7 +1104,9 @@ extern(C) int main(int args_count, char** args){
     }
     scope(exit) render_close();
 
+    // TODO: Build the directory using the path to the application
     load_font("./build/test_en.fnt", &s.font_main, &s.main_memory);
+    load_font("./build/editor_small_en.fnt", &s.font_editor_small, &s.main_memory);
 
     //auto teapot_mesh = load_mesh_from_obj("./build/teapot.obj", &s.main_memory);
     s.cube_mesh        = load_mesh_from_obj("./build/cube.obj", &s.main_memory);

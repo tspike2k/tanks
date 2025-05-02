@@ -27,7 +27,7 @@ __gshared Font_Entry[] Font_Entries = [
     },
 
     {
-        height: 14, stroke: 0,
+        height: 18, stroke: 0,
         fill_color: Vec4(1, 1, 1, 1), stroke_color: Vec4(0.16f, 0.34f, 0.68f, 1),
         dest_file_name: "./build/editor_small_en.fnt", source_file_name: "DejaVuSerif.ttf"
     },

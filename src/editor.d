@@ -22,6 +22,7 @@ import render;
 import memory;
 import files;
 import assets;
+import meta;
 
 bool editor_is_open;
 
@@ -352,6 +353,17 @@ void editor_simulate(App_State* s, float dt){
 }
 
 void editor_render(App_State* s, Render_Pass* rp_world, Render_Pass* rp_hud){
+    auto window = get_window_info();
+
+    auto font_small = &s.font_editor_small;
+
+    auto padding = 16;
+    auto pen = Vec2(padding, window.height - padding - font_small.metrics.height);
+    render_text(
+        rp_hud, font_small, pen,
+        gen_string("Mode: {0}", enum_string(g_edit_mode), &s.frame_memory)
+    );
+
     switch(g_edit_mode){
         default: break;
 
@@ -363,6 +375,46 @@ void editor_render(App_State* s, Render_Pass* rp_world, Render_Pass* rp_hud){
                 rp_world, &s.cube_mesh, material,
                 mat4_translate(p)*mat4_scale(Vec3(0.25f, 0.25f, 0.25f))
             );
+
+            auto e = get_entity_by_id(&s.world, g_selected_entity_id);
+            if(e){
+                pen.y -= font_small.metrics.line_gap;
+                pen.x = padding;
+
+                render_text(
+                    rp_hud, font_small, pen,
+                    gen_string("Selected : {0}", enum_string(e.type), &s.frame_memory)
+                );
+                pen.y -= font_small.metrics.line_gap;
+
+                switch(e.type){
+                    default: break;
+
+                    case Entity_Type.Block:{
+                        String extra = "";
+                        if(e.block_height == 0){
+                            extra = "(hole)";
+                        }
+
+                        render_text(
+                            rp_hud, font_small, pen,
+                            gen_string("Height: {0} {1}", e.block_height, extra, &s.frame_memory)
+                        );
+                    } break;
+
+                    case Entity_Type.Tank:{
+                        String extra = "";
+                        if(e.player_index == 0){
+                            extra = "(enemy)";
+                        }
+
+                        render_text(
+                            rp_hud, font_small, pen,
+                            gen_string("Player Index: {0} {1}", e.player_index, extra, &s.frame_memory)
+                        );
+                    } break;
+                }
+            }
         } break;
 
         case Edit_Mode.Place:{
