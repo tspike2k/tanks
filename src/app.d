@@ -1198,6 +1198,7 @@ extern(C) int main(int args_count, char** args){
     init_gui(&s.gui);
     s.gui.text_shader = &text_shader;
     s.gui.rect_shader = &rect_shader;
+    s.gui.font = &s.font_editor_small;
 
     while(s.running){
         begin_frame();
