@@ -23,6 +23,9 @@ import memory;
 import files;
 import assets;
 import meta;
+import gui;
+
+enum Window_ID_Editor_Test = 1;
 
 bool editor_is_open;
 
@@ -434,10 +437,27 @@ void editor_render(App_State* s, Render_Pass* rp_world, Render_Pass* rp_hud){
 }
 
 void editor_toggle(App_State* s){
+    import core.stdc.stdlib : malloc, free;
+
+    auto gui = &s.gui;
     if(!editor_is_open){
         s.world.entities_count = 0;
         g_mouse_left_is_down  = false;
         g_mouse_right_is_down = false;
+
+        auto memory = (malloc(4086)[0 .. 4086]);
+        add_window(gui, "Test Window", Window_ID_Editor_Test, rect_from_min_wh(Vec2(20, 20), 200, 80), memory);
+    }
+    else{
+        // Close all the windows.
+        // TODO: Only close editor windows!
+        auto window = gui.windows.bottom;
+        if(window){
+            auto window_next = window.next;
+            gui.windows.remove(window);
+            free(window);
+            window = window_next;
+        }
     }
 
     editor_is_open = !editor_is_open;

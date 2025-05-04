@@ -111,6 +111,29 @@ if(isListNode!T){
         bool result = node == cast(T*)&this;
         return result;
     }
+
+    auto iterate(){
+        struct Range{
+            T* sentinel;
+            T* node;
+
+            bool empty(){
+                bool result = node == sentinel;
+                return result;
+            }
+
+            T* front(){
+                return node;
+            }
+
+            void popFront(){
+                node = node.next;
+            }
+        }
+
+        auto result = Range(cast(T*)&this, bottom);
+        return result;
+    }
 }
 
 version(linux){

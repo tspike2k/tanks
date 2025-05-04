@@ -34,6 +34,7 @@ import files;
 import os;
 import net;
 import editor;
+import gui;
 
 enum Main_Memory_Size    =  4*1024*1024;
 enum Frame_Memory_Size   =  8*1024*1024;
@@ -263,6 +264,7 @@ struct App_State{
 
     Campaign campaign;
 
+    Gui_State gui;
     Font font_main;
     Font font_editor_small;
 
@@ -1124,6 +1126,9 @@ extern(C) int main(int args_count, char** args){
     Shader text_shader;
     load_shader(&text_shader, "text", shaders_dir, &s.frame_memory);
 
+    Shader rect_shader;
+    load_shader(&rect_shader, "rect", shaders_dir, &s.frame_memory);
+
     float target_dt = 1.0f/60.0f;
 
     ulong current_timestamp = ns_timestamp();
@@ -1189,6 +1194,10 @@ extern(C) int main(int args_count, char** args){
 
     auto grid_extents = Vec2(Grid_Width, Grid_Height)*0.5f;
     auto grid_center  = Vec3(grid_extents.x, 0, -grid_extents.y);
+
+    init_gui(&s.gui);
+    s.gui.text_shader = &text_shader;
+    s.gui.rect_shader = &rect_shader;
 
     while(s.running){
         begin_frame();
@@ -1552,6 +1561,8 @@ extern(C) int main(int args_count, char** args){
         if(editor_is_open){
             editor_render(s, rp_world, rp_hud);
         }
+        render_gui(&s.gui, rp_hud);
+
         render_end_frame();
         end_frame();
     }

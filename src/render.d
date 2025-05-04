@@ -48,10 +48,17 @@ struct Camera{
     Vec3 up;
 }
 
+// To keep from having to juggle seperate vertex formats between quads and meshes,
+// the first attribute could either hold color or normal information, depending
+// on which one the shader needs.
 struct Vertex{
+    union{
+        Vec4 common; // Name used internally by shaders
+        Vec4 color;
+        Vec3 normal;
+    }
     Vec3 pos;
     Vec2 uv;
-    Vec3 normal;
 }
 
 struct Mesh{
@@ -263,25 +270,6 @@ Rect calc_scaling_viewport(float res_x, float res_y, float window_w, float windo
     return result;
 }
 
-void draw_quad(Vertex[] v, Rect r, Rect uvs){
-    auto p0 = Vec2(right(r), top(r));
-    auto p1 = Vec2(left(r),  top(r));
-    auto p2 = Vec2(left(r),  bottom(r));
-    auto p3 = Vec2(right(r), bottom(r));
-
-    v[0].pos = v2_to_v3(p0, 0);
-    v[0].uv = Vec2(right(uvs), bottom(uvs));
-
-    v[1].pos = v2_to_v3(p1, 0);
-    v[1].uv = Vec2(left(uvs), bottom(uvs));
-
-    v[2].pos = v2_to_v3(p2, 0);
-    v[2].uv = Vec2(left(uvs), top(uvs));
-
-    v[3].pos = v2_to_v3(p3, 0);
-    v[3].uv = Vec2(right(uvs), top(uvs));
-}
-
 void clear_target_to_color(Render_Pass* pass, Vec4 color){
     auto cmd = push_command!Clear_Target(pass);
     cmd.color = color;
@@ -306,6 +294,12 @@ void render_text(Render_Pass* pass, Font* font, Vec2 pos, String text){
     cmd.pos  = pos;
 }
 
+void render_rect(Render_Pass* pass, Rect bounds, Vec4 color){
+    auto cmd   = push_command!Render_Rect(pass);
+    cmd.bounds = bounds;
+    cmd.color  = color;
+}
+
 void set_light(Render_Pass* pass, Shader_Light* light){
     auto cmd   = push_command!Set_Light(pass);
     cmd.light = light;
@@ -321,6 +315,7 @@ enum Command : uint{
     Render_Mesh,
     Render_Text,
     Set_Light,
+    Render_Rect,
 }
 
 struct Clear_Target{
@@ -358,6 +353,14 @@ struct Set_Light{
     Shader_Light* light;
 }
 
+struct Render_Rect{
+    enum Type = Command.Render_Rect;
+
+    Command type;
+    Rect bounds;
+    Vec4 color;
+}
+
 void[] push_bytes(Render_Pass* pass, size_t count){
     auto result = pass.buffer[pass.buffer_used .. pass.buffer_used + count];
     pass.buffer_used += count;
@@ -368,6 +371,33 @@ T* push_command(T)(Render_Pass* pass){
     auto result = cast(T*)push_bytes(pass, T.sizeof);
     result.type = T.Type;
     return result;
+}
+
+void set_quad(Vertex[] v, Rect r, Rect uvs){
+    auto p0 = Vec2(right(r), top(r));
+    auto p1 = Vec2(left(r),  top(r));
+    auto p2 = Vec2(left(r),  bottom(r));
+    auto p3 = Vec2(right(r), bottom(r));
+
+    v[0].pos = v2_to_v3(p0, 0);
+    v[0].uv = Vec2(right(uvs), bottom(uvs));
+
+    v[1].pos = v2_to_v3(p1, 0);
+    v[1].uv = Vec2(left(uvs), bottom(uvs));
+
+    v[2].pos = v2_to_v3(p2, 0);
+    v[2].uv = Vec2(left(uvs), top(uvs));
+
+    v[3].pos = v2_to_v3(p3, 0);
+    v[3].uv = Vec2(right(uvs), top(uvs));
+}
+
+void set_quad(Vertex[] v, Rect r, Rect uvs, Vec4 color){
+    set_quad(v, r, uvs);
+    v[0].color = color;
+    v[1].color = color;
+    v[2].color = color;
+    v[3].color = color;
 }
 
 version(linux){
@@ -384,9 +414,8 @@ version(opengl){
 
     enum{
         Vertex_Attribute_ID_Pos,
-        Vertex_Attribute_ID_Normal,
+        Vertex_Attribute_ID_Common,
         Vertex_Attribute_ID_UV,
-        Vertex_Attribute_ID_Color,
     }
 
     alias Quad_Index_Type = GLuint;
@@ -403,6 +432,15 @@ version(opengl){
     __gshared Render_Pass*  g_render_pass_last;
     __gshared Rect          g_base_viewport;
     __gshared Vec4          g_clear_color;
+
+    void draw_quads(Vertex[] v){
+        assert(v.length % 4 == 0);
+
+        glBindBuffer(GL_ARRAY_BUFFER, g_quad_vbo);
+        glBufferData(GL_ARRAY_BUFFER, cast(GLsizeiptr)(v.length * Vertex.sizeof), v.ptr, GL_DYNAMIC_DRAW);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_quad_index_buffer);
+        glDrawElements(GL_TRIANGLES, cast(GLsizei)(v.length * Vertex_Indeces_Per_Quad), GL_UNSIGNED_INT, cast(GLvoid*)0);
+    }
 
     public:
 
@@ -477,8 +515,8 @@ version(opengl){
         glEnableVertexAttribArray(Vertex_Attribute_ID_Pos);
         glVertexAttribPointer(Vertex_Attribute_ID_Pos, 3, GL_FLOAT, GL_FALSE, Vertex.sizeof, cast(GLvoid*)Vertex.pos.offsetof);
 
-        glEnableVertexAttribArray(Vertex_Attribute_ID_Normal);
-        glVertexAttribPointer(Vertex_Attribute_ID_Normal, 3, GL_FLOAT, GL_FALSE, Vertex.sizeof, cast(GLvoid*)Vertex.normal.offsetof);
+        glEnableVertexAttribArray(Vertex_Attribute_ID_Common);
+        glVertexAttribPointer(Vertex_Attribute_ID_Common, 4, GL_FLOAT, GL_FALSE, Vertex.sizeof, cast(GLvoid*)Vertex.common.offsetof);
 
         glEnableVertexAttribArray(Vertex_Attribute_ID_UV);
         glVertexAttribPointer(Vertex_Attribute_ID_UV, 2, GL_FLOAT, GL_FALSE, Vertex.sizeof, cast(GLvoid*)Vertex.uv.offsetof);
@@ -609,6 +647,20 @@ version(opengl){
                         }
                     } break;
 
+                    case Command.Render_Rect:{
+                        auto cmd = eat_type!Render_Rect(&reader);
+
+                        // TODO: Push data into a quad vertex buffer. Flush on state change.
+                        Vertex[4] v = void;
+                        auto uvs = rect_from_min_max(Vec2(0, 0), Vec2(1, 1));
+                        set_quad(v[], cmd.bounds, uvs, cmd.color);
+
+                        glBindBuffer(GL_ARRAY_BUFFER, g_quad_vbo);
+                        glBufferData(GL_ARRAY_BUFFER, cast(GLsizeiptr)(v.length * Vertex.sizeof), v.ptr, GL_DYNAMIC_DRAW);
+                        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_quad_index_buffer);
+                        glDrawElements(GL_TRIANGLES, cast(GLsizei)(v.length * Vertex_Indeces_Per_Quad), GL_UNSIGNED_INT, cast(GLvoid*)0);
+                    } break;
+
                     case Command.Render_Mesh:{
                         assert(shader);
                         auto cmd = eat_type!Render_Mesh(&reader);
@@ -657,22 +709,17 @@ version(opengl){
     bool compile_shader(Shader* shader, const(char)[] program_name, const(char)[] vertex_source, const(char)[] fragment_source){
         GLuint program = glCreateProgram();
         if(!program){
-            // TODO(tspike): Get error string!
-            log("Unable to create shader program.\n");
+            log_error("Unable to create shader {0}.\n", program_name);
             return 0;
         }
 
         glBindAttribLocation(program, Vertex_Attribute_ID_Pos,    "v_pos");
-        glBindAttribLocation(program, Vertex_Attribute_ID_Normal, "v_normal");
+        glBindAttribLocation(program, Vertex_Attribute_ID_Common, "v_common");
         glBindAttribLocation(program, Vertex_Attribute_ID_UV,     "v_uv");
-        glBindAttribLocation(program, Vertex_Attribute_ID_Color,  "v_color");
 
         GLuint vertex_shader = compile_shader_pass(GL_VERTEX_SHADER, "Vertex Shader", vertex_source.ptr);
         if(!vertex_shader){
-            // TODO: Better logging function
-            log("Unable to compile vertex shader for program ");
-            log(program_name);
-            log(".\n");
+            log_error("Unable to compile vertex shader for program {0}.\n", program_name);
             glDeleteProgram(program);
             return 0;
         }
@@ -680,9 +727,7 @@ version(opengl){
         GLuint fragment_shader = compile_shader_pass(GL_FRAGMENT_SHADER, "Fragment Shader", fragment_source.ptr);
         if (!fragment_shader){
             // TODO: Better logging function
-            log("Unable to compile fragment shader for program ");
-            log(program_name);
-            log(".\n");
+            log_error("Unable to compile fragment shader for program {0}.\n", program_name);
             glDeleteProgram(program);
             return 0;
         }
@@ -697,8 +742,7 @@ version(opengl){
         if (link_status == GL_FALSE){
             char[512] buffer;
             glGetProgramInfoLog(program, buffer.length, null, buffer.ptr);
-            log("Unable to link shader:\n");
-            //log("Unable to link shader:\n{0}\n", fmt_cstr(buffer));
+            log_error("Unable to link shader:\n  {0}\n", buffer.ptr);
         }
 
         glDetachShader(program, fragment_shader);
@@ -834,20 +878,15 @@ version(opengl){
                 auto min_p = pen + glyph.offset;
                 auto bounds = rect_from_min_max(min_p, min_p + Vec2(glyph.width, glyph.height));
                 auto uvs = rect_from_min_max(glyph.uv_min, glyph.uv_max);
-                draw_quad(v, bounds, uvs);
+                set_quad(v, bounds, uvs, Vec4(1, 1, 1, 1));
 
                 pen.x += cast(float)glyph.advance;
                 prev_codepoint = c;
             }
         }
 
-        auto v = v_buffer[0 .. v_buffer_used];
-
         set_texture(font.texture_id);
-        glBindBuffer(GL_ARRAY_BUFFER, g_quad_vbo);
-        glBufferData(GL_ARRAY_BUFFER, cast(GLsizeiptr)(v.length * Vertex.sizeof), v.ptr, GL_DYNAMIC_DRAW);
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_quad_index_buffer);
-        glDrawElements(GL_TRIANGLES, cast(GLsizei)(v.length * Vertex_Indeces_Per_Quad), GL_UNSIGNED_INT, cast(GLvoid*)0);
+        draw_quads(v_buffer[0 .. v_buffer_used]);
     }
 
     /+
