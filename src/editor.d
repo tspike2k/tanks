@@ -134,132 +134,134 @@ void editor_simulate(App_State* s, float dt){
 
     Event evt;
     while(next_event(&evt)){
-        switch(evt.type){
-            default: break;
+        if(!handle_event(&s.gui, &evt)){
+            switch(evt.type){
+                default: break;
 
-            case Event_Type.Window_Close:{
-                // TODO: Save state before exit in a temp/suspend file.
-                s.running = false;
-            } break;
+                case Event_Type.Window_Close:{
+                    // TODO: Save state before exit in a temp/suspend file.
+                    s.running = false;
+                } break;
 
-            case Event_Type.Button:{
-                auto btn = &evt.button;
+                case Event_Type.Button:{
+                    auto btn = &evt.button;
 
-                switch(btn.id){
-                    default: break;
-
-                    case Button_ID.Mouse_Left:{
-                        g_mouse_left_is_down = btn.pressed;
-                        mouse_left_pressed   = btn.pressed;
-                    } break;
-
-                    case Button_ID.Mouse_Right:{
-                        g_mouse_right_is_down = btn.pressed;
-                        mouse_right_pressed   = btn.pressed;
-                    } break;
-                }
-            } break;
-
-            case Event_Type.Mouse_Motion:{
-                auto motion = &evt.mouse_motion;
-                s.mouse_pixel = Vec2(motion.pixel_x, motion.pixel_y);
-            } break;
-
-            case Event_Type.Key:{
-                auto key = &evt.key;
-                if(key.pressed){
-                    switch(key.id){
+                    switch(btn.id){
                         default: break;
 
-                        case Key_ID_Arrow_Up:{
-                            arrow_up_pressed = true;
+                        case Button_ID.Mouse_Left:{
+                            g_mouse_left_is_down = btn.pressed;
+                            mouse_left_pressed   = btn.pressed;
                         } break;
 
-                        case Key_ID_Arrow_Down:{
-                            arrow_down_pressed = true;
+                        case Button_ID.Mouse_Right:{
+                            g_mouse_right_is_down = btn.pressed;
+                            mouse_right_pressed   = btn.pressed;
                         } break;
+                    }
+                } break;
 
-                        case Key_ID_K:{
-                            if(g_edit_mode == Edit_Mode.Select){
-                                auto e = get_entity_by_id(&s.world, g_selected_entity_id);
-                                if(e && e.type == Entity_Type.Block){
-                                    e.breakable = !e.breakable;
-                                }
-                            }
-                        } break;
+                case Event_Type.Mouse_Motion:{
+                    auto motion = &evt.mouse_motion;
+                    s.mouse_pixel = Vec2(motion.pixel_x, motion.pixel_y);
+                } break;
 
-                        case Key_ID_0:
-                        case Key_ID_1:
-                        case Key_ID_2:
-                        case Key_ID_3:
-                        case Key_ID_4:
-                        {
-                            if(!key.is_repeat){
-                                auto index = key.id - Key_ID_0;
+                case Event_Type.Key:{
+                    auto key = &evt.key;
+                    if(key.pressed){
+                        switch(key.id){
+                            default: break;
+
+                            case Key_ID_Arrow_Up:{
+                                arrow_up_pressed = true;
+                            } break;
+
+                            case Key_ID_Arrow_Down:{
+                                arrow_down_pressed = true;
+                            } break;
+
+                            case Key_ID_K:{
                                 if(g_edit_mode == Edit_Mode.Select){
                                     auto e = get_entity_by_id(&s.world, g_selected_entity_id);
-                                    if(e && e.type == Entity_Type.Tank){
-                                        e.player_index = index;
+                                    if(e && e.type == Entity_Type.Block){
+                                        e.breakable = !e.breakable;
                                     }
                                 }
-                            }
-                        } break;
+                            } break;
 
-                        case Key_ID_T:{
-                            g_placement_mode = Place_Mode.Tank;
-                        } break;
-
-                        case Key_ID_B:{
-                            g_placement_mode = Place_Mode.Block;
-                        } break;
-
-                        case Key_ID_C:{
-                            g_edit_mode = Edit_Mode.Select;
-                        } break;
-
-                        case Key_ID_P:{
-                            g_edit_mode = Edit_Mode.Place;
-                        } break;
-
-                        case Key_ID_E:{
-                            g_edit_mode = Edit_Mode.Erase;
-                        } break;
-
-                        case Key_ID_Delete:{
-                            if(g_edit_mode == Edit_Mode.Select && g_selected_entity_id != Null_Entity_ID){
-                                auto e = get_entity_by_id(&s.world, g_selected_entity_id);
-                                assert(e);
-                                destroy_entity(e);
-                                g_selected_entity_id = Null_Entity_ID;
-                            }
-                        } break;
-
-                        case Key_ID_S:{
-                            if(!key.is_repeat){
-                                if(key.modifier & Key_Modifier_Ctrl){
-                                    save_campaign_file(s);
-                                }
-                            }
-                        } break;
-
-                        case Key_ID_L:{
-                            if(!key.is_repeat){
-                                if(key.modifier & Key_Modifier_Ctrl){
-                                    if(load_campaign_from_file(&s.campaign, Campaign_File_Name, &s.main_memory)){
-                                        load_campaign_level(s, &s.campaign, 0);
+                            case Key_ID_0:
+                            case Key_ID_1:
+                            case Key_ID_2:
+                            case Key_ID_3:
+                            case Key_ID_4:
+                            {
+                                if(!key.is_repeat){
+                                    auto index = key.id - Key_ID_0;
+                                    if(g_edit_mode == Edit_Mode.Select){
+                                        auto e = get_entity_by_id(&s.world, g_selected_entity_id);
+                                        if(e && e.type == Entity_Type.Tank){
+                                            e.player_index = index;
+                                        }
                                     }
                                 }
-                            }
-                        } break;
+                            } break;
 
-                        case Key_ID_F2:
-                            if(!key.is_repeat){
-                                editor_toggle(s);
-                            }
-                        break;
+                            case Key_ID_T:{
+                                g_placement_mode = Place_Mode.Tank;
+                            } break;
+
+                            case Key_ID_B:{
+                                g_placement_mode = Place_Mode.Block;
+                            } break;
+
+                            case Key_ID_C:{
+                                g_edit_mode = Edit_Mode.Select;
+                            } break;
+
+                            case Key_ID_P:{
+                                g_edit_mode = Edit_Mode.Place;
+                            } break;
+
+                            case Key_ID_E:{
+                                g_edit_mode = Edit_Mode.Erase;
+                            } break;
+
+                            case Key_ID_Delete:{
+                                if(g_edit_mode == Edit_Mode.Select && g_selected_entity_id != Null_Entity_ID){
+                                    auto e = get_entity_by_id(&s.world, g_selected_entity_id);
+                                    assert(e);
+                                    destroy_entity(e);
+                                    g_selected_entity_id = Null_Entity_ID;
+                                }
+                            } break;
+
+                            case Key_ID_S:{
+                                if(!key.is_repeat){
+                                    if(key.modifier & Key_Modifier_Ctrl){
+                                        save_campaign_file(s);
+                                    }
+                                }
+                            } break;
+
+                            case Key_ID_L:{
+                                if(!key.is_repeat){
+                                    if(key.modifier & Key_Modifier_Ctrl){
+                                        if(load_campaign_from_file(&s.campaign, Campaign_File_Name, &s.main_memory)){
+                                            load_campaign_level(s, &s.campaign, 0);
+                                        }
+                                    }
+                                }
+                            } break;
+
+                            case Key_ID_F2:
+                                if(!key.is_repeat){
+                                    editor_toggle(s);
+                                }
+                            break;
+                        }
                     }
-                }
-            } break;
+                } break;
+            }
         }
     }
 

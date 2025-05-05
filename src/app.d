@@ -1279,81 +1279,83 @@ extern(C) int main(int args_count, char** args){
 
             Event evt;
             while(next_event(&evt)){
-                switch(evt.type){
-                    default: break;
+                if(!handle_event(&s.gui, &evt)){
+                    switch(evt.type){
+                        default: break;
 
-                    case Event_Type.Window_Close:{
-                        // TODO: Save state before exit in a temp/suspend file.
-                        s.running = false;
-                    } break;
+                        case Event_Type.Window_Close:{
+                            // TODO: Save state before exit in a temp/suspend file.
+                            s.running = false;
+                        } break;
 
-                    case Event_Type.Button:{
-                        auto btn = &evt.button;
-                        if(btn.pressed){
-                            switch(btn.id){
-                                default: break;
+                        case Event_Type.Button:{
+                            auto btn = &evt.button;
+                            if(btn.pressed){
+                                switch(btn.id){
+                                    default: break;
 
-                                case Button_ID.Mouse_Right:{
-                                    auto player = get_entity_by_id(&s.world, s.player_entity_id);
-                                    if(player){
-                                        auto count = get_child_entity_count(&s.world, player.id, Entity_Type.Mine);
-                                        if(player && count < Max_Mines_Per_Tank){
-                                            spawn_mine(&s.world, player.pos, player.id);
+                                    case Button_ID.Mouse_Right:{
+                                        auto player = get_entity_by_id(&s.world, s.player_entity_id);
+                                        if(player){
+                                            auto count = get_child_entity_count(&s.world, player.id, Entity_Type.Mine);
+                                            if(player && count < Max_Mines_Per_Tank){
+                                                spawn_mine(&s.world, player.pos, player.id);
+                                            }
                                         }
-                                    }
-                                } break;
+                                    } break;
 
-                                case Button_ID.Mouse_Left:{
-                                    auto player = get_entity_by_id(&s.world, s.player_entity_id);
-                                    if(player){
-                                        auto count = get_child_entity_count(&s.world, player.id, Entity_Type.Bullet);
-                                        if(player && count < Max_Bullets_Per_Tank){
-                                            auto angle  = player.turret_angle;
-                                            auto dir    = rotate(Vec2(1, 0), angle);
-                                            auto p      = player.pos + dir*1.0f;
-                                            auto bullet = spawn_bullet(&s.world, player.id, p, angle);
-                                            bullet.vel  = dir*4.0f;
+                                    case Button_ID.Mouse_Left:{
+                                        auto player = get_entity_by_id(&s.world, s.player_entity_id);
+                                        if(player){
+                                            auto count = get_child_entity_count(&s.world, player.id, Entity_Type.Bullet);
+                                            if(player && count < Max_Bullets_Per_Tank){
+                                                auto angle  = player.turret_angle;
+                                                auto dir    = rotate(Vec2(1, 0), angle);
+                                                auto p      = player.pos + dir*1.0f;
+                                                auto bullet = spawn_bullet(&s.world, player.id, p, angle);
+                                                bullet.vel  = dir*4.0f;
+                                            }
                                         }
-                                    }
-                                } break;
+                                    } break;
+                                }
                             }
-                        }
-                    } break;
+                        } break;
 
-                    case Event_Type.Mouse_Motion:{
-                        auto motion = &evt.mouse_motion;
-                        s.mouse_pixel = Vec2(motion.pixel_x, motion.pixel_y);
-                    } break;
+                        case Event_Type.Mouse_Motion:{
+                            auto motion = &evt.mouse_motion;
+                            s.mouse_pixel = Vec2(motion.pixel_x, motion.pixel_y);
+                        } break;
 
-                    case Event_Type.Key:{
-                        auto key = &evt.key;
-                        if(is_host){
-                            switch(key.id){
-                                default: break;
+                        case Event_Type.Key:{
+                            auto key = &evt.key;
+                            if(is_host){
+                                switch(key.id){
+                                    default: break;
 
-                                case Key_ID_A:
-                                    player_turn_left = key.pressed; break;
+                                    case Key_ID_A:
+                                        player_turn_left = key.pressed; break;
 
-                                case Key_ID_D:
-                                    player_turn_right = key.pressed; break;
+                                    case Key_ID_D:
+                                        player_turn_right = key.pressed; break;
 
-                                case Key_ID_W:
-                                    player_move_forward = key.pressed; break;
+                                    case Key_ID_W:
+                                        player_move_forward = key.pressed; break;
 
-                                case Key_ID_S:
-                                    player_move_backward = key.pressed; break;
+                                    case Key_ID_S:
+                                        player_move_backward = key.pressed; break;
 
-                                case Key_ID_F2:
-                                    if(!key.is_repeat && key.pressed)
-                                        editor_toggle(s);
-                                    break;
+                                    case Key_ID_F2:
+                                        if(!key.is_repeat && key.pressed)
+                                            editor_toggle(s);
+                                        break;
+                                }
                             }
-                        }
-                        else{
-                            if(key.id == Key_ID_Enter)
-                                send_broadcast = key.pressed && !key.is_repeat;
-                        }
-                    } break;
+                            else{
+                                if(key.id == Key_ID_Enter)
+                                    send_broadcast = key.pressed && !key.is_repeat;
+                            }
+                        } break;
+                    }
                 }
             }
 

@@ -23,6 +23,17 @@ struct Gui_State{
     Shader* rect_shader;
     Shader* text_shader;
     Font*   font;
+
+    Vec2 cursor_pos;
+
+    Gui_Action action;
+    Gui_ID active_id;
+    Vec2 grab_offset;
+}
+
+enum Gui_Action : uint{
+    None,
+    Dragging_Window,
 }
 
 struct Window{
@@ -64,6 +75,22 @@ bool window_has_focus(Gui_State* gui, Window* window){
     return result;
 }
 
+Window* get_window_under_cursor(Gui_State* gui){
+    Window* result;
+
+    auto window = gui.windows.top;
+    while(window != cast(Window*)&gui.windows){
+        if(is_point_inside_rect(gui.cursor_pos, window.bounds)){
+            result = window;
+            break;
+        }
+
+        window = window.prev;
+    }
+
+    return result;
+}
+
 Rect get_work_area(Window* window){
     auto gui  = window.gui;
     auto r    = window.bounds;
@@ -98,6 +125,73 @@ void render_gui(Gui_State* gui, Render_Pass* pass){
 
         auto title_baseline = Vec2(left(window.bounds), top(window.bounds)) - Vec2(0, 4 + gui.font.metrics.height);
         set_shader(pass, gui.text_shader);
-        render_text(pass, gui.font, title_baseline, window.name);
+        render_text(pass, gui.font, title_baseline, window.name); // TODO: Center on X
     }
 }
+
+Window* get_window_by_id(Gui_State* gui, Gui_ID window_id){
+    Window* result;
+    foreach(window; gui.windows.iterate()){
+        if(window.id == window_id){
+            result = window;
+        }
+    }
+    return result;
+}
+
+import display;
+
+bool handle_event(Gui_State* gui, Event* evt){
+    auto display_window = get_window_info();
+
+    bool consumed = false;
+
+    switch(evt.type){
+        default: break;
+
+        case Event_Type.Mouse_Motion:{
+            auto motion = &evt.mouse_motion;
+            gui.cursor_pos = Vec2(motion.pixel_x, display_window.height - motion.pixel_y);
+            if(gui.action == Gui_Action.Dragging_Window){
+                auto window = get_window_by_id(gui, gui.active_id);
+                if(window){
+                    window.bounds.center = gui.cursor_pos + gui.grab_offset;
+                }
+                else{
+                    gui.action = Gui_Action.None;
+                }
+            }
+        } break;
+
+        case Event_Type.Button:{
+            auto btn = &evt.button;
+            switch(btn.id){
+                default: break;
+
+                case Button_ID.Mouse_Left:{
+                    if(btn.pressed){
+                        auto window = get_window_under_cursor(gui);
+                        if(window){
+                            // TODO: Raise window
+                            gui.action      = Gui_Action.Dragging_Window;
+                            gui.active_id   = window.id;
+                            gui.grab_offset = window.bounds.center - gui.cursor_pos;
+
+                            consumed = true;
+                        }
+                    }
+                    else{
+                        gui.action = Gui_Action.None;
+                    }
+                } break;
+
+                case Button_ID.Mouse_Right:{
+                } break;
+            }
+        } break;
+    }
+
+    return consumed;
+}
+
+
