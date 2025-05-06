@@ -15,6 +15,7 @@ import math;
 import memory;
 import assets : Font;
 
+enum  Null_Gui_ID = 0;
 alias Gui_ID = uint;
 
 enum Window_Border_Size = 4;
@@ -48,6 +49,17 @@ struct Window{
     void[]     buffer;
     size_t     buffer_used;
     Rect       bounds;
+    bool       dirty; // Do we need to run layout algorithms?
+}
+
+pragma(inline) Gui_ID gui_id(uint window_id, uint widget_id = __LINE__){
+    assert(widget_id <= 0xffff);
+    assert(window_id <= 0xffff);
+    Gui_ID result = 0;
+    result |= (cast(uint)(window_id & 0xffff) << 16);
+    result |= (cast(uint)(widget_id & 0xffff) << 0);
+    assert(result != Null_Gui_ID);
+    return result;
 }
 
 void init_gui(Gui_State* gs){
@@ -61,7 +73,8 @@ Window* add_window(Gui_State* gui, String window_name, Gui_ID id, Rect bounds, v
     result.id     = id;
     result.bounds = bounds;
     result.gui    = gui;
-    result.buffer = buffer;
+    result.buffer = buffer[Window.sizeof .. $];
+    result.dirty  = true;
 
     gui.windows.insert(gui.windows.top, result);
     return result;
@@ -117,6 +130,9 @@ Rect get_work_area(Window* window){
     return result;
 }
 
+// TODO: Rather than have the GUI state store the shaders, we should send it two render passes:
+// Each would be pre-set with the correct shader information. One would be for the rects and the
+// other for the text. If we took this approach, we could simplify the render code in general.
 void render_gui(Gui_State* gui, Render_Pass* pass){
     foreach(window; gui.windows.iterate()){
         set_shader(pass, gui.rect_shader);
@@ -134,6 +150,31 @@ void render_gui(Gui_State* gui, Render_Pass* pass){
         auto work_area = get_work_area(window);
         render_rect(pass, work_area, internal_color);
 
+        // TODO: We should have a window command buffer iterator.
+        auto buffer = Serializer(window.buffer[0 .. window.buffer_used]);
+        while(auto cmd = eat_type!Window_Cmd(&buffer)){
+            switch(cmd.type){
+                default:
+                    eat_bytes(&buffer, cmd.size); break;
+
+                case Window_Cmd_Type.Widget:{
+                    auto widget_data = eat_bytes(&buffer, cmd.size);
+                    auto widget = cast(Widget*)widget_data;
+
+                    auto bounds = Rect(widget.rel_bounds.center + min(work_area), widget.rel_bounds.extents);
+                    switch(widget.type){
+                        default: assert(0);
+
+                        case Widget_Type.Button:{
+                            auto btn = cast(Button*)widget_data;
+
+                            render_rect(pass, bounds, Vec4(1, 0, 0, 1));
+                        } break;
+                    }
+                } break;
+            }
+        }
+
         auto title_baseline = Vec2(left(window.bounds), top(window.bounds)) - Vec2(0, 4 + gui.font.metrics.height);
         set_shader(pass, gui.text_shader);
         render_text(pass, gui.font, title_baseline, window.name); // TODO: Center on X
@@ -148,6 +189,78 @@ Window* get_window_by_id(Gui_State* gui, Gui_ID window_id){
         }
     }
     return result;
+}
+
+enum Window_Cmd_Type : uint{
+    None,
+    Widget,
+    Layout,
+    Next_Row,
+}
+
+struct Window_Cmd{
+    Window_Cmd_Type type;
+    uint            size;
+}
+
+enum Widget_Type : uint{
+    None,
+    Button,
+    Label,
+    Custom,
+}
+
+struct Widget{
+    Gui_ID      id;
+    Widget_Type type;
+    Rect        rel_bounds; // NOTE: X, Y positions set by the layout routine, width and height requested by the widget
+}
+
+struct Button{
+    enum Type = Widget_Type.Button;
+
+    Widget widget;
+    String label;
+    bool   disabled;
+
+    alias widget this;
+}
+
+Serializer begin_window_cmd(Window* window, Window_Cmd_Type type){
+    auto dest = Serializer(window.buffer[window.buffer_used .. $]);
+    auto entry = eat_type!Window_Cmd(&dest);
+    entry.type = type;
+    entry.size = 0;
+
+    return dest;
+}
+
+void end_window_cmd(Window* window, Serializer* buffer){
+    auto header = cast(Window_Cmd*)buffer.buffer;
+    assert(buffer.buffer_used > Window_Cmd.sizeof);
+    header.size = cast(uint)(buffer.buffer_used - Window_Cmd.sizeof);
+    window.buffer_used += buffer.buffer_used;
+}
+
+T* push_widget(T)(Serializer* dest, Gui_ID id, float w, float h){
+    auto widget = eat_type!T(dest);
+    clear_to_zero(*widget);
+    widget.id         = id;
+    widget.type       = T.Type;
+    widget.rel_bounds = Rect(Vec2(0, 0), Vec2(w, h)*0.5f);
+    return widget;
+}
+
+void button(Window* window, Gui_ID id, String label, bool disabled = false){
+    auto buffer = begin_window_cmd(window, Window_Cmd_Type.Widget);
+
+    float w = 200;
+    float h = 24;
+    auto btn = push_widget!Button(&buffer, id, w, h);
+    btn.label    = label;
+    btn.disabled = disabled;
+
+    end_window_cmd(window, &buffer);
 }
 
 import display;
@@ -210,4 +323,43 @@ bool handle_event(Gui_State* gui, Event* evt){
     return consumed;
 }
 
+void do_layout(Window* window){
+    auto gui = window.gui;
 
+    import logging;
+
+    log("Begin layout.\n");
+    auto work_area = get_work_area(window);
+    auto padding = Vec2(Window_Border_Size, -Window_Border_Size); // TODO: Should this be called "margin?"
+    auto pen = Vec2(left(work_area), top(work_area)) + padding;
+
+    auto buffer = Serializer(window.buffer[0 .. window.buffer_used]);
+    while(auto cmd = eat_type!Window_Cmd(&buffer)){
+        switch(cmd.type){
+            default:
+                eat_bytes(&buffer, cmd.size); break;
+
+            case Window_Cmd_Type.Widget:{
+                auto widget_data = eat_bytes(&buffer, cmd.size);
+                auto widget = cast(Widget*)widget_data;
+
+                auto w = width(widget.rel_bounds);
+                auto h = height(widget.rel_bounds);
+
+                widget.rel_bounds.center = pen + Vec2(w, -h)*0.5f;
+                pen.x += padding.x;
+            } break;
+        }
+    }
+
+    log("End layout.\n");
+}
+
+void update_gui(Gui_State* gui, float dt){
+    foreach(window; gui.windows.iterate()){
+        if(window.dirty){
+            do_layout(window);
+            window.dirty = false;
+        }
+    }
+}

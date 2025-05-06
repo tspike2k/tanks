@@ -26,6 +26,7 @@ import meta;
 import gui;
 
 enum Window_ID_Editor_Test = 1;
+enum Button_ID_Editor_Test = gui_id(Window_ID_Editor_Test);
 
 bool editor_is_open;
 
@@ -264,6 +265,7 @@ void editor_simulate(App_State* s, float dt){
             }
         }
     }
+    update_gui(&s.gui, dt);
 
     switch(g_edit_mode){
         default: break;
@@ -448,7 +450,8 @@ void editor_toggle(App_State* s){
         g_mouse_right_is_down = false;
 
         auto memory = (malloc(4086)[0 .. 4086]);
-        add_window(gui, "Test Window", Window_ID_Editor_Test, rect_from_min_wh(Vec2(20, 20), 200, 80), memory);
+        auto window = add_window(gui, "Test Window", Window_ID_Editor_Test, rect_from_min_wh(Vec2(20, 20), 200, 80), memory);
+        button(window, Button_ID_Editor_Test, "Test Button");
     }
     else{
         // Close all the windows.

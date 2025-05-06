@@ -1358,6 +1358,7 @@ extern(C) int main(int args_count, char** args){
                     }
                 }
             }
+            update_gui(&s.gui, dt);
 
             s.t += dt;
 
