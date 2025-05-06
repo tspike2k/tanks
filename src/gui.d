@@ -17,6 +17,8 @@ import assets : Font;
 
 alias Gui_ID = uint;
 
+enum Window_Border_Size = 4;
+
 struct Gui_State{
     List!Window windows;
 
@@ -75,6 +77,16 @@ bool window_has_focus(Gui_State* gui, Window* window){
     return result;
 }
 
+Rect get_titlebar_bounds(Window* window){
+    auto font   = window.gui.font;
+    float title_bar_height = font.metrics.height + Window_Border_Size*2;
+
+    auto r      = window.bounds;
+    auto min_p  = Vec2(left(r), top(r)) - Vec2(0, title_bar_height);
+    auto result = rect_from_min_wh(min_p, width(r), title_bar_height);
+    return result;
+}
+
 Window* get_window_under_cursor(Gui_State* gui){
     Window* result;
 
@@ -96,11 +108,10 @@ Rect get_work_area(Window* window){
     auto r    = window.bounds;
     auto font = gui.font;
 
-    auto border = Vec2(4, 4);
-    auto title_bar_height = font.metrics.height + border.y*2;
-
+    auto title_bar_bounds = get_titlebar_bounds(window);
+    auto border = Vec2(Window_Border_Size, Window_Border_Size);
     auto min_p = Vec2(left(r), bottom(r)) + border;
-    auto max_p = min_p + Vec2(width(r), height(r)) - Vec2(0, title_bar_height) - border*2.0f;
+    auto max_p = min_p + Vec2(width(r), height(r)) - Vec2(0, height(title_bar_bounds)) - border*2.0f;
     auto result = rect_from_min_max(min_p, max_p);
 
     return result;
@@ -151,6 +162,8 @@ bool handle_event(Gui_State* gui, Event* evt){
 
         case Event_Type.Mouse_Motion:{
             auto motion = &evt.mouse_motion;
+            // TODO: Invert motion.pixel_y in display.d. This way we don't have to flip the coord
+            // all the time.
             gui.cursor_pos = Vec2(motion.pixel_x, display_window.height - motion.pixel_y);
             if(gui.action == Gui_Action.Dragging_Window){
                 auto window = get_window_by_id(gui, gui.active_id);
@@ -172,12 +185,15 @@ bool handle_event(Gui_State* gui, Event* evt){
                     if(btn.pressed){
                         auto window = get_window_under_cursor(gui);
                         if(window){
-                            // TODO: Raise window
-                            gui.action      = Gui_Action.Dragging_Window;
-                            gui.active_id   = window.id;
-                            gui.grab_offset = window.bounds.center - gui.cursor_pos;
+                            auto titlebar_bounds = get_titlebar_bounds(window);
+                            if(is_point_inside_rect(gui.cursor_pos, titlebar_bounds)){
+                                // TODO: Raise window
+                                gui.action      = Gui_Action.Dragging_Window;
+                                gui.active_id   = window.id;
+                                gui.grab_offset = window.bounds.center - gui.cursor_pos;
 
-                            consumed = true;
+                                consumed = true;
+                            }
                         }
                     }
                     else{
