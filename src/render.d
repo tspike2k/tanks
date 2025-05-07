@@ -293,12 +293,13 @@ void render_mesh(Render_Pass* pass, Mesh* mesh, Material* material, Mat4 transfo
     cmd.transform = transform;
 }
 
-void render_text(Render_Pass* pass, Font* font, Vec2 pos, String text, Text_Align alignment = Text_Align.Left){
-    auto cmd   = push_command!Render_Text(pass);
+void render_text(Render_Pass* pass, Font* font, Vec2 pos, String text, Vec4 color = Vec4(1, 1, 1, 1), Text_Align alignment = Text_Align.Left){
+    auto cmd      = push_command!Render_Text(pass);
     cmd.text      = text;
     cmd.font      = font;
     cmd.pos       = pos;
     cmd.alignment = alignment;
+    cmd.color     = color;
 }
 
 void render_rect(Render_Pass* pass, Rect bounds, Vec4 color){
@@ -323,6 +324,29 @@ void render_rect_outline(Render_Pass* pass, Rect r, Vec4 color, float thickness)
 void set_light(Render_Pass* pass, Shader_Light* light){
     auto cmd   = push_command!Set_Light(pass);
     cmd.light = light;
+}
+
+float get_text_width(Font* font, String text){
+    float result = 0;
+    uint prev_codepoint = 0;
+    // TODO: Take newlines into account.
+    foreach(c; text){
+        // TODO: Due to kerning, we probably need "space" to be a valid glyph, just not one we render.
+        if(c == ' '){
+            result += font.metrics.space_width;
+        }
+        else{
+            // When to apply kerning based on sample code from here:
+            // https://freetype.org/freetype2/docs/tutorial/step2.html#:~:text=c.%20Kerning
+            auto glyph   = get_glyph(font, c);
+            auto kerning = get_codepoint_kerning_advance(font, prev_codepoint, glyph.codepoint);
+            result += kerning;
+
+            result += cast(float)glyph.advance;
+            prev_codepoint = c;
+        }
+    }
+    return result;
 }
 
 private:
@@ -365,6 +389,7 @@ struct Render_Text{
     Font*      font;
     String     text;
     Vec2       pos;
+    Vec4       color;
     Text_Align alignment;
 }
 
@@ -461,29 +486,6 @@ version(opengl){
         glBufferData(GL_ARRAY_BUFFER, cast(GLsizeiptr)(v.length * Vertex.sizeof), v.ptr, GL_DYNAMIC_DRAW);
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_quad_index_buffer);
         glDrawElements(GL_TRIANGLES, cast(GLsizei)(v.length * Vertex_Indeces_Per_Quad), GL_UNSIGNED_INT, cast(GLvoid*)0);
-    }
-
-    float get_text_width(Font* font, String text){
-        float result = 0;
-        uint prev_codepoint = 0;
-        // TODO: Take newlines into account.
-        foreach(c; text){
-            // TODO: Due to kerning, we probably need "space" to be a valid glyph, just not one we render.
-            if(c == ' '){
-                result += font.metrics.space_width;
-            }
-            else{
-                // When to apply kerning based on sample code from here:
-                // https://freetype.org/freetype2/docs/tutorial/step2.html#:~:text=c.%20Kerning
-                auto glyph   = get_glyph(font, c);
-                auto kerning = get_codepoint_kerning_advance(font, prev_codepoint, glyph.codepoint);
-                result += kerning;
-
-                result += cast(float)glyph.advance;
-                prev_codepoint = c;
-            }
-        }
-        return result;
     }
 
     public:
@@ -723,10 +725,10 @@ version(opengl){
                         auto cmd = eat_type!Render_Text(&reader);
                         switch(cmd.alignment){
                             default:
-                                render_text(cmd.font, cmd.text, cmd.pos); break;
+                                render_text(cmd.font, cmd.text, cmd.pos, cmd.color); break;
 
                             case Text_Align.Center_X:
-                                render_text_centered_x(cmd.font, cmd.text, cmd.pos); break;
+                                render_text_centered_x(cmd.font, cmd.text, cmd.pos, cmd.color); break;
                         }
 
                     } break;
@@ -898,12 +900,12 @@ version(opengl){
         }
     }
 
-    void render_text_centered_x(Font* font, String text, Vec2 baseline){
+    void render_text_centered_x(Font* font, String text, Vec2 baseline, Vec4 color){
         auto width = get_text_width(font, text);
-        render_text(font, text, baseline - Vec2(width, 0)*0.5f);
+        render_text(font, text, baseline - Vec2(width, 0)*0.5f, color);
     }
 
-    void render_text(Font* font, String text, Vec2 baseline){
+    void render_text(Font* font, String text, Vec2 baseline, Vec4 color){
         if(font.glyphs.length == 0) return;
 
         push_frame(g_allocator.scratch);
@@ -934,7 +936,7 @@ version(opengl){
                 auto min_p = pen + glyph.offset;
                 auto bounds = rect_from_min_max(min_p, min_p + Vec2(glyph.width, glyph.height));
                 auto uvs = rect_from_min_max(glyph.uv_min, glyph.uv_max);
-                set_quad(v, bounds, uvs, Vec4(1, 1, 1, 1));
+                set_quad(v, bounds, uvs, color);
 
                 pen.x += cast(float)glyph.advance;
                 prev_codepoint = c;

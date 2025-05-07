@@ -163,7 +163,6 @@ void render_gui(Gui_State* gui, Render_Pass* rp_rects, Render_Pass* rp_text){
         auto work_area    = get_work_area(window);
         render_rect(rp_rects, work_area, internal_color);
         render_rect_outline(rp_rects, work_area, seperator_color, 1.0f);
-
         // TODO: Begin scissor for the work area
 
         // TODO: We should have a window command buffer iterator.
@@ -186,7 +185,7 @@ void render_gui(Gui_State* gui, Render_Pass* rp_rects, Render_Pass* rp_text){
                             auto btn = cast(Button*)widget_data;
                             render_rect(rp_rects, bounds, Vec4(0.75f, 0.75f, 0.75f, 1));
                             render_button_bounds(rp_rects, bounds, Vec4(1, 1, 1, 1), Vec4(0, 0, 0, 1));
-                            render_text(rp_text, font, bounds.center, btn.label, Text_Align.Center_X);
+                            render_text(rp_text, font, bounds.center, btn.label, Vec4(0, 0, 0, 1), Text_Align.Center_X);
                         } break;
                     }
                 } break;
@@ -195,7 +194,7 @@ void render_gui(Gui_State* gui, Render_Pass* rp_rects, Render_Pass* rp_text){
 
         // TODO: End scissor for the work area
         auto title_baseline = Vec2(title_bounds.center.x, top(title_bounds)) - Vec2(0, 4 + gui.font.metrics.height);
-        render_text(rp_text, gui.font, title_baseline, window.name, Text_Align.Center_X); // TODO: Center on X
+        render_text(rp_text, gui.font, title_baseline, window.name, Vec4(1, 1, 1, 1), Text_Align.Center_X); // TODO: Center on X
     }
 }
 
