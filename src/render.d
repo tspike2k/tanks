@@ -293,12 +293,17 @@ void render_mesh(Render_Pass* pass, Mesh* mesh, Material* material, Mat4 transfo
     cmd.transform = transform;
 }
 
-void render_text(Render_Pass* pass, Font* font, Vec2 pos, String text, Vec4 color = Vec4(1, 1, 1, 1), Text_Align alignment = Text_Align.Left){
+Vec2 center_text(Font* font, String text, Rect bounds){
+    auto text_width = get_text_width(font, text);
+    auto result = floor(bounds.center - 0.5f*Vec2(text_width, font.metrics.cap_height));
+    return result;
+}
+
+void render_text(Render_Pass* pass, Font* font, Vec2 pos, String text, Vec4 color = Vec4(1, 1, 1, 1)){
     auto cmd      = push_command!Render_Text(pass);
     cmd.text      = text;
     cmd.font      = font;
     cmd.pos       = pos;
-    cmd.alignment = alignment;
     cmd.color     = color;
 }
 
@@ -390,7 +395,6 @@ struct Render_Text{
     String     text;
     Vec2       pos;
     Vec4       color;
-    Text_Align alignment;
 }
 
 struct Set_Light{
@@ -723,14 +727,7 @@ version(opengl){
 
                     case Command.Render_Text:{
                         auto cmd = eat_type!Render_Text(&reader);
-                        switch(cmd.alignment){
-                            default:
-                                render_text(cmd.font, cmd.text, cmd.pos, cmd.color); break;
-
-                            case Text_Align.Center_X:
-                                render_text_centered_x(cmd.font, cmd.text, cmd.pos, cmd.color); break;
-                        }
-
+                        render_text(cmd.font, cmd.text, cmd.pos, cmd.color);
                     } break;
 
                     case Command.Set_Light:{

@@ -18,6 +18,7 @@ import assets : Font;
 enum  Null_Gui_ID = 0;
 alias Gui_ID = uint;
 
+enum Button_Padding     = 4;
 enum Window_Border_Size = 4;
 
 struct Gui_State{
@@ -185,7 +186,8 @@ void render_gui(Gui_State* gui, Render_Pass* rp_rects, Render_Pass* rp_text){
                             auto btn = cast(Button*)widget_data;
                             render_rect(rp_rects, bounds, Vec4(0.75f, 0.75f, 0.75f, 1));
                             render_button_bounds(rp_rects, bounds, Vec4(1, 1, 1, 1), Vec4(0, 0, 0, 1));
-                            render_text(rp_text, font, bounds.center, btn.label, Vec4(0, 0, 0, 1), Text_Align.Center_X);
+                            auto baseline = center_text(font, btn.label, bounds);
+                            render_text(rp_text, font, baseline, btn.label, Vec4(0, 0, 0, 1));
                         } break;
                     }
                 } break;
@@ -193,8 +195,8 @@ void render_gui(Gui_State* gui, Render_Pass* rp_rects, Render_Pass* rp_text){
         }
 
         // TODO: End scissor for the work area
-        auto title_baseline = Vec2(title_bounds.center.x, top(title_bounds)) - Vec2(0, 4 + gui.font.metrics.height);
-        render_text(rp_text, gui.font, title_baseline, window.name, Vec4(1, 1, 1, 1), Text_Align.Center_X); // TODO: Center on X
+        auto title_baseline = center_text(font, window.name, title_bounds);
+        render_text(rp_text, gui.font, title_baseline, window.name, Vec4(1, 1, 1, 1)); // TODO: Center on X
     }
 }
 
@@ -270,9 +272,10 @@ T* push_widget(T)(Serializer* dest, Gui_ID id, float w, float h){
 
 void button(Window* window, Gui_ID id, String label, bool disabled = false){
     auto buffer = begin_window_cmd(window, Window_Cmd_Type.Widget);
+    auto font = window.gui.font;
 
-    float w = 200;
-    float h = 24;
+    float w = get_text_width(font, label) + Button_Padding*2.0f;
+    float h = font.metrics.height + Button_Padding*2.0f;
     auto btn = push_widget!Button(&buffer, id, w, h);
     btn.label    = label;
     btn.disabled = disabled;
