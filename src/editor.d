@@ -359,7 +359,7 @@ void editor_simulate(App_State* s, float dt){
     }
 }
 
-void editor_render(App_State* s, Render_Pass* rp_world, Render_Pass* rp_hud){
+void editor_render(App_State* s, Render_Pass* rp_world, Render_Pass* rp_text){
     auto window = get_window_info();
 
     auto font_small = &s.font_editor_small;
@@ -367,7 +367,7 @@ void editor_render(App_State* s, Render_Pass* rp_world, Render_Pass* rp_hud){
     auto padding = 16;
     auto pen = Vec2(padding, window.height - padding - font_small.metrics.height);
     render_text(
-        rp_hud, font_small, pen,
+        rp_text, font_small, pen,
         gen_string("Mode: {0}", enum_string(g_edit_mode), &s.frame_memory)
     );
 
@@ -389,7 +389,7 @@ void editor_render(App_State* s, Render_Pass* rp_world, Render_Pass* rp_hud){
                 pen.x = padding;
 
                 render_text(
-                    rp_hud, font_small, pen,
+                    rp_text, font_small, pen,
                     gen_string("Selected : {0}", enum_string(e.type), &s.frame_memory)
                 );
                 pen.y -= font_small.metrics.line_gap;
@@ -404,7 +404,7 @@ void editor_render(App_State* s, Render_Pass* rp_world, Render_Pass* rp_hud){
                         }
 
                         render_text(
-                            rp_hud, font_small, pen,
+                            rp_text, font_small, pen,
                             gen_string("Height: {0} {1}", e.block_height, extra, &s.frame_memory)
                         );
                     } break;
@@ -416,7 +416,7 @@ void editor_render(App_State* s, Render_Pass* rp_world, Render_Pass* rp_hud){
                         }
 
                         render_text(
-                            rp_hud, font_small, pen,
+                            rp_text, font_small, pen,
                             gen_string("Player Index: {0} {1}", e.player_index, extra, &s.frame_memory)
                         );
                     } break;

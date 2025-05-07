@@ -23,8 +23,6 @@ enum Window_Border_Size = 4;
 struct Gui_State{
     List!Window windows;
 
-    Shader* rect_shader;
-    Shader* text_shader;
     Font*   font;
 
     Vec2 cursor_pos;
@@ -147,31 +145,29 @@ void render_button_bounds(Render_Pass* pass, Rect r, Vec4 top_color, Vec4 bottom
 // TODO: Rather than have the GUI state store the shaders, we should send it two render passes:
 // Each would be pre-set with the correct shader information. One would be for the rects and the
 // other for the text. If we took this approach, we could simplify the render code in general.
-void render_gui(Gui_State* gui, Render_Pass* pass){
+void render_gui(Gui_State* gui, Render_Pass* rp_rects, Render_Pass* rp_text){
     foreach(window; gui.windows.iterate()){
-        set_shader(pass, gui.rect_shader);
-
         // TODO: Clamp text to pixel boundaries?
-
         Vec4 seperator_color = Vec4(0.22f, 0.23f, 0.24f, 1.0f);
         Vec4 internal_color = Vec4(0.86f, 0.90f, 0.97f, 1.0f);
         if(window_has_focus(gui, window)){
-            render_rect(pass, window.bounds, Vec4(0.2f, 0.42f, 0.66f, 1.0f));
-            render_rect_outline(pass, window.bounds, Vec4(1, 1, 1, 1), 1.0f);
+            render_rect(rp_rects, window.bounds, Vec4(0.2f, 0.42f, 0.66f, 1.0f));
+            render_rect_outline(rp_rects, window.bounds, Vec4(1, 1, 1, 1), 1.0f);
         }
         else{
-            render_rect(pass, window.bounds, Vec4(0.4f, 0.4f, 0.45f, 1.0f));
-            render_rect_outline(pass, window.bounds, seperator_color, 1.0f);
+            render_rect(rp_rects, window.bounds, Vec4(0.4f, 0.4f, 0.45f, 1.0f));
+            render_rect_outline(rp_rects, window.bounds, seperator_color, 1.0f);
         }
 
         auto title_bounds = get_titlebar_bounds(window);
         auto work_area    = get_work_area(window);
-        render_rect(pass, work_area, internal_color);
-        render_rect_outline(pass, work_area, seperator_color, 1.0f);
+        render_rect(rp_rects, work_area, internal_color);
+        render_rect_outline(rp_rects, work_area, seperator_color, 1.0f);
 
         // TODO: Begin scissor for the work area
 
         // TODO: We should have a window command buffer iterator.
+        auto font = gui.font;
         auto buffer = Serializer(window.buffer[0 .. window.buffer_used]);
         while(auto cmd = eat_type!Window_Cmd(&buffer)){
             switch(cmd.type){
@@ -188,8 +184,9 @@ void render_gui(Gui_State* gui, Render_Pass* pass){
 
                         case Widget_Type.Button:{
                             auto btn = cast(Button*)widget_data;
-
-                            render_rect(pass, bounds, Vec4(1, 0, 0, 1));
+                            render_rect(rp_rects, bounds, Vec4(0.75f, 0.75f, 0.75f, 1));
+                            render_button_bounds(rp_rects, bounds, Vec4(1, 1, 1, 1), Vec4(0, 0, 0, 1));
+                            render_text(rp_text, font, bounds.center, btn.label, Text_Align.Center_X);
                         } break;
                     }
                 } break;
@@ -197,11 +194,8 @@ void render_gui(Gui_State* gui, Render_Pass* pass){
         }
 
         // TODO: End scissor for the work area
-
         auto title_baseline = Vec2(title_bounds.center.x, top(title_bounds)) - Vec2(0, 4 + gui.font.metrics.height);
-        set_shader(pass, gui.text_shader);
-
-        render_text(pass, gui.font, title_baseline, window.name, Text_Align.Center_X); // TODO: Center on X
+        render_text(rp_text, gui.font, title_baseline, window.name, Text_Align.Center_X); // TODO: Center on X
     }
 }
 

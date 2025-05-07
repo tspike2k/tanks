@@ -1196,8 +1196,6 @@ extern(C) int main(int args_count, char** args){
     auto grid_center  = Vec3(grid_extents.x, 0, -grid_extents.y);
 
     init_gui(&s.gui);
-    s.gui.text_shader = &text_shader;
-    s.gui.rect_shader = &rect_shader;
     s.gui.font = &s.font_editor_small;
 
     while(s.running){
@@ -1557,15 +1555,19 @@ extern(C) int main(int args_count, char** args){
         }
 
         auto hud_camera = make_hud_camera(window.width, window.height);
-        auto rp_hud = render_pass(&hud_camera.mat, Vec3(0, 0, 0));
-        set_shader(rp_hud, &text_shader);
-        rp_hud.flags = Render_Flag_Disable_Depth_Test;
-        //render_text(rp_hud, &s.font_main, "Hello, dude!", Vec2(0,0));
+
+        auto rp_hud_rects = render_pass(&hud_camera.mat, camera_pos);
+        set_shader(rp_hud_rects, &rect_shader);
+        rp_hud_rects.flags = Render_Flag_Disable_Depth_Test;
+
+        auto rp_hud_text  = render_pass(&hud_camera.mat, camera_pos);
+        set_shader(rp_hud_text, &text_shader);
+        rp_hud_text.flags = Render_Flag_Disable_Depth_Test;
 
         if(editor_is_open){
-            editor_render(s, rp_world, rp_hud);
+            editor_render(s, rp_world, rp_hud_text);
         }
-        render_gui(&s.gui, rp_hud);
+        render_gui(&s.gui, rp_hud_rects, rp_hud_text);
 
         render_end_frame();
         end_frame();
