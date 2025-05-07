@@ -130,6 +130,20 @@ Rect get_work_area(Window* window){
     return result;
 }
 
+void render_button_bounds(Render_Pass* pass, Rect r, Vec4 top_color, Vec4 bottom_color){
+    auto thickness = 1.0f;
+    auto b = thickness * 0.5f;
+    auto top    = Rect(r.center + Vec2(0, r.extents.y - b), Vec2(r.extents.x, b));
+    auto bottom = Rect(r.center - Vec2(0, r.extents.y - b), Vec2(r.extents.x, b));
+    auto left   = Rect(r.center - Vec2(r.extents.x - b, 0), Vec2(b, r.extents.y));
+    auto right  = Rect(r.center + Vec2(r.extents.x - b, 0), Vec2(b, r.extents.y));
+
+    render_rect(pass, top, top_color);
+    render_rect(pass, left, top_color);
+    render_rect(pass, bottom, bottom_color);
+    render_rect(pass, right, bottom_color);
+}
+
 // TODO: Rather than have the GUI state store the shaders, we should send it two render passes:
 // Each would be pre-set with the correct shader information. One would be for the rects and the
 // other for the text. If we took this approach, we could simplify the render code in general.
@@ -137,19 +151,23 @@ void render_gui(Gui_State* gui, Render_Pass* pass){
     foreach(window; gui.windows.iterate()){
         set_shader(pass, gui.rect_shader);
 
-        Vec4 seperator_color = Vec4(0.22f, 0.23f, 0.24f, 1.0f);
+        // TODO: Clamp text to pixel boundaries?
 
+        Vec4 seperator_color = Vec4(0.22f, 0.23f, 0.24f, 1.0f);
         Vec4 internal_color = Vec4(0.86f, 0.90f, 0.97f, 1.0f);
-        Vec4 border_color = Vec4(0.4f, 0.4f, 0.45f, 1.0f);
         if(window_has_focus(gui, window)){
-            border_color = Vec4(0.2f, 0.42f, 0.66f, 1.0f);
+            render_rect(pass, window.bounds, Vec4(0.2f, 0.42f, 0.66f, 1.0f));
+            render_rect_outline(pass, window.bounds, Vec4(1, 1, 1, 1), 1.0f);
         }
-        render_rect(pass, window.bounds, border_color);
-        //render_rect_outline(pass, window.bounds, seperator_color);
+        else{
+            render_rect(pass, window.bounds, Vec4(0.4f, 0.4f, 0.45f, 1.0f));
+            render_rect_outline(pass, window.bounds, seperator_color, 1.0f);
+        }
 
         auto title_bounds = get_titlebar_bounds(window);
         auto work_area    = get_work_area(window);
         render_rect(pass, work_area, internal_color);
+        render_rect_outline(pass, work_area, seperator_color, 1.0f);
 
         // TODO: Begin scissor for the work area
 

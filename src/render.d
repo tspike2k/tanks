@@ -307,6 +307,19 @@ void render_rect(Render_Pass* pass, Rect bounds, Vec4 color){
     cmd.color  = color;
 }
 
+void render_rect_outline(Render_Pass* pass, Rect r, Vec4 color, float thickness){
+    auto b = thickness * 0.5f;
+    auto top    = Rect(r.center + Vec2(0, r.extents.y - b), Vec2(r.extents.x, b));
+    auto bottom = Rect(r.center - Vec2(0, r.extents.y - b), Vec2(r.extents.x, b));
+    auto left   = Rect(r.center - Vec2(r.extents.x - b, 0), Vec2(b, r.extents.y));
+    auto right  = Rect(r.center + Vec2(r.extents.x - b, 0), Vec2(b, r.extents.y));
+
+    render_rect(pass, top, color);
+    render_rect(pass, bottom, color);
+    render_rect(pass, left, color);
+    render_rect(pass, right, color);
+}
+
 void set_light(Render_Pass* pass, Shader_Light* light){
     auto cmd   = push_command!Set_Light(pass);
     cmd.light = light;
