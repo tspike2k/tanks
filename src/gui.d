@@ -147,8 +147,11 @@ void render_gui(Gui_State* gui, Render_Pass* pass){
         render_rect(pass, window.bounds, border_color);
         //render_rect_outline(pass, window.bounds, seperator_color);
 
-        auto work_area = get_work_area(window);
+        auto title_bounds = get_titlebar_bounds(window);
+        auto work_area    = get_work_area(window);
         render_rect(pass, work_area, internal_color);
+
+        // TODO: Begin scissor for the work area
 
         // TODO: We should have a window command buffer iterator.
         auto buffer = Serializer(window.buffer[0 .. window.buffer_used]);
@@ -175,9 +178,12 @@ void render_gui(Gui_State* gui, Render_Pass* pass){
             }
         }
 
-        auto title_baseline = Vec2(left(window.bounds), top(window.bounds)) - Vec2(0, 4 + gui.font.metrics.height);
+        // TODO: End scissor for the work area
+
+        auto title_baseline = Vec2(title_bounds.center.x, top(title_bounds)) - Vec2(0, 4 + gui.font.metrics.height);
         set_shader(pass, gui.text_shader);
-        render_text(pass, gui.font, title_baseline, window.name); // TODO: Center on X
+
+        render_text(pass, gui.font, title_baseline, window.name, Text_Align.Center_X); // TODO: Center on X
     }
 }
 
@@ -326,12 +332,9 @@ bool handle_event(Gui_State* gui, Event* evt){
 void do_layout(Window* window){
     auto gui = window.gui;
 
-    import logging;
-
-    log("Begin layout.\n");
     auto work_area = get_work_area(window);
     auto padding = Vec2(Window_Border_Size, -Window_Border_Size); // TODO: Should this be called "margin?"
-    auto pen = Vec2(left(work_area), top(work_area)) + padding;
+    auto pen = Vec2(0, height(work_area)) + padding;
 
     auto buffer = Serializer(window.buffer[0 .. window.buffer_used]);
     while(auto cmd = eat_type!Window_Cmd(&buffer)){
@@ -347,12 +350,10 @@ void do_layout(Window* window){
                 auto h = height(widget.rel_bounds);
 
                 widget.rel_bounds.center = pen + Vec2(w, -h)*0.5f;
-                pen.x += padding.x;
+                pen.x += w + padding.x;
             } break;
         }
     }
-
-    log("End layout.\n");
 }
 
 void update_gui(Gui_State* gui, float dt){

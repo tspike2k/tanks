@@ -110,6 +110,12 @@ struct Shader_Light{
     float pad4;
 }
 
+enum Text_Align : uint{
+    Left,
+    Right,
+    Center_X,
+}
+
 Mat4_Pair orthographic_projection(Rect camera_bounds){
     // Orthographic adapted from here:
     // https://songho.ca/opengl/gl_projectionmatrix.html#ortho
@@ -287,11 +293,12 @@ void render_mesh(Render_Pass* pass, Mesh* mesh, Material* material, Mat4 transfo
     cmd.transform = transform;
 }
 
-void render_text(Render_Pass* pass, Font* font, Vec2 pos, String text){
+void render_text(Render_Pass* pass, Font* font, Vec2 pos, String text, Text_Align alignment = Text_Align.Left){
     auto cmd   = push_command!Render_Text(pass);
-    cmd.text = text;
-    cmd.font = font;
-    cmd.pos  = pos;
+    cmd.text      = text;
+    cmd.font      = font;
+    cmd.pos       = pos;
+    cmd.alignment = alignment;
 }
 
 void render_rect(Render_Pass* pass, Rect bounds, Vec4 color){
@@ -341,10 +348,11 @@ struct Render_Mesh{
 
 struct Render_Text{
     enum Type = Command.Render_Text;
-    Command type;
-    Font*   font;
-    String  text;
-    Vec2    pos;
+    Command    type;
+    Font*      font;
+    String     text;
+    Vec2       pos;
+    Text_Align alignment;
 }
 
 struct Set_Light{
@@ -440,6 +448,29 @@ version(opengl){
         glBufferData(GL_ARRAY_BUFFER, cast(GLsizeiptr)(v.length * Vertex.sizeof), v.ptr, GL_DYNAMIC_DRAW);
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_quad_index_buffer);
         glDrawElements(GL_TRIANGLES, cast(GLsizei)(v.length * Vertex_Indeces_Per_Quad), GL_UNSIGNED_INT, cast(GLvoid*)0);
+    }
+
+    float get_text_width(Font* font, String text){
+        float result = 0;
+        uint prev_codepoint = 0;
+        // TODO: Take newlines into account.
+        foreach(c; text){
+            // TODO: Due to kerning, we probably need "space" to be a valid glyph, just not one we render.
+            if(c == ' '){
+                result += font.metrics.space_width;
+            }
+            else{
+                // When to apply kerning based on sample code from here:
+                // https://freetype.org/freetype2/docs/tutorial/step2.html#:~:text=c.%20Kerning
+                auto glyph   = get_glyph(font, c);
+                auto kerning = get_codepoint_kerning_advance(font, prev_codepoint, glyph.codepoint);
+                result += kerning;
+
+                result += cast(float)glyph.advance;
+                prev_codepoint = c;
+            }
+        }
+        return result;
     }
 
     public:
@@ -677,7 +708,14 @@ version(opengl){
 
                     case Command.Render_Text:{
                         auto cmd = eat_type!Render_Text(&reader);
-                        render_text(cmd.font, cmd.text, cmd.pos);
+                        switch(cmd.alignment){
+                            default:
+                                render_text(cmd.font, cmd.text, cmd.pos); break;
+
+                            case Text_Align.Center_X:
+                                render_text_centered_x(cmd.font, cmd.text, cmd.pos); break;
+                        }
+
                     } break;
 
                     case Command.Set_Light:{
@@ -845,6 +883,11 @@ version(opengl){
             glBindTexture(GL_TEXTURE_2D, cast(GLuint)texture);
             g_current_texture = texture;
         }
+    }
+
+    void render_text_centered_x(Font* font, String text, Vec2 baseline){
+        auto width = get_text_width(font, text);
+        render_text(font, text, baseline - Vec2(width, 0)*0.5f);
     }
 
     void render_text(Font* font, String text, Vec2 baseline){
