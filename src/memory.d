@@ -112,7 +112,8 @@ if(isListNode!T){
         return result;
     }
 
-    auto iterate(){
+    auto iterate(int Dir = 1)()
+    if(Dir == 1 || Dir == -1){
         struct Range{
             T* sentinel;
             T* node;
@@ -127,11 +128,19 @@ if(isListNode!T){
             }
 
             void popFront(){
-                node = node.next;
+                static if(Dir == 1)
+                    node = node.next;
+                else
+                    node = node.prev;
             }
         }
 
-        auto result = Range(cast(T*)&this, bottom);
+        static if(Dir == 1)
+            auto start_node = bottom;
+        else
+            auto start_node = top;
+
+        auto result = Range(cast(T*)&this, start_node);
         return result;
     }
 }

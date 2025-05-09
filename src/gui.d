@@ -28,6 +28,8 @@ struct Gui_State{
 
     Vec2 cursor_pos;
 
+    Gui_ID hover_widget;
+
     Gui_Action action;
     Gui_ID active_id;
     Vec2 grab_offset;
@@ -63,6 +65,7 @@ pragma(inline) Gui_ID gui_id(uint window_id, uint widget_id = __LINE__){
 
 void init_gui(Gui_State* gs){
     gs.windows.make();
+    gs.hover_widget = Null_Gui_ID;
 }
 
 Window* add_window(Gui_State* gui, String window_name, Gui_ID id, Rect bounds, void[] buffer){
@@ -84,8 +87,8 @@ void remove_window(Window* window){
     gui.windows.remove(window);
 }
 
-bool window_has_focus(Gui_State* gui, Window* window){
-    bool result = window == gui.windows.top;
+bool window_has_focus(Window* window){
+    bool result = window == window.gui.windows.top;
     return result;
 }
 
@@ -143,15 +146,16 @@ void render_button_bounds(Render_Pass* pass, Rect r, Vec4 top_color, Vec4 bottom
     render_rect(pass, right, bottom_color);
 }
 
-// TODO: Rather than have the GUI state store the shaders, we should send it two render passes:
-// Each would be pre-set with the correct shader information. One would be for the rects and the
-// other for the text. If we took this approach, we could simplify the render code in general.
+// TODO: Due to the fact that we're using seperate passes for the rects and the text, window
+// bounds do not occlude any text from lower windows. This needs to be fixed. I wonder what the
+// best way to handle this would be. We could use scissor rects. That may be fine. We need to use
+// that anyway.
 void render_gui(Gui_State* gui, Render_Pass* rp_rects, Render_Pass* rp_text){
     foreach(window; gui.windows.iterate()){
         // TODO: Clamp text to pixel boundaries?
         Vec4 seperator_color = Vec4(0.22f, 0.23f, 0.24f, 1.0f);
         Vec4 internal_color = Vec4(0.86f, 0.90f, 0.97f, 1.0f);
-        if(window_has_focus(gui, window)){
+        if(window_has_focus(window)){
             render_rect(rp_rects, window.bounds, Vec4(0.2f, 0.42f, 0.66f, 1.0f));
             render_rect_outline(rp_rects, window.bounds, Vec4(1, 1, 1, 1), 1.0f);
         }
@@ -184,7 +188,12 @@ void render_gui(Gui_State* gui, Render_Pass* rp_rects, Render_Pass* rp_text){
 
                         case Widget_Type.Button:{
                             auto btn = cast(Button*)widget_data;
-                            render_rect(rp_rects, bounds, Vec4(0.75f, 0.75f, 0.75f, 1));
+                            auto bg_color = Vec4(0.75f, 0.75f, 0.75f, 1);
+                            if(gui.hover_widget == widget.id){
+                                bg_color = Vec4(0.85f, 0.85f, 0.85f, 1);
+                            }
+
+                            render_rect(rp_rects, bounds, bg_color);
                             render_button_bounds(rp_rects, bounds, Vec4(1, 1, 1, 1), Vec4(0, 0, 0, 1));
                             auto baseline = center_text(font, btn.label, bounds);
                             render_text(rp_text, font, baseline, btn.label, Vec4(0, 0, 0, 1));
@@ -285,6 +294,12 @@ void button(Window* window, Gui_ID id, String label, bool disabled = false){
 
 import display;
 
+void raise_window(Window* window){
+    auto gui = window.gui;
+    gui.windows.remove(window);
+    gui.windows.insert(gui.windows.top, window);
+}
+
 bool handle_event(Gui_State* gui, Event* evt){
     auto display_window = get_window_info();
 
@@ -318,6 +333,13 @@ bool handle_event(Gui_State* gui, Event* evt){
                     if(btn.pressed){
                         auto window = get_window_under_cursor(gui);
                         if(window){
+                            if(is_point_inside_rect(gui.cursor_pos, window.bounds)){
+                                consumed = true;
+                                if(!window_has_focus(window)){
+                                    raise_window(window);
+                                }
+                            }
+
                             auto titlebar_bounds = get_titlebar_bounds(window);
                             if(is_point_inside_rect(gui.cursor_pos, titlebar_bounds)){
                                 // TODO: Raise window
@@ -325,7 +347,6 @@ bool handle_event(Gui_State* gui, Event* evt){
                                 gui.active_id   = window.id;
                                 gui.grab_offset = window.bounds.center - gui.cursor_pos;
 
-                                consumed = true;
                             }
                         }
                     }
@@ -371,10 +392,40 @@ void do_layout(Window* window){
 }
 
 void update_gui(Gui_State* gui, float dt){
-    foreach(window; gui.windows.iterate()){
+    gui.hover_widget = Null_Gui_ID;
+    Gui_ID next_hover_id = Null_Gui_ID;
+    Gui_ID next_hover_window_id = Null_Gui_ID;
+
+    foreach(window; gui.windows.iterate!(-1)()){
         if(window.dirty){
             do_layout(window);
             window.dirty = false;
         }
+
+        if(next_hover_window_id == Null_Gui_ID
+        && is_point_inside_rect(gui.cursor_pos, window.bounds)){
+            next_hover_window_id = window.id;
+
+            // Search for the current hover widget
+            auto work_area = get_work_area(window);
+            auto buffer    = Serializer(window.buffer[0 .. window.buffer_used]);
+            while(auto cmd = eat_type!Window_Cmd(&buffer)){
+                switch(cmd.type){
+                    default:
+                        eat_bytes(&buffer, cmd.size); break;
+
+                    case Window_Cmd_Type.Widget:{
+                        auto widget_data = eat_bytes(&buffer, cmd.size);
+                        auto widget = cast(Widget*)widget_data;
+                        auto bounds = Rect(widget.rel_bounds.center + min(work_area), widget.rel_bounds.extents);
+                        if(is_point_inside_rect(gui.cursor_pos, bounds)){
+                            next_hover_id = widget.id;
+                        }
+                    } break;
+                }
+            }
+        }
     }
+
+    gui.hover_widget = next_hover_id;
 }

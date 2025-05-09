@@ -25,8 +25,10 @@ import assets;
 import meta;
 import gui;
 
-enum Window_ID_Editor_Test = 1;
-enum Button_ID_Editor_Test = gui_id(Window_ID_Editor_Test);
+enum Window_ID_Editor_Test   = 1;
+enum Window_ID_Editor_Test_2 = 2;
+enum Button_ID_Editor_Test   = gui_id(Window_ID_Editor_Test);
+enum Button_ID_Editor_Test_2 = gui_id(Window_ID_Editor_Test_2);
 
 bool editor_is_open;
 
@@ -452,6 +454,10 @@ void editor_toggle(App_State* s){
         auto memory = (malloc(4086)[0 .. 4086]);
         auto window = add_window(gui, "Test Window", Window_ID_Editor_Test, rect_from_min_wh(Vec2(20, 20), 200, 80), memory);
         button(window, Button_ID_Editor_Test, "Test Button");
+
+        memory = (malloc(4086)[0 .. 4086]);
+        window = add_window(gui, "Alt Window", Window_ID_Editor_Test_2, rect_from_min_wh(Vec2(20, 20), 200, 80), memory);
+        button(window, Button_ID_Editor_Test_2, "Test Button");
     }
     else{
         // Close all the windows.
