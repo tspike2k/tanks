@@ -6,7 +6,11 @@ See accompanying file LICENSE_BOOST.txt or copy at http://www.boost.org/LICENSE_
 
 /+
     This GUI library is primarily intended for the editor, but it would be nice if we could
-    make it work for game menus.
+    make it work for game menus. It is based on a conversation between Casey Muratori and
+    Jonathan Blow which was streamed on Twitch approximately on 2021/02/21. Muratori explained
+    he had been using a technique of reserving a region of memory for each GUI window. This
+    region of memory would act as a command buffer into which layout information and widgets
+    would be pushed.
 +/
 
 import app;

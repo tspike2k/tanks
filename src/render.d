@@ -18,6 +18,9 @@ TODO:
         - Per pass data
         - Per model data
 
+
+
+
 +/
 
 import memory;
@@ -65,12 +68,6 @@ struct Mesh{
     Vertex[] vertices;
 }
 
-struct Command_Buffer{
-    Command_Buffer * next;
-    void[] buffer;
-    uint   used;
-}
-
 struct Render_Pass{
     Render_Pass* next;
 
@@ -78,9 +75,8 @@ struct Render_Pass{
     Vec3 camera_pos;
     ulong flags;
 
-    // TODO: Have buffer blocks, where we allocate more when we run out of space for more commands.
-    void[] buffer;
-    uint   buffer_used;
+    Render_Cmd* cmd_next;
+    Render_Cmd* cmd_last;
 }
 
 enum Max_Quads_Per_Batch = 2048; // TODO: Isn't this a bit high? 512 would be a lot.
@@ -367,22 +363,32 @@ enum Command : uint{
     Render_Rect,
 }
 
+struct Render_Cmd{
+    Render_Cmd* next;
+    Command type;
+}
+
 struct Clear_Target{
     enum Type = Command.Clear_Target;
+    Render_Cmd header;
+    alias header this;
 
-    Command type;
     Vec4    color;
 }
 
 struct Set_Shader{
     enum Type = Command.Set_Shader;
-    Command type;
+    Render_Cmd header;
+    alias header this;
+
     Shader* shader;
 }
 
 struct Render_Mesh{
     enum Type = Command.Render_Mesh;
-    Command   type;
+    Render_Cmd header;
+    alias header this;
+
     Mesh*     mesh;
     Material* material;
     Mat4      transform;
@@ -390,7 +396,9 @@ struct Render_Mesh{
 
 struct Render_Text{
     enum Type = Command.Render_Text;
-    Command    type;
+    Render_Cmd header;
+    alias header this;
+
     Font*      font;
     String     text;
     Vec2       pos;
@@ -399,27 +407,32 @@ struct Render_Text{
 
 struct Set_Light{
     enum Type = Command.Set_Light;
-    Command type;
+    Render_Cmd header;
+    alias header this;
+
     Shader_Light* light;
 }
 
 struct Render_Rect{
     enum Type = Command.Render_Rect;
+    Render_Cmd header;
+    alias header this;
 
-    Command type;
     Rect bounds;
     Vec4 color;
 }
 
-void[] push_bytes(Render_Pass* pass, size_t count){
-    auto result = pass.buffer[pass.buffer_used .. pass.buffer_used + count];
-    pass.buffer_used += count;
-    return result;
-}
-
 T* push_command(T)(Render_Pass* pass){
-    auto result = cast(T*)push_bytes(pass, T.sizeof);
+    auto result = alloc_type!T(g_allocator);
     result.type = T.Type;
+    if(pass.cmd_last){
+        pass.cmd_last.next = &result.header;
+    }
+    if(!pass.cmd_next){
+        pass.cmd_next = &result.header;
+    }
+
+    pass.cmd_last = &result.header;
     return result;
 }
 
@@ -668,16 +681,13 @@ version(opengl){
             Shader* shader;
             Shader_Light* light;
 
-            auto reader = Serializer(pass.buffer[0 .. pass.buffer_used]);
-            while(bytes_left(&reader) > uint.sizeof){
-                auto cmd_type = *cast(Command*)&reader.buffer[reader.buffer_used];
-                switch(cmd_type){
-                    default:
-                        end_stream(&reader);
-                        break;
+            auto cmd_node = pass.cmd_next;
+            while(cmd_node){
+                switch(cmd_node.type){
+                    default: assert(0);
 
                     case Command.Clear_Target:{
-                        auto cmd = eat_type!Clear_Target(&reader);
+                        auto cmd = cast(Clear_Target*)cmd_node;
 
                         auto color = cmd.color;
                         glClearColor(color.r, color.g, color.b, color.a);
@@ -687,7 +697,8 @@ version(opengl){
                     } break;
 
                     case Command.Set_Shader:{
-                        auto cmd = eat_type!Set_Shader(&reader);
+                        auto cmd = cast(Set_Shader*)cmd_node;
+
                         if(shader != cmd.shader){
                             shader = cmd.shader;
                             glUseProgram(shader.handle);
@@ -698,7 +709,7 @@ version(opengl){
                     } break;
 
                     case Command.Render_Rect:{
-                        auto cmd = eat_type!Render_Rect(&reader);
+                        auto cmd = cast(Render_Rect*)cmd_node;
 
                         // TODO: Push data into a quad vertex buffer. Flush on state change.
                         Vertex[4] v = void;
@@ -713,7 +724,7 @@ version(opengl){
 
                     case Command.Render_Mesh:{
                         assert(shader);
-                        auto cmd = eat_type!Render_Mesh(&reader);
+                        auto cmd = cast(Render_Mesh*)cmd_node;
                         assert(shader.uniform_loc_model != -1);
                         set_uniform(shader.uniform_loc_model, &cmd.transform);
                         set_material(cmd.material);
@@ -726,16 +737,18 @@ version(opengl){
                     } break;
 
                     case Command.Render_Text:{
-                        auto cmd = eat_type!Render_Text(&reader);
+                        auto cmd = cast(Render_Text*)cmd_node;
                         render_text(cmd.font, cmd.text, cmd.pos, cmd.color);
                     } break;
 
                     case Command.Set_Light:{
-                        auto cmd = eat_type!Set_Light(&reader);
+                        auto cmd = cast(Set_Light*)cmd_node;
                         if(light != cmd.light)
                             shader_light_source(cmd.light);
                     } break;
                 }
+
+                cmd_node = cmd_node.next;
             }
 
             if(pass.flags & Render_Flag_Disable_Color){
@@ -836,9 +849,6 @@ version(opengl){
 
         if(g_render_pass_last)
             g_render_pass_last.next = result;
-
-        // TODO: Make smaller buffers, but do it in blocks.
-        result.buffer = alloc_array!void(g_allocator, 1*1024*1024);
 
         g_render_pass_last = result;
         return result;
