@@ -154,8 +154,16 @@ void render_button_bounds(Render_Pass* pass, Rect r, Vec4 top_color, Vec4 bottom
 // bounds do not occlude any text from lower windows. This needs to be fixed. I wonder what the
 // best way to handle this would be. We could use scissor rects. That may be fine. We need to use
 // that anyway.
-void render_gui(Gui_State* gui, Render_Pass* rp_rects, Render_Pass* rp_text){
+void render_gui(Gui_State* gui, Camera_Data* camera_data, Shader* shader_rects, Shader* shader_text){
     foreach(window; gui.windows.iterate()){
+        auto rp_rects = add_render_pass(camera_data);
+        set_shader(rp_rects, shader_rects);
+        rp_rects.flags = Render_Flag_Disable_Depth_Test;
+
+        auto rp_text = add_render_pass(camera_data);
+        set_shader(rp_text, shader_text);
+        rp_text.flags = Render_Flag_Disable_Depth_Test;
+
         // TODO: Clamp text to pixel boundaries?
         Vec4 seperator_color = Vec4(0.22f, 0.23f, 0.24f, 1.0f);
         Vec4 internal_color = Vec4(0.86f, 0.90f, 0.97f, 1.0f);

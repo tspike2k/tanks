@@ -852,7 +852,7 @@ version(opengl){
         shader.handle = 0;
     }
 
-    Render_Pass* render_pass(Camera_Data* camera){
+    Render_Pass* add_render_pass(Camera_Data* camera){
         auto result = alloc_type!Render_Pass(g_allocator);
         result.camera_data = camera;
 

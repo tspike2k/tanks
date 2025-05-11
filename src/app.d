@@ -1453,14 +1453,14 @@ extern(C) int main(int args_count, char** args){
 
         //light.pos = Vec3(cos(s.t)*18.0f, 2, sin(s.t)*18.0f);
 
-        auto rp_holes = render_pass(&world_camera);
+        auto rp_holes = add_render_pass(&world_camera);
         set_shader(rp_holes, &shader);
 
-        auto rp_hole_cutouts = render_pass(&world_camera);
+        auto rp_hole_cutouts = add_render_pass(&world_camera);
         set_shader(rp_hole_cutouts, &shader); // TODO: We should use a more stripped-down shader for this. We don't need lighting!
         rp_hole_cutouts.flags = Render_Flag_Disable_Culling|Render_Flag_Disable_Color;
 
-        auto rp_world = render_pass(&world_camera);
+        auto rp_world = add_render_pass(&world_camera);
         set_shader(rp_world, &shader);
         set_light(rp_world, &light);
         auto ground_xform = mat4_translate(grid_center)*mat4_scale(Vec3(grid_extents.x, 1.0f, grid_extents.y));
@@ -1567,18 +1567,18 @@ extern(C) int main(int args_count, char** args){
             hud_camera.pos = Vec3(0, 0, 0); // TODO: Is this the center of the hud camera?
         }
 
-        auto rp_hud_rects = render_pass(&hud_camera);
+        auto rp_hud_rects = add_render_pass(&hud_camera);
         set_shader(rp_hud_rects, &rect_shader);
         rp_hud_rects.flags = Render_Flag_Disable_Depth_Test;
 
-        auto rp_hud_text  = render_pass(&hud_camera);
+        auto rp_hud_text  = add_render_pass(&hud_camera);
         set_shader(rp_hud_text, &text_shader);
         rp_hud_text.flags = Render_Flag_Disable_Depth_Test;
 
         if(editor_is_open){
             editor_render(s, rp_world, rp_hud_text);
         }
-        render_gui(&s.gui, rp_hud_rects, rp_hud_text);
+        render_gui(&s.gui, &hud_camera, &rect_shader, &text_shader);
 
         render_end_frame();
         end_frame();
