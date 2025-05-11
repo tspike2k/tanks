@@ -40,6 +40,14 @@ struct Gui_State{
     Window_Resize_Type window_resize_type;
     Gui_ID active_id;
     Vec2 grab_offset;
+
+    // "Events" that are passed to widgets.
+    //
+    // TODO: Would it be better to have a "handle_event" function for
+    // widgets and pass the event to the widget directly? It would
+    // complicate the widget code.
+    bool mouse_left_pressed;
+    bool mouse_left_released;
 }
 
 enum Gui_Action : uint{
@@ -147,7 +155,7 @@ Rect get_work_area(Window* window){
     return result;
 }
 
-void render_button_bounds(Render_Pass* pass, Rect r, Vec4 top_color, Vec4 bottom_color){
+void render_button_bounds(Render_Pass* pass, Rect r, bool pressed_down){
     auto thickness = 1.0f;
     auto b = thickness * 0.5f;
     auto top    = Rect(r.center + Vec2(0, r.extents.y - b), Vec2(r.extents.x, b));
@@ -155,81 +163,16 @@ void render_button_bounds(Render_Pass* pass, Rect r, Vec4 top_color, Vec4 bottom
     auto left   = Rect(r.center - Vec2(r.extents.x - b, 0), Vec2(b, r.extents.y));
     auto right  = Rect(r.center + Vec2(r.extents.x - b, 0), Vec2(b, r.extents.y));
 
+    auto top_color    = Vec4(1, 1, 1, 1);
+    auto bottom_color = Vec4(0, 0, 0, 1);
+    if(pressed_down){
+        swap(top_color, bottom_color);
+    }
+
     render_rect(pass, top, top_color);
     render_rect(pass, left, top_color);
     render_rect(pass, bottom, bottom_color);
     render_rect(pass, right, bottom_color);
-}
-
-// TODO: Due to the fact that we're using seperate passes for the rects and the text, window
-// bounds do not occlude any text from lower windows. This needs to be fixed. I wonder what the
-// best way to handle this would be. We could use scissor rects. That may be fine. We need to use
-// that anyway.
-void render_gui(Gui_State* gui, Camera_Data* camera_data, Shader* shader_rects, Shader* shader_text){
-    foreach(window; gui.windows.iterate()){
-        auto rp_rects = add_render_pass(camera_data);
-        set_shader(rp_rects, shader_rects);
-        rp_rects.flags = Render_Flag_Disable_Depth_Test;
-
-        auto rp_text = add_render_pass(camera_data);
-        set_shader(rp_text, shader_text);
-        rp_text.flags = Render_Flag_Disable_Depth_Test;
-
-        // TODO: Clamp text to pixel boundaries?
-        Vec4 seperator_color = Vec4(0.22f, 0.23f, 0.24f, 1.0f);
-        Vec4 internal_color = Vec4(0.86f, 0.90f, 0.97f, 1.0f);
-        if(window_has_focus(window)){
-            render_rect(rp_rects, window.bounds, Vec4(0.2f, 0.42f, 0.66f, 1.0f));
-            render_rect_outline(rp_rects, window.bounds, Vec4(1, 1, 1, 1), 1.0f);
-        }
-        else{
-            render_rect(rp_rects, window.bounds, Vec4(0.4f, 0.4f, 0.45f, 1.0f));
-            render_rect_outline(rp_rects, window.bounds, seperator_color, 1.0f);
-        }
-
-        auto title_bounds = get_titlebar_bounds(window);
-        auto work_area    = get_work_area(window);
-        render_rect(rp_rects, work_area, internal_color);
-        render_rect_outline(rp_rects, work_area, seperator_color, 1.0f);
-        // TODO: Begin scissor for the work area
-
-        // TODO: We should have a window command buffer iterator.
-        auto font = gui.font;
-        auto buffer = Serializer(window.buffer[0 .. window.buffer_used]);
-        while(auto cmd = eat_type!Window_Cmd(&buffer)){
-            switch(cmd.type){
-                default:
-                    eat_bytes(&buffer, cmd.size); break;
-
-                case Window_Cmd_Type.Widget:{
-                    auto widget_data = eat_bytes(&buffer, cmd.size);
-                    auto widget = cast(Widget*)widget_data;
-
-                    auto bounds = Rect(widget.rel_bounds.center + min(work_area), widget.rel_bounds.extents);
-                    switch(widget.type){
-                        default: assert(0);
-
-                        case Widget_Type.Button:{
-                            auto btn = cast(Button*)widget_data;
-                            auto bg_color = Vec4(0.75f, 0.75f, 0.75f, 1);
-                            if(gui.hover_widget == widget.id){
-                                bg_color = Vec4(0.85f, 0.85f, 0.85f, 1);
-                            }
-
-                            render_rect(rp_rects, bounds, bg_color);
-                            render_button_bounds(rp_rects, bounds, Vec4(1, 1, 1, 1), Vec4(0, 0, 0, 1));
-                            auto baseline = center_text(font, btn.label, bounds);
-                            render_text(rp_text, font, baseline, btn.label, Vec4(0, 0, 0, 1));
-                        } break;
-                    }
-                } break;
-            }
-        }
-
-        // TODO: End scissor for the work area
-        auto title_baseline = center_text(font, window.name, title_bounds);
-        render_text(rp_text, gui.font, title_baseline, window.name, Vec4(1, 1, 1, 1)); // TODO: Center on X
-    }
 }
 
 Window* get_window_by_id(Gui_State* gui, Gui_ID window_id){
@@ -346,7 +289,7 @@ Window_Resize_Type get_window_resize_type(Vec2 cursor, Rect bounds){
     else if(cursor.x <= r && cursor.x >= r - Window_Border_Size - padding){
         result = Window_Resize_Type.Right;
     }
-    else if(cursor.y >= b && cursor.x <= b - Window_Border_Size - padding){
+    else if(cursor.y >= b && cursor.y <= b + Window_Border_Size + padding){
         result = Window_Resize_Type.Bottom;
     }
 
@@ -398,7 +341,7 @@ bool handle_event(Gui_State* gui, Event* evt){
                         } break;
 
                         case Window_Resize_Type.Bottom:{
-                            auto delta_y = bottom(window.bounds) - cursor.y;
+                            auto delta_y = cursor.y - bottom(window.bounds);
                             auto next_h  = max(height(window.bounds) + delta_y, Window_Min_Height);
                             auto min_p = min(window.bounds);
                             window.bounds = rect_from_min_wh(Vec2(min_p.x, min_p.y + delta_y), width(window.bounds), next_h);
@@ -419,29 +362,29 @@ bool handle_event(Gui_State* gui, Event* evt){
                 case Button_ID.Mouse_Left:{
                     if(btn.pressed){
                         auto window = get_window_under_cursor(gui);
-                        if(window){
-                            if(is_point_inside_rect(gui.cursor_pos, window.bounds)){
-                                consumed = true;
-                                if(!window_has_focus(window)){
-                                    raise_window(window);
-                                }
+                        auto cursor = gui.cursor_pos;
 
-                                auto titlebar_bounds = get_titlebar_bounds(window);
-                                if(is_point_inside_rect(gui.cursor_pos, titlebar_bounds)){
-                                    // TODO: Raise window
-                                    gui.action      = Gui_Action.Dragging_Window;
-                                    gui.active_id   = window.id;
-                                    gui.grab_offset = window.bounds.center - gui.cursor_pos;
-                                }
-                                else{
-                                    auto type = get_window_resize_type(gui.cursor_pos, window.bounds);
-                                    if(type != Window_Resize_Type.None){
-                                        gui.action = Gui_Action.Resizing_Window;
-                                        gui.active_id   = window.id;
-                                        gui.grab_offset = window.bounds.center - gui.cursor_pos;
-                                        gui.window_resize_type = type;
-                                    }
-                                }
+                        if(window && is_point_inside_rect(cursor, window.bounds)){
+                            consumed = true;
+                            if(!window_has_focus(window)){
+                                raise_window(window);
+                            }
+
+                            auto titlebar_bounds = get_titlebar_bounds(window);
+                            auto resize_type = get_window_resize_type(gui.cursor_pos, window.bounds);
+                            if(resize_type != Window_Resize_Type.None){
+                                gui.action = Gui_Action.Resizing_Window; // TODO: Rename this Window_Action?
+                                gui.active_id   = window.id;
+                                gui.grab_offset = window.bounds.center - gui.cursor_pos;
+                                gui.window_resize_type = resize_type;
+                            }
+                            else if(is_point_inside_rect(cursor, titlebar_bounds)){
+                                gui.action      = Gui_Action.Dragging_Window;
+                                gui.active_id   = window.id;
+                                gui.grab_offset = window.bounds.center - gui.cursor_pos;
+                            }
+                            else{
+                                gui.mouse_left_pressed = true;
                             }
                         }
                         else{
@@ -449,6 +392,7 @@ bool handle_event(Gui_State* gui, Event* evt){
                         }
                     }
                     else{
+                        gui.mouse_left_released = true;
                         gui.action = Gui_Action.None;
                     }
                 } break;
@@ -489,6 +433,11 @@ void do_layout(Window* window){
     }
 }
 
+Rect get_widget_bounds(Rect window_work_area, Widget* widget){
+    auto result = Rect(widget.rel_bounds.center + min(window_work_area), widget.rel_bounds.extents);
+    return result;
+}
+
 void update_gui(Gui_State* gui, float dt){
     gui.hover_widget = Null_Gui_ID;
     Gui_ID next_hover_id = Null_Gui_ID;
@@ -514,11 +463,16 @@ void update_gui(Gui_State* gui, float dt){
                             eat_bytes(&buffer, cmd.size); break;
 
                         case Window_Cmd_Type.Widget:{
-                            auto widget_data = eat_bytes(&buffer, cmd.size);
-                            auto widget = cast(Widget*)widget_data;
-                            auto bounds = Rect(widget.rel_bounds.center + min(work_area), widget.rel_bounds.extents);
-                            if(is_point_inside_rect(gui.cursor_pos, bounds)){
+                            auto widget = cast(Widget*)eat_bytes(&buffer, cmd.size);
+                            auto bounds = get_widget_bounds(work_area, widget);
+                            if(is_point_inside_rect(cursor, bounds)){
                                 next_hover_id = widget.id;
+                                if(gui.mouse_left_pressed){
+                                    gui.active_id = widget.id;
+                                }
+                                if(gui.mouse_left_released){
+                                    gui.active_id = Null_Gui_ID;
+                                }
                             }
                         } break;
                     }
@@ -528,4 +482,79 @@ void update_gui(Gui_State* gui, float dt){
     }
 
     gui.hover_widget = next_hover_id;
+
+    // Clear event flags
+    gui.mouse_left_pressed  = false;
+    gui.mouse_left_released = false;
+}
+
+void render_gui(Gui_State* gui, Camera_Data* camera_data, Shader* shader_rects, Shader* shader_text){
+    foreach(window; gui.windows.iterate()){
+        auto rp_rects = add_render_pass(camera_data);
+        set_shader(rp_rects, shader_rects);
+        rp_rects.flags = Render_Flag_Disable_Depth_Test;
+
+        auto rp_text = add_render_pass(camera_data);
+        set_shader(rp_text, shader_text);
+        rp_text.flags = Render_Flag_Disable_Depth_Test;
+
+        // TODO: Clamp text to pixel boundaries?
+        Vec4 seperator_color = Vec4(0.22f, 0.23f, 0.24f, 1.0f);
+        Vec4 internal_color = Vec4(0.86f, 0.90f, 0.97f, 1.0f);
+        if(window_has_focus(window)){
+            render_rect(rp_rects, window.bounds, Vec4(0.2f, 0.42f, 0.66f, 1.0f));
+            render_rect_outline(rp_rects, window.bounds, Vec4(1, 1, 1, 1), 1.0f);
+        }
+        else{
+            render_rect(rp_rects, window.bounds, Vec4(0.4f, 0.4f, 0.45f, 1.0f));
+            render_rect_outline(rp_rects, window.bounds, seperator_color, 1.0f);
+        }
+
+        auto title_bounds = get_titlebar_bounds(window);
+        auto work_area    = get_work_area(window);
+        render_rect(rp_rects, work_area, internal_color);
+        render_rect_outline(rp_rects, work_area, seperator_color, 1.0f);
+        // TODO: Begin scissor for the work area
+
+        // TODO: We should have a window command buffer iterator.
+        auto font = gui.font;
+        auto buffer = Serializer(window.buffer[0 .. window.buffer_used]);
+        while(auto cmd = eat_type!Window_Cmd(&buffer)){
+            switch(cmd.type){
+                default:
+                    eat_bytes(&buffer, cmd.size); break;
+
+                case Window_Cmd_Type.Widget:{
+                    auto widget_data = eat_bytes(&buffer, cmd.size);
+                    auto widget = cast(Widget*)widget_data;
+
+                    auto bounds = Rect(widget.rel_bounds.center + min(work_area), widget.rel_bounds.extents);
+                    switch(widget.type){
+                        default: assert(0);
+
+                        case Widget_Type.Button:{
+                            auto btn = cast(Button*)widget_data;
+                            auto bg_color = Vec4(0.75f, 0.75f, 0.75f, 1);
+                            if(gui.active_id == widget.id){
+                                bg_color *= 0.5f;
+                                bg_color.a = 1;
+                            }
+                            else if(gui.hover_widget == widget.id){
+                                bg_color = Vec4(0.85f, 0.85f, 0.85f, 1);
+                            }
+
+                            render_rect(rp_rects, bounds, bg_color);
+                            render_button_bounds(rp_rects, bounds, gui.active_id == widget.id);
+                            auto baseline = center_text(font, btn.label, bounds);
+                            render_text(rp_text, font, baseline, btn.label, Vec4(0, 0, 0, 1));
+                        } break;
+                    }
+                } break;
+            }
+        }
+
+        // TODO: End scissor for the work area
+        auto title_baseline = center_text(font, window.name, title_bounds);
+        render_text(rp_text, gui.font, title_baseline, window.name, Vec4(1, 1, 1, 1)); // TODO: Center on X
+    }
 }
