@@ -18,9 +18,15 @@ TODO:
         - Per pass data
         - Per model data
 
+    We should also rename "pass" to layer. That would be more indicative of what we're trying to
+    do.
 
+    We should also change the prefix render_ to be draw_. This would be faster to type.
 
-
+    Each call to add_draw_layer() should take a pointer to Draw_Layer_Data, which is all the
+    state that needs to be set up for every draw layer. The draw layer holds a pointer to
+    the data, and when we go to draw we can to a pointer comparison to see if we need to
+    resubmit the layer data.
 +/
 
 import memory;
@@ -45,12 +51,6 @@ enum{
     Render_Flag_Disable_Depth_Test = (1 << 2),
 }
 
-struct Camera{
-    Vec3 pos;
-    Vec3 target;
-    Vec3 up;
-}
-
 // To keep from having to juggle seperate vertex formats between quads and meshes,
 // the first attribute could either hold color or normal information, depending
 // on which one the shader needs.
@@ -71,8 +71,7 @@ struct Mesh{
 struct Render_Pass{
     Render_Pass* next;
 
-    Mat4 camera;
-    Vec3 camera_pos;
+    Camera_Data* camera_data;
     ulong flags;
 
     Render_Cmd* cmd_next;
@@ -84,6 +83,12 @@ enum Max_Quads_Per_Batch = 2048; // TODO: Isn't this a bit high? 512 would be a 
 // TODO: Ensure members are correctly aligned with both HLSL and GLSL requirements
 struct Shader_Constants{
     float time;
+}
+
+struct Camera_Data{
+    Mat4 mat;
+    Vec3 pos;
+    float pad_00;
 }
 
 struct Material{
@@ -471,9 +476,11 @@ version(opengl){
     import math;
     import bind.opengl;
 
+    // TODO: Combine all the uniform blocks into one and use a single binding point?
     enum Constants_Uniform_Binding = 0;
     enum Material_Uniform_Binding  = 1;
     enum Light_Uniform_Binding     = 2;
+    enum Camera_Uniform_Binding    = 3;
 
     enum{
         Vertex_Attribute_ID_Pos,
@@ -488,6 +495,7 @@ version(opengl){
     __gshared GLuint        g_shader_constants_buffer;
     __gshared GLuint        g_shader_material_buffer;
     __gshared GLuint        g_shader_light_buffer;
+    __gshared GLuint        g_shader_camera_buffer;
     __gshared GLuint        g_quad_vbo;
     __gshared GLuint        g_quad_index_buffer;
     __gshared Texture       g_default_texture;
@@ -512,8 +520,6 @@ version(opengl){
 
         GLuint handle;
         GLint  uniform_loc_model;
-        GLint  uniform_loc_camera;
-        GLint  uniform_loc_camera_pos;
     }
 
     Texture create_texture(uint[] pixels, uint width, uint height, uint flags = 0){
@@ -631,6 +637,7 @@ version(opengl){
         init_uniform_buffer(&g_shader_constants_buffer, Constants_Uniform_Binding, Shader_Constants.sizeof);
         init_uniform_buffer(&g_shader_material_buffer, Material_Uniform_Binding, Material.sizeof);
         init_uniform_buffer(&g_shader_light_buffer, Light_Uniform_Binding, Shader_Light.sizeof);
+        init_uniform_buffer(&g_shader_camera_buffer, Camera_Uniform_Binding, Camera_Data.sizeof);
 
         /*
         if(!compile_shader("default", 0, Default_Vertex_Shader_Source, Default_Fragment_Shader_Source)){
@@ -663,8 +670,18 @@ version(opengl){
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         }
 
+        Camera_Data* current_camera = null;
         while(pass){
             set_viewport(g_base_viewport);
+            if(pass.camera_data != current_camera){
+                current_camera = pass.camera_data;
+                auto dest = zero_type!Camera_Data;
+                dest.mat = transpose(current_camera.mat);
+                dest.pos = current_camera.pos;
+
+                glBindBuffer(GL_UNIFORM_BUFFER, g_shader_camera_buffer);
+                glBufferSubData(GL_UNIFORM_BUFFER, 0, Camera_Data.sizeof, &dest);
+            }
 
             if(pass.flags & Render_Flag_Disable_Color){
                 glColorMask(false, false, false, false);
@@ -703,8 +720,8 @@ version(opengl){
                             shader = cmd.shader;
                             glUseProgram(shader.handle);
 
-                            set_uniform(shader.uniform_loc_camera, &pass.camera);
-                            set_uniform(shader.uniform_loc_camera_pos, &pass.camera_pos);
+                            //set_uniform(shader.uniform_loc_camera, &pass.camera);
+                            //set_uniform(shader.uniform_loc_camera_pos, &pass.camera_pos);
                         }
                     } break;
 
@@ -818,17 +835,13 @@ version(opengl){
             shader.handle = program;
             void get_uniform_loc(GLint* loc, String name){
                 *loc = glGetUniformLocation(program, name.ptr);
-                if(*loc == -1){
-                    log_warn("Unable to get uniform \"{0}\" for shader \"{1}\".\n", name, program_name);
-                }
             }
 
             make_uniform_binding(program_name, program, "Constants", Constants_Uniform_Binding);
             make_uniform_binding(program_name, program, "Material", Material_Uniform_Binding);
             make_uniform_binding(program_name, program, "Light", Light_Uniform_Binding);
+            make_uniform_binding(program_name, program, "Camera", Camera_Uniform_Binding);
 
-            get_uniform_loc(&shader.uniform_loc_camera, "mat_camera");
-            get_uniform_loc(&shader.uniform_loc_camera_pos, "camera_pos");
             get_uniform_loc(&shader.uniform_loc_model, "mat_model");
         }
         return success;
@@ -839,10 +852,9 @@ version(opengl){
         shader.handle = 0;
     }
 
-    Render_Pass* render_pass(Mat4* camera, Vec3 camera_pos){
+    Render_Pass* render_pass(Camera_Data* camera){
         auto result = alloc_type!Render_Pass(g_allocator);
-        result.camera     = *camera;
-        result.camera_pos = camera_pos;
+        result.camera_data = camera;
 
         if(!g_render_pass_first)
             g_render_pass_first = result;
@@ -998,9 +1010,6 @@ version(opengl){
         auto block_index = glGetUniformBlockIndex(shader_handle, block_name.ptr);
         if(block_index != GL_INVALID_INDEX){
             glUniformBlockBinding(shader_handle, block_index, binding_id);
-        }
-        else{
-            log_warn("Unable to set binding for uniform block \"{0}\" in shader \"{1}\".\n", block_name, shader_name);
         }
     }
 

@@ -1206,22 +1206,29 @@ extern(C) int main(int args_count, char** args){
 
         auto window = get_window_info();
 
+        auto world_camera = zero_type!Camera_Data;
+        auto hud_camera   = zero_type!Camera_Data;
+
         float aspect_ratio = (cast(float)window.width) / (cast(float)window.height);
-        auto camera_extents = Vec2((Grid_Width+2), (aspect_ratio*0.5f)*cast(float)(Grid_Height+2))*0.5f;
-        auto camera_bounds = Rect(Vec2(0, 0), camera_extents);
+        {
+            auto camera_extents = Vec2((Grid_Width+2), (aspect_ratio*0.5f)*cast(float)(Grid_Height+2))*0.5f;
+            auto camera_bounds = Rect(Vec2(0, 0), camera_extents);
 
-        auto mat_proj = orthographic_projection(camera_bounds);
+            auto mat_proj = orthographic_projection(camera_bounds);
 
-        auto camera_pos = grid_center;
-        Mat4_Pair mat_view = void;
-        mat_view.mat = mat4_rot_x(45.0f*(PI/180.0f))*mat4_translate(-1.0f*camera_pos);
-        mat_view.inv = invert_view_matrix(mat_view.mat);
-        auto mat_camera = mat_proj.mat*mat_view.mat;
+            auto camera_pos = grid_center;
+            Mat4_Pair mat_view = void;
+            mat_view.mat = mat4_rot_x(45.0f*(PI/180.0f))*mat4_translate(-1.0f*camera_pos);
+            mat_view.inv = invert_view_matrix(mat_view.mat);
 
-        auto mouse_picker_ray = screen_to_ray(s.mouse_pixel, window.width, window.height, &mat_proj, &mat_view);
-        Vec3 cursor_3d = Vec3(0, 0, 0);
-        ray_vs_plane(mouse_picker_ray, Vec3(0, 0, 0), Vec3(0, 1, 0), &cursor_3d);
-        s.mouse_world = Vec2(cursor_3d.x, -cursor_3d.z);
+            world_camera.mat = mat_proj.mat*mat_view.mat;
+            world_camera.pos = camera_pos;
+
+            auto mouse_picker_ray = screen_to_ray(s.mouse_pixel, window.width, window.height, &mat_proj, &mat_view);
+            Vec3 cursor_3d = Vec3(0, 0, 0);
+            ray_vs_plane(mouse_picker_ray, Vec3(0, 0, 0), Vec3(0, 1, 0), &cursor_3d);
+            s.mouse_world = Vec2(cursor_3d.x, -cursor_3d.z);
+        }
 
         auto dt = target_dt;
 
@@ -1446,14 +1453,14 @@ extern(C) int main(int args_count, char** args){
 
         //light.pos = Vec3(cos(s.t)*18.0f, 2, sin(s.t)*18.0f);
 
-        auto rp_holes = render_pass(&mat_camera, camera_pos);
+        auto rp_holes = render_pass(&world_camera);
         set_shader(rp_holes, &shader);
 
-        auto rp_hole_cutouts = render_pass(&mat_camera, camera_pos);
+        auto rp_hole_cutouts = render_pass(&world_camera);
         set_shader(rp_hole_cutouts, &shader); // TODO: We should use a more stripped-down shader for this. We don't need lighting!
         rp_hole_cutouts.flags = Render_Flag_Disable_Culling|Render_Flag_Disable_Color;
 
-        auto rp_world = render_pass(&mat_camera, camera_pos);
+        auto rp_world = render_pass(&world_camera);
         set_shader(rp_world, &shader);
         set_light(rp_world, &light);
         auto ground_xform = mat4_translate(grid_center)*mat4_scale(Vec3(grid_extents.x, 1.0f, grid_extents.y));
@@ -1554,13 +1561,17 @@ extern(C) int main(int args_count, char** args){
             }
         }
 
-        auto hud_camera = make_hud_camera(window.width, window.height);
+        {
+            auto mat = make_hud_camera(window.width, window.height);
+            hud_camera.mat = mat.mat;
+            hud_camera.pos = Vec3(0, 0, 0); // TODO: Is this the center of the hud camera?
+        }
 
-        auto rp_hud_rects = render_pass(&hud_camera.mat, camera_pos);
+        auto rp_hud_rects = render_pass(&hud_camera);
         set_shader(rp_hud_rects, &rect_shader);
         rp_hud_rects.flags = Render_Flag_Disable_Depth_Test;
 
-        auto rp_hud_text  = render_pass(&hud_camera.mat, camera_pos);
+        auto rp_hud_text  = render_pass(&hud_camera);
         set_shader(rp_hud_text, &text_shader);
         rp_hud_text.flags = Render_Flag_Disable_Depth_Test;
 

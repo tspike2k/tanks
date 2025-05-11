@@ -1,8 +1,15 @@
 #version 330
 
-uniform mat4 mat_camera;
+layout(std140) uniform Constants{
+    float time;
+};
+
+layout(std140) uniform Camera{
+    mat4 mat_camera;
+    vec3 camera_pos; // TODO: Is there some way to do lighting without this?
+};
+
 uniform mat4 mat_model;
-uniform vec3 camera_pos; // TODO: Is there some way to do lighting without this?
 
 in vec3 v_pos;
 in vec4 v_common;
@@ -11,10 +18,6 @@ in vec2 v_uv;
 out vec2 f_uv;
 out vec3 f_normal;
 out vec3 f_world_pos;
-
-layout(std140) uniform Constants{
-    float time;
-};
 
 void main(){
     vec3 normal = v_common.xyz;
