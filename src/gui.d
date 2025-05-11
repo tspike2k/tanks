@@ -25,6 +25,7 @@ alias Gui_ID = uint;
 enum Button_Padding     = 4;
 enum Window_Border_Size = 4;
 enum Window_Min_Width   = 200;
+enum Window_Min_Height  = 140;
 
 struct Gui_State{
     List!Window windows;
@@ -345,10 +346,9 @@ Window_Resize_Type get_window_resize_type(Vec2 cursor, Rect bounds){
     else if(cursor.x <= r && cursor.x >= r - Window_Border_Size - padding){
         result = Window_Resize_Type.Right;
     }
-    /+
-    else if(cursor.y <= r && cursor.x >= r - Window_Border_Size - padding){
-        result = Window_Resize_Type.Right;
-    }+/
+    else if(cursor.y >= b && cursor.x <= b - Window_Border_Size - padding){
+        result = Window_Resize_Type.Bottom;
+    }
 
     return result;
 }
@@ -385,18 +385,23 @@ bool handle_event(Gui_State* gui, Event* evt){
                         case Window_Resize_Type.Left:{
                             auto delta_x = left(window.bounds) - cursor.x;
                             auto next_w  = max(width(window.bounds) + delta_x, Window_Min_Width);
-
                             window.bounds = rect_from_min_wh(
                                 Vec2(right(window.bounds) - next_w, bottom(window.bounds)),
                                 next_w, height(window.bounds)
                             );
-
                         } break;
 
                         case Window_Resize_Type.Right:{
                             auto delta_x = cursor.x - right(window.bounds);
                             auto next_w  = max(width(window.bounds) + delta_x, Window_Min_Width);
                             window.bounds = rect_from_min_wh(min(window.bounds), next_w, height(window.bounds));
+                        } break;
+
+                        case Window_Resize_Type.Bottom:{
+                            auto delta_y = bottom(window.bounds) - cursor.y;
+                            auto next_h  = max(height(window.bounds) + delta_y, Window_Min_Height);
+                            auto min_p = min(window.bounds);
+                            window.bounds = rect_from_min_wh(Vec2(min_p.x, min_p.y + delta_y), width(window.bounds), next_h);
                         } break;
                     }
                 }
