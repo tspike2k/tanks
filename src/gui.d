@@ -24,6 +24,7 @@ alias Gui_ID = uint;
 
 enum Button_Padding     = 4;
 enum Window_Border_Size = 4;
+enum Window_Min_Width   = 200;
 
 struct Gui_State{
     List!Window windows;
@@ -35,6 +36,7 @@ struct Gui_State{
     Gui_ID hover_widget;
 
     Gui_Action action;
+    Window_Resize_Type window_resize_type;
     Gui_ID active_id;
     Vec2 grab_offset;
 }
@@ -42,6 +44,14 @@ struct Gui_State{
 enum Gui_Action : uint{
     None,
     Dragging_Window,
+    Resizing_Window,
+}
+
+enum Window_Resize_Type : uint{
+    None,
+    Left,
+    Right,
+    Bottom,
 }
 
 struct Window{
@@ -312,6 +322,37 @@ void raise_window(Window* window){
     gui.windows.insert(gui.windows.top, window);
 }
 
+/+
+bool inside_window_resize_bounds(Vec2 cursor, Rect bounds){
+    assert(is_point_inside_rect(cursor, bounds));
+
+    float padding = 4;
+    auto l = left(bounds);
+    bool result = (cursor.x >= l && cursor.x <= l + Window_Border_Size + padding);
+    return result;
+}+/
+
+Window_Resize_Type get_window_resize_type(Vec2 cursor, Rect bounds){
+    auto l = left(bounds);
+    auto r = right(bounds);
+    auto b = bottom(bounds);
+    auto padding = 4.0f;
+
+    auto result = Window_Resize_Type.None;
+    if(cursor.x >= l && cursor.x <= l + Window_Border_Size + padding){
+        result = Window_Resize_Type.Left;
+    }
+    else if(cursor.x <= r && cursor.x >= r - Window_Border_Size - padding){
+        result = Window_Resize_Type.Right;
+    }
+    /+
+    else if(cursor.y <= r && cursor.x >= r - Window_Border_Size - padding){
+        result = Window_Resize_Type.Right;
+    }+/
+
+    return result;
+}
+
 bool handle_event(Gui_State* gui, Event* evt){
     auto display_window = get_window_info();
 
@@ -325,10 +366,39 @@ bool handle_event(Gui_State* gui, Event* evt){
             // TODO: Invert motion.pixel_y in display.d. This way we don't have to flip the coord
             // all the time.
             gui.cursor_pos = Vec2(motion.pixel_x, display_window.height - motion.pixel_y);
+            auto cursor = gui.cursor_pos;
             if(gui.action == Gui_Action.Dragging_Window){
                 auto window = get_window_by_id(gui, gui.active_id);
                 if(window){
                     window.bounds.center = gui.cursor_pos + gui.grab_offset;
+                }
+                else{
+                    gui.action = Gui_Action.None;
+                }
+            }
+            else if(gui.action == Gui_Action.Resizing_Window){
+                auto window = get_window_by_id(gui, gui.active_id);
+                if(window){
+                    switch(gui.window_resize_type){
+                        default: break;
+
+                        case Window_Resize_Type.Left:{
+                            auto delta_x = left(window.bounds) - cursor.x;
+                            auto next_w  = max(width(window.bounds) + delta_x, Window_Min_Width);
+
+                            window.bounds = rect_from_min_wh(
+                                Vec2(right(window.bounds) - next_w, bottom(window.bounds)),
+                                next_w, height(window.bounds)
+                            );
+
+                        } break;
+
+                        case Window_Resize_Type.Right:{
+                            auto delta_x = cursor.x - right(window.bounds);
+                            auto next_w  = max(width(window.bounds) + delta_x, Window_Min_Width);
+                            window.bounds = rect_from_min_wh(min(window.bounds), next_w, height(window.bounds));
+                        } break;
+                    }
                 }
                 else{
                     gui.action = Gui_Action.None;
@@ -350,16 +420,27 @@ bool handle_event(Gui_State* gui, Event* evt){
                                 if(!window_has_focus(window)){
                                     raise_window(window);
                                 }
-                            }
 
-                            auto titlebar_bounds = get_titlebar_bounds(window);
-                            if(is_point_inside_rect(gui.cursor_pos, titlebar_bounds)){
-                                // TODO: Raise window
-                                gui.action      = Gui_Action.Dragging_Window;
-                                gui.active_id   = window.id;
-                                gui.grab_offset = window.bounds.center - gui.cursor_pos;
-
+                                auto titlebar_bounds = get_titlebar_bounds(window);
+                                if(is_point_inside_rect(gui.cursor_pos, titlebar_bounds)){
+                                    // TODO: Raise window
+                                    gui.action      = Gui_Action.Dragging_Window;
+                                    gui.active_id   = window.id;
+                                    gui.grab_offset = window.bounds.center - gui.cursor_pos;
+                                }
+                                else{
+                                    auto type = get_window_resize_type(gui.cursor_pos, window.bounds);
+                                    if(type != Window_Resize_Type.None){
+                                        gui.action = Gui_Action.Resizing_Window;
+                                        gui.active_id   = window.id;
+                                        gui.grab_offset = window.bounds.center - gui.cursor_pos;
+                                        gui.window_resize_type = type;
+                                    }
+                                }
                             }
+                        }
+                        else{
+                            gui.action = Gui_Action.None;
                         }
                     }
                     else{
@@ -408,32 +489,34 @@ void update_gui(Gui_State* gui, float dt){
     Gui_ID next_hover_id = Null_Gui_ID;
     Gui_ID next_hover_window_id = Null_Gui_ID;
 
+    auto cursor = gui.cursor_pos;
     foreach(window; gui.windows.iterate!(-1)()){
         if(window.dirty){
             do_layout(window);
             window.dirty = false;
         }
 
-        if(next_hover_window_id == Null_Gui_ID
-        && is_point_inside_rect(gui.cursor_pos, window.bounds)){
-            next_hover_window_id = window.id;
+        if(is_point_inside_rect(cursor, window.bounds)){
+            if(next_hover_window_id == Null_Gui_ID){
+                next_hover_window_id = window.id;
 
-            // Search for the current hover widget
-            auto work_area = get_work_area(window);
-            auto buffer    = Serializer(window.buffer[0 .. window.buffer_used]);
-            while(auto cmd = eat_type!Window_Cmd(&buffer)){
-                switch(cmd.type){
-                    default:
-                        eat_bytes(&buffer, cmd.size); break;
+                // Search for the current hover widget
+                auto work_area = get_work_area(window);
+                auto buffer    = Serializer(window.buffer[0 .. window.buffer_used]);
+                while(auto cmd = eat_type!Window_Cmd(&buffer)){
+                    switch(cmd.type){
+                        default:
+                            eat_bytes(&buffer, cmd.size); break;
 
-                    case Window_Cmd_Type.Widget:{
-                        auto widget_data = eat_bytes(&buffer, cmd.size);
-                        auto widget = cast(Widget*)widget_data;
-                        auto bounds = Rect(widget.rel_bounds.center + min(work_area), widget.rel_bounds.extents);
-                        if(is_point_inside_rect(gui.cursor_pos, bounds)){
-                            next_hover_id = widget.id;
-                        }
-                    } break;
+                        case Window_Cmd_Type.Widget:{
+                            auto widget_data = eat_bytes(&buffer, cmd.size);
+                            auto widget = cast(Widget*)widget_data;
+                            auto bounds = Rect(widget.rel_bounds.center + min(work_area), widget.rel_bounds.extents);
+                            if(is_point_inside_rect(gui.cursor_pos, bounds)){
+                                next_hover_id = widget.id;
+                            }
+                        } break;
+                    }
                 }
             }
         }
