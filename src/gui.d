@@ -46,6 +46,9 @@ struct Gui_State{
     // TODO: Would it be better to have a "handle_event" function for
     // widgets and pass the event to the widget directly? It would
     // complicate the widget code.
+    //
+    // TODO: If we do keep with this, we could probably compress down all the gui
+    // events into bit flags.
     bool mouse_left_pressed;
     bool mouse_left_released;
 }
@@ -450,33 +453,33 @@ void update_gui(Gui_State* gui, float dt){
             window.dirty = false;
         }
 
-        if(is_point_inside_rect(cursor, window.bounds)){
-            if(next_hover_window_id == Null_Gui_ID){
-                next_hover_window_id = window.id;
+        if(is_point_inside_rect(cursor, window.bounds)
+        && next_hover_window_id == Null_Gui_ID)
+            next_hover_window_id = window.id;
 
-                // Search for the current hover widget
-                auto work_area = get_work_area(window);
-                auto buffer    = Serializer(window.buffer[0 .. window.buffer_used]);
-                while(auto cmd = eat_type!Window_Cmd(&buffer)){
-                    switch(cmd.type){
-                        default:
-                            eat_bytes(&buffer, cmd.size); break;
+        // Search for the current hover widget
+        auto work_area = get_work_area(window);
+        auto buffer    = Serializer(window.buffer[0 .. window.buffer_used]);
+        while(auto cmd = eat_type!Window_Cmd(&buffer)){
+            switch(cmd.type){
+                default:
+                    eat_bytes(&buffer, cmd.size); break;
 
-                        case Window_Cmd_Type.Widget:{
-                            auto widget = cast(Widget*)eat_bytes(&buffer, cmd.size);
-                            auto bounds = get_widget_bounds(work_area, widget);
-                            if(is_point_inside_rect(cursor, bounds)){
-                                next_hover_id = widget.id;
-                                if(gui.mouse_left_pressed){
-                                    gui.active_id = widget.id;
-                                }
-                                if(gui.mouse_left_released){
-                                    gui.active_id = Null_Gui_ID;
-                                }
-                            }
-                        } break;
+                case Window_Cmd_Type.Widget:{
+                    auto widget = cast(Widget*)eat_bytes(&buffer, cmd.size);
+                    auto bounds = get_widget_bounds(work_area, widget);
+                    if(is_point_inside_rect(cursor, bounds)
+                    && next_hover_window_id == window.id){
+                        next_hover_id = widget.id;
+                        if(gui.mouse_left_pressed){
+                            gui.active_id = widget.id;
+                        }
                     }
-                }
+
+                    if(gui.active_id == widget.id && gui.mouse_left_released){
+                        gui.active_id = Null_Gui_ID;
+                    }
+                } break;
             }
         }
     }
