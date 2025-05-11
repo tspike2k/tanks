@@ -443,6 +443,7 @@ void editor_render(App_State* s, Render_Pass* rp_world, Render_Pass* rp_text){
 }
 
 void editor_toggle(App_State* s){
+    // TODO: Don't use malloc and free. Have a free list of window memory.
     import core.stdc.stdlib : malloc, free;
 
     auto gui = &s.gui;
@@ -463,7 +464,7 @@ void editor_toggle(App_State* s){
         // Close all the windows.
         // TODO: Only close editor windows!
         auto window = gui.windows.bottom;
-        if(window){
+        while(!gui.windows.is_sentinel(window)){
             auto window_next = window.next;
             gui.windows.remove(window);
             free(window);
