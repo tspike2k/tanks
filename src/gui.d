@@ -22,10 +22,11 @@ import assets : Font;
 enum  Null_Gui_ID = 0;
 alias Gui_ID = uint;
 
-enum Button_Padding     = 4;
-enum Window_Border_Size = 4;
-enum Window_Min_Width   = 200;
-enum Window_Min_Height  = 140;
+enum Button_Padding      = 4;
+enum Window_Border_Size  = 4;
+enum Window_Min_Width    = 200;
+enum Window_Min_Height   = 140;
+enum Window_Resize_Slack = 4; // Additional space for grabbing window border for resize operation
 
 struct Gui_State{
     List!Window windows;
@@ -136,9 +137,10 @@ Rect get_titlebar_bounds(Window* window){
 Window* get_window_under_cursor(Gui_State* gui){
     Window* result;
 
+    auto slack_extents = Vec2(Window_Resize_Slack, Window_Resize_Slack)*0.5f;
     auto window = gui.windows.top;
     while(window != cast(Window*)&gui.windows){
-        if(is_point_inside_rect(gui.cursor_pos, window.bounds)){
+        if(is_point_inside_rect(gui.cursor_pos, expand(window.bounds, slack_extents))){
             result = window;
             break;
         }
@@ -293,16 +295,16 @@ Window_Resize_Type get_window_resize_type(Vec2 cursor, Rect bounds){
     auto l = left(bounds);
     auto r = right(bounds);
     auto b = bottom(bounds);
-    auto padding = 4.0f;
+    float slack = Window_Resize_Slack;
 
     auto result = Window_Resize_Type.None;
-    if(cursor.x >= l && cursor.x <= l + Window_Border_Size + padding){
+    if(cursor.x >= l - slack && cursor.x <= l + Window_Border_Size){
         result = Window_Resize_Type.Left;
     }
-    else if(cursor.x <= r && cursor.x >= r - Window_Border_Size - padding){
+    else if(cursor.x <= r + slack && cursor.x >= r - Window_Border_Size){
         result = Window_Resize_Type.Right;
     }
-    else if(cursor.y >= b && cursor.y <= b + Window_Border_Size + padding){
+    else if(cursor.y >= b - slack && cursor.y <= b + Window_Border_Size){
         result = Window_Resize_Type.Bottom;
     }
 
@@ -380,16 +382,17 @@ bool handle_event(Gui_State* gui, Event* evt){
                         auto window = get_window_under_cursor(gui);
                         auto cursor = gui.cursor_pos;
 
-                        if(window && is_point_inside_rect(cursor, window.bounds)){
+                        if(window){
                             consumed = true;
-                            if(!window_has_focus(window)){
+                            if(is_point_inside_rect(cursor, window.bounds)
+                            && !window_has_focus(window)){
                                 raise_window(window);
                             }
 
                             auto titlebar_bounds = get_titlebar_bounds(window);
                             auto resize_type = get_window_resize_type(gui.cursor_pos, window.bounds);
                             if(resize_type != Window_Resize_Type.None){
-                                gui.action = Gui_Action.Resizing_Window; // TODO: Rename this Window_Action?
+                                gui.action      = Gui_Action.Resizing_Window; // TODO: Rename this Window_Action?
                                 gui.active_id   = window.id;
                                 gui.grab_offset = window.bounds.center - gui.cursor_pos;
                                 gui.window_resize_type = resize_type;
@@ -494,8 +497,9 @@ void update_gui(Gui_State* gui, float dt){
                 case Window_Cmd_Type.Widget:{
                     auto widget = cast(Widget*)eat_bytes(&buffer, cmd.size);
                     auto bounds = get_widget_bounds(work_area, widget);
-                    if(is_point_inside_rect(cursor, bounds)
-                    && next_hover_window_id == window.id){
+                    if(next_hover_window_id == window.id
+                    && is_point_inside_rect(cursor, work_area)
+                    && is_point_inside_rect(cursor, bounds)){
                         next_hover_id = widget.id;
                         if(gui.mouse_left_pressed){
                             gui.active_id = widget.id;
@@ -551,8 +555,12 @@ void render_gui(Gui_State* gui, Camera_Data* camera_data, Shader* shader_rects, 
         auto title_baseline = center_text(font, window.name, title_bounds);
         render_text(rp_text, gui.font, title_baseline, window.name, Vec4(1, 1, 1, 1)); // TODO: Center on X
 
-        push_scissor(rp_rects, work_area);
-        push_scissor(rp_text, work_area);
+        // Account for work area outline.
+        // TODO: Make it so render_rect_outline draws an outline *inside* the given
+        // rectangle instead?
+        auto scissor_area = shrink(work_area, Vec2(1, 1));
+        push_scissor(rp_rects, scissor_area);
+        push_scissor(rp_text, scissor_area);
 
         // TODO: We should have a window command buffer iterator.
         auto buffer = Serializer(window.buffer[0 .. window.buffer_used]);
