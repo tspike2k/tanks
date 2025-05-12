@@ -546,10 +546,15 @@ void render_gui(Gui_State* gui, Camera_Data* camera_data, Shader* shader_rects, 
         auto work_area    = get_work_area(window);
         render_rect(rp_rects, work_area, internal_color);
         render_rect_outline(rp_rects, work_area, seperator_color, 1.0f);
-        // TODO: Begin scissor for the work area
+
+        auto font = gui.font;
+        auto title_baseline = center_text(font, window.name, title_bounds);
+        render_text(rp_text, gui.font, title_baseline, window.name, Vec4(1, 1, 1, 1)); // TODO: Center on X
+
+        push_scissor(rp_rects, work_area);
+        push_scissor(rp_text, work_area);
 
         // TODO: We should have a window command buffer iterator.
-        auto font = gui.font;
         auto buffer = Serializer(window.buffer[0 .. window.buffer_used]);
         while(auto cmd = eat_type!Window_Cmd(&buffer)){
             switch(cmd.type){
@@ -585,8 +590,7 @@ void render_gui(Gui_State* gui, Camera_Data* camera_data, Shader* shader_rects, 
             }
         }
 
-        // TODO: End scissor for the work area
-        auto title_baseline = center_text(font, window.name, title_bounds);
-        render_text(rp_text, gui.font, title_baseline, window.name, Vec4(1, 1, 1, 1)); // TODO: Center on X
+        pop_scissor(rp_rects);
+        pop_scissor(rp_text);
     }
 }

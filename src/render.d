@@ -294,6 +294,15 @@ void render_mesh(Render_Pass* pass, Mesh* mesh, Material* material, Mat4 transfo
     cmd.transform = transform;
 }
 
+void push_scissor(Render_Pass* pass, Rect scissor){
+    auto cmd   = push_command!Push_Scissor(pass);
+    cmd.scissor = scissor;
+}
+
+void pop_scissor(Render_Pass* pass){
+    push_command(pass, Command.Pop_Scissor, Render_Cmd.sizeof);
+}
+
 Vec2 center_text(Font* font, String text, Rect bounds){
     auto text_width = get_text_width(font, text);
     auto result = floor(bounds.center - 0.5f*Vec2(text_width, font.metrics.cap_height));
@@ -366,6 +375,8 @@ enum Command : uint{
     Render_Text,
     Set_Light,
     Render_Rect,
+    Push_Scissor,
+    Pop_Scissor,
 }
 
 struct Render_Cmd{
@@ -418,6 +429,14 @@ struct Set_Light{
     Shader_Light* light;
 }
 
+struct Push_Scissor{
+    enum Type = Command.Push_Scissor;
+    Render_Cmd header;
+    alias header this;
+
+    Rect scissor;
+}
+
 struct Render_Rect{
     enum Type = Command.Render_Rect;
     Render_Cmd header;
@@ -427,17 +446,22 @@ struct Render_Rect{
     Vec4 color;
 }
 
-T* push_command(T)(Render_Pass* pass){
-    auto result = alloc_type!T(g_allocator);
-    result.type = T.Type;
+Render_Cmd* push_command(Render_Pass* pass, Command type, size_t size){
+    auto result = cast(Render_Cmd*)alloc(g_allocator, size);
+    result.type = type;
     if(pass.cmd_last){
-        pass.cmd_last.next = &result.header;
+        pass.cmd_last.next = result;
     }
     if(!pass.cmd_next){
-        pass.cmd_next = &result.header;
+        pass.cmd_next = result;
     }
 
-    pass.cmd_last = &result.header;
+    pass.cmd_last = result;
+    return result;
+}
+
+T* push_command(T)(Render_Pass* pass){
+    auto result = cast(T*)push_command(pass, T.Type, T.sizeof);
     return result;
 }
 
@@ -697,11 +721,12 @@ version(opengl){
 
             Shader* shader;
             Shader_Light* light;
+            bool scissor_enabled = false;
 
             auto cmd_node = pass.cmd_next;
             while(cmd_node){
                 switch(cmd_node.type){
-                    default: assert(0);
+                    default: break;
 
                     case Command.Clear_Target:{
                         auto cmd = cast(Clear_Target*)cmd_node;
@@ -763,9 +788,25 @@ version(opengl){
                         if(light != cmd.light)
                             shader_light_source(cmd.light);
                     } break;
+
+                    case Command.Push_Scissor:{
+                        // TODO: Allow for a scissor stack!
+                        auto cmd = cast(Push_Scissor*)cmd_node;
+                        glEnable(GL_SCISSOR_TEST);
+                        scissor_enabled = true;
+                        auto min_p = min(cmd.scissor);
+                        glScissor(
+                            cast(int)min_p.x, cast(int)min_p.y,
+                            cast(int)width(cmd.scissor), cast(int)height(cmd.scissor)
+                        );
+                    } break;
                 }
 
                 cmd_node = cmd_node.next;
+            }
+
+            if(scissor_enabled){
+                glDisable(GL_SCISSOR_TEST);
             }
 
             if(pass.flags & Render_Flag_Disable_Color){
