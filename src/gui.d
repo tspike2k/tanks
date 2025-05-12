@@ -239,7 +239,7 @@ Serializer begin_window_cmd(Window* window, Window_Cmd_Type type){
 
 void end_window_cmd(Window* window, Serializer* buffer){
     auto header = cast(Window_Cmd*)buffer.buffer;
-    assert(buffer.buffer_used > Window_Cmd.sizeof);
+    assert(buffer.buffer_used >= Window_Cmd.sizeof);
     header.size = cast(uint)(buffer.buffer_used - Window_Cmd.sizeof);
     window.buffer_used += buffer.buffer_used;
 }
@@ -263,6 +263,11 @@ void button(Window* window, Gui_ID id, String label, bool disabled = false){
     btn.label    = label;
     btn.disabled = disabled;
 
+    end_window_cmd(window, &buffer);
+}
+
+void next_row(Window* window){
+    auto buffer = begin_window_cmd(window, Window_Cmd_Type.Next_Row);
     end_window_cmd(window, &buffer);
 }
 
@@ -421,31 +426,43 @@ void do_layout(Window* window){
     auto gui = window.gui;
 
     auto work_area = get_work_area(window);
-    auto padding = Vec2(Window_Border_Size, -Window_Border_Size); // TODO: Should this be called "margin?"
-    auto pen = Vec2(0, height(work_area)) + padding;
+    auto padding = Vec2(Window_Border_Size, Window_Border_Size); // TODO: Should this be called "margin?"
+    auto pen = padding; // Pen is from the top-left
 
+    float max_row_height = 0;
     auto buffer = Serializer(window.buffer[0 .. window.buffer_used]);
     while(auto cmd = eat_type!Window_Cmd(&buffer)){
         switch(cmd.type){
             default:
                 eat_bytes(&buffer, cmd.size); break;
 
+            case Window_Cmd_Type.Next_Row:{
+                pen.y += max_row_height + padding.y;
+                max_row_height = 0;
+                pen.x = padding.x;
+            } break;
+
             case Window_Cmd_Type.Widget:{
-                auto widget_data = eat_bytes(&buffer, cmd.size);
-                auto widget = cast(Widget*)widget_data;
+                auto widget = cast(Widget*)eat_bytes(&buffer, cmd.size);
 
-                auto w = width(widget.rel_bounds);
-                auto h = height(widget.rel_bounds);
-
-                widget.rel_bounds.center = pen + Vec2(w, -h)*0.5f;
-                pen.x += w + padding.x;
+                widget.rel_bounds.center = pen + widget.rel_bounds.extents;
+                pen.x += width(widget.rel_bounds) + padding.x;
+                max_row_height = max(max_row_height, height(widget.rel_bounds));
             } break;
         }
     }
 }
 
 Rect get_widget_bounds(Rect window_work_area, Widget* widget){
-    auto result = Rect(widget.rel_bounds.center + min(window_work_area), widget.rel_bounds.extents);
+    auto top_left = Vec2(left(window_work_area), top(window_work_area));
+
+    // rel_bounds are relative to the top-left of the work area of the window
+    // (window bounds excluding border and titlebar). Therefore we need to
+    // flip the y coordinate of the widget center.
+    auto result = Rect(
+        top_left + Vec2(widget.rel_bounds.center.x, -widget.rel_bounds.center.y),
+        widget.rel_bounds.extents
+    );
     return result;
 }
 
@@ -543,7 +560,7 @@ void render_gui(Gui_State* gui, Camera_Data* camera_data, Shader* shader_rects, 
                     auto widget_data = eat_bytes(&buffer, cmd.size);
                     auto widget = cast(Widget*)widget_data;
 
-                    auto bounds = Rect(widget.rel_bounds.center + min(work_area), widget.rel_bounds.extents);
+                    auto bounds = get_widget_bounds(work_area, widget);
                     switch(widget.type){
                         default: assert(0);
 

@@ -465,6 +465,9 @@ void editor_toggle(App_State* s){
         auto memory = (malloc(4086)[0 .. 4086]);
         auto window = add_window(gui, "Test Window", Window_ID_Editor_Test, rect_from_min_wh(Vec2(20, 20), 200, 80), memory);
         button(window, Button_ID_Editor_Test, "Test Button");
+        button(window, gui_id(window.id), "Button B");
+        next_row(window);
+        button(window, gui_id(window.id), "Button C");
 
         memory = (malloc(4086)[0 .. 4086]);
         window = add_window(gui, "Alt Window", Window_ID_Editor_Test_2, rect_from_min_wh(Vec2(20, 20), 200, 80), memory);
