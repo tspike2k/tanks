@@ -269,6 +269,16 @@ void editor_simulate(App_State* s, float dt){
     }
     update_gui(&s.gui, dt);
 
+    if(s.gui.message_id != Null_Gui_ID){
+        switch(s.gui.message_id){
+            default: break;
+
+            case Button_ID_Editor_Test:{
+                log("Test button pressed!\n");
+            } break;
+        }
+    }
+
     switch(g_edit_mode){
         default: break;
 

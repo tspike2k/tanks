@@ -34,6 +34,7 @@ struct Gui_State{
 
     Vec2 cursor_pos;
 
+    Gui_ID message_id;
     Gui_ID hover_widget;
 
     Gui_Action action;
@@ -95,11 +96,15 @@ void init_gui(Gui_State* gs){
 }
 
 Window* add_window(Gui_State* gui, String window_name, Gui_ID id, Rect bounds, void[] buffer){
+    auto width  = max(width(bounds), Window_Min_Width);
+    auto height = max(height(bounds), Window_Min_Height);
+    auto bbox   = rect_from_min_wh(Vec2(left(bounds), top(bounds) - height), width, height);
+
     auto result = cast(Window*)buffer;
     clear_to_zero(*result);
     result.name   = window_name;
     result.id     = id;
-    result.bounds = bounds;
+    result.bounds = bbox;
     result.gui    = gui;
     result.buffer = buffer[Window.sizeof .. $];
     result.dirty  = true;
@@ -344,10 +349,13 @@ bool handle_event(Gui_State* gui, Event* evt){
                         } break;
 
                         case Window_Resize_Type.Bottom:{
-                            auto delta_y = cursor.y - bottom(window.bounds);
+                            auto delta_y = bottom(window.bounds) - cursor.y;
                             auto next_h  = max(height(window.bounds) + delta_y, Window_Min_Height);
                             auto min_p = min(window.bounds);
-                            window.bounds = rect_from_min_wh(Vec2(min_p.x, min_p.y + delta_y), width(window.bounds), next_h);
+                            window.bounds = rect_from_min_wh(
+                                Vec2(left(window.bounds), top(window.bounds) - next_h),
+                                width(window.bounds), next_h
+                            );
                         } break;
                     }
                 }
@@ -442,8 +450,9 @@ Rect get_widget_bounds(Rect window_work_area, Widget* widget){
 }
 
 void update_gui(Gui_State* gui, float dt){
-    gui.hover_widget = Null_Gui_ID;
-    Gui_ID next_hover_id = Null_Gui_ID;
+    gui.message_id              = Null_Gui_ID;
+    gui.hover_widget            = Null_Gui_ID;
+    Gui_ID next_hover_id        = Null_Gui_ID;
     Gui_ID next_hover_window_id = Null_Gui_ID;
 
     auto cursor = gui.cursor_pos;
@@ -477,6 +486,9 @@ void update_gui(Gui_State* gui, float dt){
                     }
 
                     if(gui.active_id == widget.id && gui.mouse_left_released){
+                        if(next_hover_id == widget.id){
+                            gui.message_id = widget.id;
+                        }
                         gui.active_id = Null_Gui_ID;
                     }
                 } break;
@@ -539,11 +551,11 @@ void render_gui(Gui_State* gui, Camera_Data* camera_data, Shader* shader_rects, 
                             auto btn = cast(Button*)widget_data;
                             auto bg_color = Vec4(0.75f, 0.75f, 0.75f, 1);
                             if(gui.active_id == widget.id){
-                                bg_color *= 0.5f;
+                                bg_color *= 0.75f;
                                 bg_color.a = 1;
                             }
                             else if(gui.hover_widget == widget.id){
-                                bg_color = Vec4(0.85f, 0.85f, 0.85f, 1);
+                                bg_color = Vec4(0.9f, 0.9f, 0.9f, 1);
                             }
 
                             render_rect(rp_rects, bounds, bg_color);
