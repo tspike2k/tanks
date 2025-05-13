@@ -125,9 +125,26 @@ Window* get_window_info(){
     return result;
 }
 
+void begin_text_input(char[] buffer, uint* buffer_used, uint* cursor){
+    assert(!g_text_input_mode);
+    g_text_input_mode = true;
+    g_text_input_buffer = buffer;
+    g_text_input_buffer_used = buffer_used;
+    g_text_input_cursor = cursor;
+}
+
+void end_text_input(){
+    assert(g_text_input_mode);
+    g_text_input_mode = false;
+}
+
 private:
 
 __gshared Window g_window_info;
+__gshared bool   g_text_input_mode;
+__gshared char[] g_text_input_buffer;
+__gshared uint*  g_text_input_buffer_used;
+__gshared uint*  g_text_input_cursor;
 
 version(linux){
     pragma(lib, "Xext");
@@ -669,211 +686,261 @@ version(linux){
                     }
                 }
 
-                event_translated = true;
+                if(g_text_input_mode){
+                    auto cursor      = *g_text_input_cursor;
+                    auto buffer      =  g_text_input_buffer;
+                    auto buffer_used = *g_text_input_buffer_used;
 
-                if(xevt.xkey.state & ControlMask){
-                    evt.key.modifier |= Key_Modifier_Ctrl;
+                    if(just_pressed){
+                        switch(keycode){
+                            default: {
+                                if(keycode >= 0x20 && keycode < 0xff
+                                && buffer_used < buffer.length){
+                                    // NOTE: KeySyms in X11 maps directly to ASCII characters within a certain range. See here:
+                                    // https://stackoverflow.com/questions/12343987/convert-ascii-character-to-x11-keycode
+                                    // TODO: We don't want to get ASCII characters, we want UTF-8. Learn how to support internationalization.
+                                    auto ascii = cast(char)keycode;
+
+                                    if(xevt.xkey.state & ShiftMask)
+                                        ascii -= 32;
+
+/+
+                                    if(cursor < buffer_used){
+                                        // Make space for inserting the character into the text buffer.
+                                        auto toShift = dupArray(s.textInputBuffer[textCursor .. bufferUsed], tempAllocator);
+                                        auto end = min(bufferUsed+1, s.textInputBuffer.length);
+                                        s.textInputBuffer[textCursor+1 .. end] = toShift[0 .. $];
+                                    }+/
+
+                                    buffer[cursor] = ascii;
+                                    buffer_used += 1;
+                                    cursor++;
+                                }
+                            } break;
+
+                            case XK_Left:{
+                                if(cursor > 0){
+                                    cursor--;
+                                }
+                            } break;
+
+                            case XK_Right:{
+                                if(cursor < g_text_input_buffer.length){
+                                    cursor--;
+                                }
+                            } break;
+                        }
+                    }
+
+                    *g_text_input_cursor      = cursor;
+                    *g_text_input_buffer_used = buffer_used;
                 }
+                else{
+                    if(xevt.xkey.state & ControlMask){
+                        evt.key.modifier |= Key_Modifier_Ctrl;
+                    }
 
-                evt.type          = Event_Type.Key;
-                evt.key.pressed   = just_pressed;
-                evt.key.is_repeat = is_repeat;
+                    evt.type          = Event_Type.Key;
+                    evt.key.pressed   = just_pressed;
+                    evt.key.is_repeat = is_repeat;
 
-                switch(keycode){
-                    default:
-                        event_translated = false;
-                        break;
+                    event_translated = true;
+                    switch(keycode){
+                        default:
+                            event_translated = false;
+                            break;
 
-                    case XK_A:
-                    case XK_a:
-                        evt.key.id = Key_ID_A; break;
+                        case XK_A:
+                        case XK_a:
+                            evt.key.id = Key_ID_A; break;
 
-                    case XK_B:
-                    case XK_b:
-                        evt.key.id = Key_ID_B; break;
+                        case XK_B:
+                        case XK_b:
+                            evt.key.id = Key_ID_B; break;
 
-                    case XK_C:
-                    case XK_c:
-                        evt.key.id = Key_ID_C; break;
+                        case XK_C:
+                        case XK_c:
+                            evt.key.id = Key_ID_C; break;
 
-                    case XK_D:
-                    case XK_d:
-                        evt.key.id = Key_ID_D; break;
+                        case XK_D:
+                        case XK_d:
+                            evt.key.id = Key_ID_D; break;
 
-                    case XK_E:
-                    case XK_e:
-                        evt.key.id = Key_ID_E; break;
+                        case XK_E:
+                        case XK_e:
+                            evt.key.id = Key_ID_E; break;
 
-                    case XK_F:
-                    case XK_f:
-                        evt.key.id = Key_ID_F; break;
+                        case XK_F:
+                        case XK_f:
+                            evt.key.id = Key_ID_F; break;
 
-                    case XK_G:
-                    case XK_g:
-                        evt.key.id = Key_ID_G; break;
+                        case XK_G:
+                        case XK_g:
+                            evt.key.id = Key_ID_G; break;
 
-                    case XK_H:
-                    case XK_h:
-                        evt.key.id = Key_ID_H; break;
+                        case XK_H:
+                        case XK_h:
+                            evt.key.id = Key_ID_H; break;
 
-                    case XK_I:
-                    case XK_i:
-                        evt.key.id = Key_ID_I; break;
+                        case XK_I:
+                        case XK_i:
+                            evt.key.id = Key_ID_I; break;
 
-                    case XK_J:
-                    case XK_j:
-                        evt.key.id = Key_ID_J; break;
+                        case XK_J:
+                        case XK_j:
+                            evt.key.id = Key_ID_J; break;
 
-                    case XK_K:
-                    case XK_k:
-                        evt.key.id = Key_ID_K; break;
+                        case XK_K:
+                        case XK_k:
+                            evt.key.id = Key_ID_K; break;
 
-                    case XK_L:
-                    case XK_l:
-                        evt.key.id = Key_ID_L; break;
+                        case XK_L:
+                        case XK_l:
+                            evt.key.id = Key_ID_L; break;
 
-                    case XK_M:
-                    case XK_m:
-                        evt.key.id = Key_ID_M; break;
+                        case XK_M:
+                        case XK_m:
+                            evt.key.id = Key_ID_M; break;
 
-                    case XK_N:
-                    case XK_n:
-                        evt.key.id = Key_ID_N; break;
+                        case XK_N:
+                        case XK_n:
+                            evt.key.id = Key_ID_N; break;
 
-                    case XK_O:
-                    case XK_o:
-                        evt.key.id = Key_ID_O; break;
+                        case XK_O:
+                        case XK_o:
+                            evt.key.id = Key_ID_O; break;
 
-                    case XK_P:
-                    case XK_p:
-                        evt.key.id = Key_ID_P; break;
+                        case XK_P:
+                        case XK_p:
+                            evt.key.id = Key_ID_P; break;
 
-                    case XK_Q:
-                    case XK_q:
-                        evt.key.id = Key_ID_Q; break;
+                        case XK_Q:
+                        case XK_q:
+                            evt.key.id = Key_ID_Q; break;
 
-                    case XK_R:
-                    case XK_r:
-                        evt.key.id = Key_ID_R; break;
+                        case XK_R:
+                        case XK_r:
+                            evt.key.id = Key_ID_R; break;
 
-                    case XK_S:
-                    case XK_s:
-                        evt.key.id = Key_ID_S; break;
+                        case XK_S:
+                        case XK_s:
+                            evt.key.id = Key_ID_S; break;
 
-                    case XK_T:
-                    case XK_t:
-                        evt.key.id = Key_ID_T; break;
+                        case XK_T:
+                        case XK_t:
+                            evt.key.id = Key_ID_T; break;
 
-                    case XK_U:
-                    case XK_u:
-                        evt.key.id = Key_ID_U; break;
+                        case XK_U:
+                        case XK_u:
+                            evt.key.id = Key_ID_U; break;
 
-                    case XK_V:
-                    case XK_v:
-                        evt.key.id = Key_ID_V; break;
+                        case XK_V:
+                        case XK_v:
+                            evt.key.id = Key_ID_V; break;
 
-                    case XK_W:
-                    case XK_w:
-                        evt.key.id = Key_ID_W; break;
+                        case XK_W:
+                        case XK_w:
+                            evt.key.id = Key_ID_W; break;
 
-                    case XK_X:
-                    case XK_x:
-                        evt.key.id = Key_ID_X; break;
+                        case XK_X:
+                        case XK_x:
+                            evt.key.id = Key_ID_X; break;
 
-                    case XK_Y:
-                    case XK_y:
-                        evt.key.id = Key_ID_Y; break;
+                        case XK_Y:
+                        case XK_y:
+                            evt.key.id = Key_ID_Y; break;
 
-                    case XK_Z:
-                    case XK_z:
-                        evt.key.id = Key_ID_Z; break;
+                        case XK_Z:
+                        case XK_z:
+                            evt.key.id = Key_ID_Z; break;
 
-                    case XK_0:
-                        evt.key.id = Key_ID_0; break;
+                        case XK_0:
+                            evt.key.id = Key_ID_0; break;
 
-                    case XK_1:
-                        evt.key.id = Key_ID_1; break;
+                        case XK_1:
+                            evt.key.id = Key_ID_1; break;
 
-                    case XK_2:
-                        evt.key.id = Key_ID_2; break;
+                        case XK_2:
+                            evt.key.id = Key_ID_2; break;
 
-                    case XK_3:
-                        evt.key.id = Key_ID_3; break;
+                        case XK_3:
+                            evt.key.id = Key_ID_3; break;
 
-                    case XK_4:
-                        evt.key.id = Key_ID_4; break;
+                        case XK_4:
+                            evt.key.id = Key_ID_4; break;
 
-                    case XK_5:
-                        evt.key.id = Key_ID_5; break;
+                        case XK_5:
+                            evt.key.id = Key_ID_5; break;
 
-                    case XK_6:
-                        evt.key.id = Key_ID_6; break;
+                        case XK_6:
+                            evt.key.id = Key_ID_6; break;
 
-                    case XK_7:
-                        evt.key.id = Key_ID_7; break;
+                        case XK_7:
+                            evt.key.id = Key_ID_7; break;
 
-                    case XK_8:
-                        evt.key.id = Key_ID_8; break;
+                        case XK_8:
+                            evt.key.id = Key_ID_8; break;
 
-                    case XK_9:
-                        evt.key.id = Key_ID_9; break;
+                        case XK_9:
+                            evt.key.id = Key_ID_9; break;
 
-                    case XK_F1:
-                        evt.key.id = Key_ID_F1; break;
+                        case XK_F1:
+                            evt.key.id = Key_ID_F1; break;
 
-                    case XK_F2:
-                        evt.key.id = Key_ID_F2; break;
+                        case XK_F2:
+                            evt.key.id = Key_ID_F2; break;
 
-                    case XK_F3:
-                        evt.key.id = Key_ID_F3; break;
+                        case XK_F3:
+                            evt.key.id = Key_ID_F3; break;
 
-                    case XK_F4:
-                        evt.key.id = Key_ID_F4; break;
+                        case XK_F4:
+                            evt.key.id = Key_ID_F4; break;
 
-                    case XK_F5:
-                        evt.key.id = Key_ID_F5; break;
+                        case XK_F5:
+                            evt.key.id = Key_ID_F5; break;
 
-                    case XK_F6:
-                        evt.key.id = Key_ID_F6; break;
+                        case XK_F6:
+                            evt.key.id = Key_ID_F6; break;
 
-                    case XK_F7:
-                        evt.key.id = Key_ID_F7; break;
+                        case XK_F7:
+                            evt.key.id = Key_ID_F7; break;
 
-                    case XK_F8:
-                        evt.key.id = Key_ID_F8; break;
+                        case XK_F8:
+                            evt.key.id = Key_ID_F8; break;
 
-                    case XK_F9:
-                        evt.key.id = Key_ID_F9; break;
+                        case XK_F9:
+                            evt.key.id = Key_ID_F9; break;
 
-                    case XK_F10:
-                        evt.key.id = Key_ID_F10; break;
+                        case XK_F10:
+                            evt.key.id = Key_ID_F10; break;
 
-                    case XK_F11:
-                        evt.key.id = Key_ID_F11; break;
+                        case XK_F11:
+                            evt.key.id = Key_ID_F11; break;
 
-                    case XK_F12:
-                        evt.key.id = Key_ID_F12; break;
+                        case XK_F12:
+                            evt.key.id = Key_ID_F12; break;
 
-                    case XK_Up:
-                        evt.key.id = Key_ID_Arrow_Up; break;
+                        case XK_Up:
+                            evt.key.id = Key_ID_Arrow_Up; break;
 
-                    case XK_Down:
-                        evt.key.id = Key_ID_Arrow_Down; break;
+                        case XK_Down:
+                            evt.key.id = Key_ID_Arrow_Down; break;
 
-                    case XK_Left:
-                        evt.key.id = Key_ID_Arrow_Left; break;
+                        case XK_Left:
+                            evt.key.id = Key_ID_Arrow_Left; break;
 
-                    case XK_Right:
-                        evt.key.id = Key_ID_Arrow_Right; break;
+                        case XK_Right:
+                            evt.key.id = Key_ID_Arrow_Right; break;
 
-                    case XK_Return:
-                        evt.key.id = Key_ID_Enter; break;
+                        case XK_Return:
+                            evt.key.id = Key_ID_Enter; break;
 
-                    case XK_Delete:
-                        evt.key.id = Key_ID_Delete; break;
+                        case XK_Delete:
+                            evt.key.id = Key_ID_Delete; break;
 
-                    case XK_Escape:
-                        evt.key.id = Key_ID_Escape; break;
+                        case XK_Escape:
+                            evt.key.id = Key_ID_Escape; break;
+                    }
                 }
             } break;
         }

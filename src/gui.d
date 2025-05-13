@@ -42,6 +42,7 @@ struct Gui_State{
     Window_Resize_Type window_resize_type;
     Gui_ID active_id;
     Vec2 grab_offset;
+    bool in_text_input_mode;
 
     // "Events" that are passed to widgets.
     //

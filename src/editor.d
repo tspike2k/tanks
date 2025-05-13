@@ -52,6 +52,10 @@ private{
     Entity_ID  g_selected_entity_id;
     bool       g_dragging_selected;
     Vec2       g_drag_offset;
+
+    char[256] g_text_buffer;
+    uint      g_text_buffer_used;
+    uint      g_text_cursor;
 }
 
 void save_campaign_file(App_State* s){
@@ -369,6 +373,8 @@ void editor_simulate(App_State* s, float dt){
             }
         } break;
     }
+
+    log("Buffer: '{0}'\n", g_text_buffer[0 .. g_text_buffer_used]);
 }
 
 void editor_render(App_State* s, Render_Pass* rp_world, Render_Pass* rp_text){
@@ -458,6 +464,8 @@ void editor_toggle(App_State* s){
 
     auto gui = &s.gui;
     if(!editor_is_open){
+        begin_text_input(g_text_buffer[], &g_text_buffer_used, &g_text_cursor);
+
         s.world.entities_count = 0;
         g_mouse_left_is_down  = false;
         g_mouse_right_is_down = false;
@@ -474,6 +482,7 @@ void editor_toggle(App_State* s){
         button(window, Button_ID_Editor_Test_2, "Test Button");
     }
     else{
+        end_text_input();
         // Close all the windows.
         // TODO: Only close editor windows!
         auto window = gui.windows.bottom;
