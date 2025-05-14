@@ -140,6 +140,10 @@ void end_text_input(){
 
 private:
 
+import math : min, max;
+import logging;
+import core.stdc.string : strlen, memcpy, memmove; // TODO: Have a strlen of our own?
+
 __gshared Window g_window_info;
 __gshared bool   g_text_input_mode;
 __gshared char[] g_text_input_buffer;
@@ -148,12 +152,11 @@ __gshared uint*  g_text_input_cursor;
 
 void text_buffer_remove(char[] buffer, uint* buffer_used, uint start, uint count){
     assert(count > 0);
+    assert(count <= *buffer_used);
     assert(start <= *buffer_used);
     assert(*buffer_used > 0);
 
     if(start + count < *buffer_used){
-        import core.stdc.string : memmove;
-
         auto to_shift = *buffer_used - (start + count);
         assert(start + to_shift < *buffer_used);
         memmove(&buffer[start], &buffer[start+count], to_shift);
@@ -162,17 +165,29 @@ void text_buffer_remove(char[] buffer, uint* buffer_used, uint start, uint count
     (*buffer_used) -= count;
 }
 
+void text_buffer_insert(char[] buffer, uint* buffer_used, uint start, char[] text){
+    assert(text.length);
+    assert(start <= *buffer_used);
+
+    auto dest_end   = min(start + text.length, cast(uint)buffer.length);
+    auto dest       = buffer[start .. dest_end];
+    auto shift_dest = buffer[dest_end .. $];
+
+    if(shift_dest.length){
+        memmove(shift_dest.ptr, dest.ptr, shift_dest.length);
+    }
+    memcpy(dest.ptr, text.ptr, dest.length);
+
+    *buffer_used += dest_end - start;
+}
+
 version(linux){
     pragma(lib, "Xext");
     pragma(lib, "Xi"); // TODO: Load XInput dynamically?
 
     // TODO: Make OpenGL optional.
 
-    import logging;
     import bind.xlib;
-    import logging;
-    import core.stdc.string : strlen; // TODO: Have a strlen of our own?
-
     import bind.glx;
     import bind.opengl;
 
@@ -720,19 +735,9 @@ version(linux){
                                     if(xevt.xkey.state & ShiftMask)
                                         ascii -= 32;
 
-
-
-/+
-                                    if(cursor < buffer_used){
-                                        // Make space for inserting the character into the text buffer.
-                                        auto toShift = dupArray(s.textInputBuffer[textCursor .. bufferUsed], tempAllocator);
-                                        auto end = min(bufferUsed+1, s.textInputBuffer.length);
-                                        s.textInputBuffer[textCursor+1 .. end] = toShift[0 .. $];
-                                    }+/
-
-                                    buffer[cursor] = ascii;
-                                    buffer_used++;
-                                    cursor++;
+                                    auto to_insert = (&ascii)[0 .. 1];
+                                    text_buffer_insert(buffer, &buffer_used, cursor, to_insert);
+                                    cursor += to_insert.length;
                                 }
                             } break;
 
@@ -767,7 +772,7 @@ version(linux){
                         }
                     }
 
-                    cursor = cursor > buffer_used ? buffer_used : cursor;
+                    cursor = min(cursor, buffer_used);
                     *g_text_input_cursor      = cursor;
                     *g_text_input_buffer_used = buffer_used;
                 }
