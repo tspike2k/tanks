@@ -146,6 +146,22 @@ __gshared char[] g_text_input_buffer;
 __gshared uint*  g_text_input_buffer_used;
 __gshared uint*  g_text_input_cursor;
 
+void text_buffer_remove(char[] buffer, uint* buffer_used, uint start, uint count){
+    assert(count > 0);
+    assert(start <= *buffer_used);
+    assert(*buffer_used > 0);
+
+    if(start + count < *buffer_used){
+        import core.stdc.string : memmove;
+
+        auto to_shift = *buffer_used - (start + count);
+        assert(start + to_shift < *buffer_used);
+        memmove(&buffer[start], &buffer[start+count], to_shift);
+    }
+
+    (*buffer_used) -= count;
+}
+
 version(linux){
     pragma(lib, "Xext");
     pragma(lib, "Xi"); // TODO: Load XInput dynamically?
@@ -704,6 +720,8 @@ version(linux){
                                     if(xevt.xkey.state & ShiftMask)
                                         ascii -= 32;
 
+
+
 /+
                                     if(cursor < buffer_used){
                                         // Make space for inserting the character into the text buffer.
@@ -713,25 +731,43 @@ version(linux){
                                     }+/
 
                                     buffer[cursor] = ascii;
-                                    buffer_used += 1;
+                                    buffer_used++;
                                     cursor++;
                                 }
                             } break;
 
+                            case XK_Delete:{
+                                // TODO: The ctrl key should allow you to delete the next word
+                                if(buffer_used > 0 && cursor < buffer_used){
+                                    text_buffer_remove(buffer, &buffer_used, cursor, 1);
+                                }
+                            } break;
+
+                            case XK_BackSpace:{
+                                // TODO: The ctrl key should allow you to delete the prev word
+                                if(buffer_used > 0 && cursor > 0){
+                                    text_buffer_remove(buffer, &buffer_used, cursor-1, 1);
+                                    cursor--;
+                                }
+                            } break;
+
                             case XK_Left:{
+                                // TODO: The ctrl key should allow cursor movement/text deletion on a word-by-word basis
                                 if(cursor > 0){
                                     cursor--;
                                 }
                             } break;
 
                             case XK_Right:{
-                                if(cursor < g_text_input_buffer.length){
-                                    cursor--;
+                                // TODO: The ctrl key should allow cursor movement/text deletion on a word-by-word basis
+                                if(cursor < buffer.length){
+                                    cursor++;
                                 }
                             } break;
                         }
                     }
 
+                    cursor = cursor > buffer_used ? buffer_used : cursor;
                     *g_text_input_cursor      = cursor;
                     *g_text_input_buffer_used = buffer_used;
                 }
