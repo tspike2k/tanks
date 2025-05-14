@@ -53,7 +53,7 @@ private{
     bool       g_dragging_selected;
     Vec2       g_drag_offset;
 
-    char[256] g_text_buffer;
+    char[4] g_text_buffer;
     uint      g_text_buffer_used;
     uint      g_text_cursor;
 }
@@ -268,6 +268,10 @@ void editor_simulate(App_State* s, float dt){
                         }
                     }
                 } break;
+
+                case Event_Type.Paste:{
+                    log("Pasted: '{0}'\n", cast(char[])evt.paste.data);
+                } break;
             }
         }
     }
@@ -374,7 +378,7 @@ void editor_simulate(App_State* s, float dt){
         } break;
     }
 
-    log("Buffer: '{0}'\n", g_text_buffer[0 .. g_text_buffer_used]);
+    //log("Buffer: '{0}'\n", g_text_buffer[0 .. g_text_buffer_used]);
 }
 
 void editor_render(App_State* s, Render_Pass* rp_world, Render_Pass* rp_text){

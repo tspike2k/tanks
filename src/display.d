@@ -4,6 +4,18 @@ Copyright: Copyright (c) 2025
 License:   Boost Software License 1.0 (https://www.boost.org/LICENSE_1_0.txt)
 */
 
+/+
+TODO:
+    - Should we rename this to desktop.d? events.d? pal.d (Platform Abstraction Layer)?
+    - SDL2 make has text input be events passed to the application. That may be a good thing.
+    It would eliminate the need to pass a buffer and "grab" all keyboard events for manipulating
+    the text in the buffer. We could make that more granular at a higher level. For instance,
+    the editor could handle the F0-F12 keys. All other events would be passed to the text input
+    handler.
+    - Add paste events
+    - Add function to copy to clipboard
++/
+
 enum{
     Key_Modifier_Ctrl = (1 << 0),
 };
@@ -75,6 +87,7 @@ enum Event_Type : uint{
     Key,
     Mouse_Motion,
     Button,
+    Paste,
 };
 
 enum Button_ID : uint{
@@ -107,11 +120,23 @@ struct Event_Button{
     bool      pressed; // TODO: Button status flag?
 }
 
+enum Clipboard_Type : uint{
+    Unknown,
+    Text,
+}
+
+struct Event_Paste{
+    Event_Type type;
+    Clipboard_Type paste_type;
+    void[]         data;
+}
+
 union Event{
     Event_Type         type;
     Event_Key          key;
     Event_Mouse_Motion mouse_motion;
     Event_Button       button;
+    Event_Paste        paste;
 }
 
 struct Window{
@@ -125,6 +150,8 @@ Window* get_window_info(){
     return result;
 }
 
+// TODO: We need to re-design the text input interface, I think. At the very least we need to
+// decide how to synchronize selecting text with the cursor text input cursor.
 void begin_text_input(char[] buffer, uint* buffer_used, uint* cursor){
     assert(!g_text_input_mode);
     g_text_input_mode = true;
@@ -190,6 +217,7 @@ version(linux){
     import bind.xlib;
     import bind.glx;
     import bind.opengl;
+    import core.stdc.stdlib : free;
 
     alias XWindow = bind.xlib.Window;
 
@@ -230,6 +258,7 @@ version(linux){
     __gshared int      g_libXI_extension_opcode;
     __gshared int      g_libXI_master_pointer_device;
     __gshared bool     g_use_XI2_for_mouse;
+    __gshared void*    g_event_data_to_free;
 
     __gshared Xlib_Window g_xlib_window;
 
@@ -576,6 +605,17 @@ version(linux){
     public bool next_event(Event* evt){
         bool event_translated = false;
 
+        // Some translated events need to pass data allocated by Xlib to the caller. This data
+        // needs to be freed, but the caller shouldn't have to deal with that (especially since
+        // it could be different on other platforms). This is the simplest way to support that.
+        //
+        // IMPORTANT: g_event_data_to_free should be ONLY be set when an event has been succesfully
+        // translated. If the translation failed, the data should be freed on failure, not here.
+        if(g_event_data_to_free){
+            free(g_event_data_to_free);
+            g_event_data_to_free = null;
+        }
+
         while(!event_translated && XEventsQueued(g_x11_display, QueuedAlready)){
             XEvent xevt;
             XNextEvent(g_x11_display, &xevt);
@@ -717,6 +757,20 @@ version(linux){
                     }
                 }
 
+                // If the user presses ctl+v, we want to paste from the clipboard.
+                if(just_pressed && xevt.xkey.state & ControlMask && keycode == XK_v){
+                    // TODO: Do we need to store the selection atom and test for it on the
+                    // response event? It seems we can get by just checking the response
+                    // property and seeing if it isn't set to None.
+                    //
+                    // TODO: What if we're not interesting in pasting text?
+                    auto atom_Pasted_Text = XInternAtom(g_x11_display, "PASTED_TEXT", False);
+                    XConvertSelection(
+                        g_x11_display, g_x11_atom_clipboard, XA_STRING, atom_Pasted_Text,
+                        g_xlib_window.handle, xevt.xkey.time
+                    );
+                }
+
                 if(g_text_input_mode){
                     auto cursor      = *g_text_input_cursor;
                     auto buffer      =  g_text_input_buffer;
@@ -737,7 +791,7 @@ version(linux){
 
                                     auto to_insert = (&ascii)[0 .. 1];
                                     text_buffer_insert(buffer, &buffer_used, cursor, to_insert);
-                                    cursor += to_insert.length;
+                                    cursor += to_insert.length; // NOTE: This gets clamped to the buffer limit down below
                                 }
                             } break;
 
@@ -982,6 +1036,43 @@ version(linux){
                         case XK_Escape:
                             evt.key.id = Key_ID_Escape; break;
                     }
+                }
+            } break;
+
+            case SelectionNotify:{
+                /+
+                    For more information on Selections, here are some resources:
+                    Xlib Programming Manual (Best introduction I've found)
+                    https://www.jwz.org/doc/x-cut-and-paste.html
+                    https://web.archive.org/web/19980508134514/http%3A//tronche.com/gui/x/icccm/
+                    https://specifications.freedesktop.org/clipboards-spec/clipboards-latest.txt
+                +/
+                if(xevt.xselection.property != None){
+                    // TODO: Look over this call and figure out what all the values do. We need to be sure we're calling this correctly.
+                    // Right now, this is all ripped directly from sample code on the 'net.
+                    int result_format;
+                    Atom result_type;
+                    ulong result_count, ending_padding_bytes;
+                    ubyte* result_data;
+                    auto get_propert_result = XGetWindowProperty(
+                        g_x11_display, xevt.xselection.requestor, xevt.xselection.property,
+                        0, ulong.max, True, AnyPropertyType, &result_type, &result_format,
+                        &result_count, &ending_padding_bytes, &result_data
+                    );
+
+                    if(get_propert_result == Success){
+                        evt.type             = Event_Type.Paste;
+                        evt.paste.paste_type = Clipboard_Type.Unknown; // TODO: Deterine this from result_type or result_format
+                        evt.paste.data       = result_data[0 .. result_count]; // TODO: What about ending_padding_bytes?
+                        event_translated = true;
+
+                        // TODO: Do we only need to free result_data when XGetWindowProperty returns
+                        // success? That's what we're doing here, but if we don't, do we leak?
+                        g_event_data_to_free = result_data;
+                    }
+                }
+                else{
+                    log_warn("Selection conversion refused. Bad type request?\n");
                 }
             } break;
         }
