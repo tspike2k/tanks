@@ -381,6 +381,16 @@ void editor_simulate(App_State* s, float dt){
     }
 
     if(text_buffer_updated){
+        foreach(i; 0 .. g_text_buffer.used+1){
+            if(i == g_text_buffer.cursor){
+                log("c");
+            }
+            else{
+                log(" ");
+            }
+        }
+        log("\n");
+
         log("{0}\n", g_text_buffer.text[0 .. g_text_buffer.used]);
     }
 }

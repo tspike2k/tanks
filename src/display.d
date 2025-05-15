@@ -200,7 +200,6 @@ bool handle_event(Text_Buffer* buffer, Event* evt){
                         // TODO: The ctrl key should allow you to delete the prev word
                         if(buffer.cursor > 0){
                             remove_text(buffer, buffer.cursor-1, 1);
-                            buffer.cursor = buffer.cursor - 1;
                         }
                     } break;
 
@@ -237,35 +236,41 @@ bool handle_event(Text_Buffer* buffer, Event* evt){
 
 void remove_text(Text_Buffer* buffer, uint start, uint count){
     assert(count > 0);
-    assert(count <= buffer.used);
     assert(start <= buffer.used);
     assert(buffer.used > 0);
 
-    if(start + count < buffer.used){
-        auto to_shift = buffer.used - (start + count);
-        memmove(&buffer[start], &buffer[start+count], to_shift);
+    auto end = min(start + count, buffer.used);
+    auto to_move = 0;
+    if(end < buffer.used){
+        to_move = buffer.used - end;
+        memmove(&buffer.text[start], &buffer.text[end], to_move);
     }
 
-    buffer.used -= count;
-    buffer.cursor = min(buffer.cursor, buffer.used);
+    buffer.used = start + to_move;
+    //buffer.cursor = min(buffer.cursor, buffer.used);
+    buffer.cursor = min(start, buffer.used);
 }
 
 void insert_text(Text_Buffer* buffer, uint start, char[] text){
     assert(text.length);
     assert(start <= buffer.used);
 
+    // TODO: This function is broken!
+
     uint end = min(start + cast(uint)text.length, cast(uint)buffer.text.length);
     char[] dest = buffer.text[start .. end];
     char[] remaining = buffer.text[end .. $];
 
     if(remaining.length && start < buffer.used){
-        auto to_shift = min(cast(uint)dest.length, cast(uint)remaining.length);
+        auto to_shift = min(buffer.used - start, cast(uint)remaining.length);
         memmove(remaining.ptr, dest.ptr, to_shift);
         buffer.used += to_shift;
     }
-    memcpy(dest.ptr, text.ptr, dest.length);
-    buffer.used += dest.length;
-    buffer.cursor = end;
+    if(dest.length){
+        memcpy(dest.ptr, text.ptr, dest.length);
+        buffer.used += dest.length;
+        buffer.cursor = end;
+    }
 }
 
 private:
