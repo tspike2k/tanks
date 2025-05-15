@@ -52,10 +52,6 @@ private{
     Entity_ID  g_selected_entity_id;
     bool       g_dragging_selected;
     Vec2       g_drag_offset;
-
-    char[4] g_text_buffer;
-    uint      g_text_buffer_used;
-    uint      g_text_cursor;
 }
 
 void save_campaign_file(App_State* s){
@@ -131,6 +127,9 @@ Entity* get_entity_under_cursor(World* world, Vec2 cursor_world){
     return result;
 }
 
+char[4]     g_text_buffer_data;
+Text_Buffer g_text_buffer;
+
 void editor_simulate(App_State* s, float dt){
     assert(editor_is_open);
 
@@ -140,8 +139,15 @@ void editor_simulate(App_State* s, float dt){
     bool mouse_right_pressed = false;
 
     Event evt;
+    bool text_buffer_updated = false;
     while(next_event(&evt)){
-        if(!handle_event(&s.gui, &evt)){
+        auto text_buffer_consumed = false;
+        if(handle_event(&g_text_buffer, &evt)){
+            text_buffer_updated  = true;
+            text_buffer_consumed = true;
+        }
+
+        if(!text_buffer_consumed && !handle_event(&s.gui, &evt)){
             switch(evt.type){
                 default: break;
 
@@ -268,14 +274,6 @@ void editor_simulate(App_State* s, float dt){
                         }
                     }
                 } break;
-
-                case Event_Type.Text:{
-                    log("Text: '{0}'\n", evt.text.data);
-                } break;
-
-                case Event_Type.Paste:{
-                    log("Pasted: '{0}'\n", cast(char[])evt.paste.data);
-                } break;
             }
         }
     }
@@ -382,7 +380,9 @@ void editor_simulate(App_State* s, float dt){
         } break;
     }
 
-    //log("Buffer: '{0}'\n", g_text_buffer[0 .. g_text_buffer_used]);
+    if(text_buffer_updated){
+        log("{0}\n", g_text_buffer.text[0 .. g_text_buffer.used]);
+    }
 }
 
 void editor_render(App_State* s, Render_Pass* rp_world, Render_Pass* rp_text){
@@ -473,6 +473,7 @@ void editor_toggle(App_State* s){
     auto gui = &s.gui;
     if(!editor_is_open){
         begin_text_input();
+        set_buffer(&g_text_buffer, g_text_buffer_data[], 0);
 
         s.world.entities_count = 0;
         g_mouse_left_is_down  = false;

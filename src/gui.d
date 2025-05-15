@@ -18,6 +18,7 @@ import render;
 import math;
 import memory;
 import assets : Font;
+import display;
 
 enum  Null_Gui_ID = 0;
 alias Gui_ID = uint;
@@ -42,7 +43,9 @@ struct Gui_State{
     Window_Resize_Type window_resize_type;
     Gui_ID active_id;
     Vec2 grab_offset;
-    bool in_text_input_mode;
+
+    bool        text_buffer_active;
+    Text_Buffer text_buffer;
 
     // "Events" that are passed to widgets.
     //
@@ -273,8 +276,6 @@ void next_row(Window* window){
     auto buffer = begin_window_cmd(window, Window_Cmd_Type.Next_Row);
     end_window_cmd(window, &buffer);
 }
-
-import display;
 
 void raise_window(Window* window){
     auto gui = window.gui;
