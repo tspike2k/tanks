@@ -7,12 +7,6 @@ License:   Boost Software License 1.0 (https://www.boost.org/LICENSE_1_0.txt)
 /+
 TODO:
     - Should we rename this to desktop.d? events.d? pal.d (Platform Abstraction Layer)?
-    - SDL2 make has text input be events passed to the application. That may be a good thing.
-    It would eliminate the need to pass a buffer and "grab" all keyboard events for manipulating
-    the text in the buffer. We could make that more granular at a higher level. For instance,
-    the editor could handle the F0-F12 keys. All other events would be passed to the text input
-    handler.
-    - Add paste events
     - Add function to copy to clipboard
 +/
 
@@ -88,6 +82,7 @@ enum Event_Type : uint{
     Mouse_Motion,
     Button,
     Paste,
+    Text,
 };
 
 enum Button_ID : uint{
@@ -131,12 +126,18 @@ struct Event_Paste{
     void[]         data;
 }
 
+struct Event_Text{
+    Event_Type type;
+    char[] data; // TODO: Should these be utf-32 codepoints instead?
+}
+
 union Event{
     Event_Type         type;
     Event_Key          key;
     Event_Mouse_Motion mouse_motion;
     Event_Button       button;
     Event_Paste        paste;
+    Event_Text         text;
 }
 
 struct Window{
@@ -150,14 +151,9 @@ Window* get_window_info(){
     return result;
 }
 
-// TODO: We need to re-design the text input interface, I think. At the very least we need to
-// decide how to synchronize selecting text with the cursor text input cursor.
-void begin_text_input(char[] buffer, uint* buffer_used, uint* cursor){
+void begin_text_input(){
     assert(!g_text_input_mode);
     g_text_input_mode = true;
-    g_text_input_buffer = buffer;
-    g_text_input_buffer_used = buffer_used;
-    g_text_input_cursor = cursor;
 }
 
 void end_text_input(){
@@ -173,9 +169,6 @@ import core.stdc.string : strlen, memcpy, memmove; // TODO: Have a strlen of our
 
 __gshared Window g_window_info;
 __gshared bool   g_text_input_mode;
-__gshared char[] g_text_input_buffer;
-__gshared uint*  g_text_input_buffer_used;
-__gshared uint*  g_text_input_cursor;
 
 void text_buffer_remove(char[] buffer, uint* buffer_used, uint start, uint count){
     assert(count > 0);
@@ -259,6 +252,7 @@ version(linux){
     __gshared int      g_libXI_master_pointer_device;
     __gshared bool     g_use_XI2_for_mouse;
     __gshared void*    g_event_data_to_free;
+    __gshared char[32] g_text_buffer;
 
     __gshared Xlib_Window g_xlib_window;
 
@@ -772,6 +766,21 @@ version(linux){
                 }
 
                 if(g_text_input_mode){
+                    if(just_pressed && keycode >= 0x20 && keycode < 0xff){
+                        // NOTE: KeySyms in X11 maps directly to ASCII characters within a certain range. See here:
+                        // https://stackoverflow.com/questions/12343987/convert-ascii-character-to-x11-keycode
+                        // TODO: We don't want to get ASCII characters, we want UTF-8. Learn how to support internationalization.
+                        auto ascii = cast(char)keycode;
+                        g_text_buffer[0] = ascii;
+
+                        evt.type = Event_Type.Text;
+                        evt.text.data = g_text_buffer[0 .. 1];
+
+                        event_translated = true;
+                    }
+
+
+                /+
                     auto cursor      = *g_text_input_cursor;
                     auto buffer      =  g_text_input_buffer;
                     auto buffer_used = *g_text_input_buffer_used;
@@ -828,7 +837,7 @@ version(linux){
 
                     cursor = min(cursor, buffer_used);
                     *g_text_input_cursor      = cursor;
-                    *g_text_input_buffer_used = buffer_used;
+                    *g_text_input_buffer_used = buffer_used;+/
                 }
                 else{
                     if(xevt.xkey.state & ControlMask){

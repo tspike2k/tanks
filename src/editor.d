@@ -269,6 +269,10 @@ void editor_simulate(App_State* s, float dt){
                     }
                 } break;
 
+                case Event_Type.Text:{
+                    log("Text: '{0}'\n", evt.text.data);
+                } break;
+
                 case Event_Type.Paste:{
                     log("Pasted: '{0}'\n", cast(char[])evt.paste.data);
                 } break;
@@ -468,7 +472,7 @@ void editor_toggle(App_State* s){
 
     auto gui = &s.gui;
     if(!editor_is_open){
-        begin_text_input(g_text_buffer[], &g_text_buffer_used, &g_text_cursor);
+        begin_text_input();
 
         s.world.entities_count = 0;
         g_mouse_left_is_down  = false;
