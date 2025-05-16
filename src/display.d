@@ -255,20 +255,19 @@ void insert_text(Text_Buffer* buffer, uint start, char[] text){
     assert(text.length);
     assert(start <= buffer.used);
 
-    // TODO: This function is broken!
-
     uint end = min(start + cast(uint)text.length, cast(uint)buffer.text.length);
     char[] dest = buffer.text[start .. end];
     char[] remaining = buffer.text[end .. $];
 
-    if(remaining.length && start < buffer.used){
-        auto to_shift = min(buffer.used - start, cast(uint)remaining.length);
-        memmove(remaining.ptr, dest.ptr, to_shift);
-        buffer.used += to_shift;
-    }
     if(dest.length){
+        uint to_shift = 0;
+        if(remaining.length && start < buffer.used){
+            to_shift = min(buffer.used - start, cast(uint)remaining.length);
+            memmove(remaining.ptr, dest.ptr, to_shift);
+        }
+
         memcpy(dest.ptr, text.ptr, dest.length);
-        buffer.used += dest.length;
+        buffer.used = end + to_shift;
         buffer.cursor = end;
     }
 }
@@ -847,6 +846,7 @@ version(linux){
                         g_x11_display, g_x11_atom_clipboard, XA_STRING, atom_Pasted_Text,
                         g_xlib_window.handle, xevt.xkey.time
                     );
+                    break;
                 }
 
                 if(g_text_input_mode){
