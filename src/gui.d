@@ -41,7 +41,7 @@ struct Gui_State{
 
     Gui_ID active_id;
     Gui_Action action;
-    uint window_resize_type;
+    uint window_resize_flags;
     Vec2 grab_offset;
 
     Text_Buffer text_buffer;
@@ -64,11 +64,11 @@ enum Gui_Action : uint{
     Resizing_Window,
 }
 
-enum Window_Resize_Type : uint{
-    None,
-    Left,
-    Right,
-    Bottom,
+enum Window_Resize_Flag : uint{
+    None     = 0,
+    Left     = (1 << 0),
+    Right    = (1 << 1),
+    Bottom   = (1 << 2),
 }
 
 struct Window{
@@ -336,21 +336,22 @@ bool inside_window_resize_bounds(Vec2 cursor, Rect bounds){
     return result;
 }+/
 
-Window_Resize_Type get_window_resize_type(Vec2 cursor, Rect bounds){
+uint get_window_resize_flags(Vec2 cursor, Rect bounds){
     auto l = left(bounds);
     auto r = right(bounds);
     auto b = bottom(bounds);
     float slack = Window_Resize_Slack;
 
-    auto result = Window_Resize_Type.None;
+    auto result = Window_Resize_Flag.None;
     if(cursor.x >= l - slack && cursor.x <= l + Window_Border_Size){
-        result = Window_Resize_Type.Left;
+        result |= Window_Resize_Flag.Left;
     }
     else if(cursor.x <= r + slack && cursor.x >= r - Window_Border_Size){
-        result = Window_Resize_Type.Right;
+        result |= Window_Resize_Flag.Right;
     }
-    else if(cursor.y >= b - slack && cursor.y <= b + Window_Border_Size){
-        result = Window_Resize_Type.Bottom;
+
+    if(cursor.y >= b - slack && cursor.y <= b + Window_Border_Size){
+        result |= Window_Resize_Flag.Bottom;
     }
 
     return result;
@@ -391,33 +392,28 @@ bool handle_event(Gui_State* gui, Event* evt){
                 else if(gui.action == Gui_Action.Resizing_Window){
                     auto window = get_window_by_id(gui, gui.active_id);
                     if(window){
-                        switch(gui.window_resize_type){
-                            default: break;
+                        if(gui.window_resize_flags & Window_Resize_Flag.Left){
+                            auto delta_x = left(window.bounds) - cursor.x;
+                            auto next_w  = max(width(window.bounds) + delta_x, Window_Min_Width);
+                            window.bounds = rect_from_min_wh(
+                                Vec2(right(window.bounds) - next_w, bottom(window.bounds)),
+                                next_w, height(window.bounds)
+                            );
+                        }
+                        else if(gui.window_resize_flags & Window_Resize_Flag.Right){
+                            auto delta_x = cursor.x - right(window.bounds);
+                            auto next_w  = max(width(window.bounds) + delta_x, Window_Min_Width);
+                            window.bounds = rect_from_min_wh(min(window.bounds), next_w, height(window.bounds));
+                        }
 
-                            case Window_Resize_Type.Left:{
-                                auto delta_x = left(window.bounds) - cursor.x;
-                                auto next_w  = max(width(window.bounds) + delta_x, Window_Min_Width);
-                                window.bounds = rect_from_min_wh(
-                                    Vec2(right(window.bounds) - next_w, bottom(window.bounds)),
-                                    next_w, height(window.bounds)
-                                );
-                            } break;
-
-                            case Window_Resize_Type.Right:{
-                                auto delta_x = cursor.x - right(window.bounds);
-                                auto next_w  = max(width(window.bounds) + delta_x, Window_Min_Width);
-                                window.bounds = rect_from_min_wh(min(window.bounds), next_w, height(window.bounds));
-                            } break;
-
-                            case Window_Resize_Type.Bottom:{
-                                auto delta_y = bottom(window.bounds) - cursor.y;
-                                auto next_h  = max(height(window.bounds) + delta_y, Window_Min_Height);
-                                auto min_p = min(window.bounds);
-                                window.bounds = rect_from_min_wh(
-                                    Vec2(left(window.bounds), top(window.bounds) - next_h),
-                                    width(window.bounds), next_h
-                                );
-                            } break;
+                        if(gui.window_resize_flags & Window_Resize_Flag.Bottom){
+                            auto delta_y = bottom(window.bounds) - cursor.y;
+                            auto next_h  = max(height(window.bounds) + delta_y, Window_Min_Height);
+                            auto min_p = min(window.bounds);
+                            window.bounds = rect_from_min_wh(
+                                Vec2(left(window.bounds), top(window.bounds) - next_h),
+                                width(window.bounds), next_h
+                            );
                         }
                     }
                     else{
@@ -445,12 +441,12 @@ bool handle_event(Gui_State* gui, Event* evt){
                                 }
 
                                 auto titlebar_bounds = get_titlebar_bounds(window);
-                                auto resize_type = get_window_resize_type(gui.cursor_pos, window.bounds);
-                                if(resize_type != Window_Resize_Type.None){
+                                auto resize_flags = get_window_resize_flags(gui.cursor_pos, window.bounds);
+                                if(resize_flags != Window_Resize_Flag.None){
                                     gui.action      = Gui_Action.Resizing_Window; // TODO: Rename this Window_Action?
                                     gui.active_id   = window.id;
                                     gui.grab_offset = window.bounds.center - gui.cursor_pos;
-                                    gui.window_resize_type = resize_type;
+                                    gui.window_resize_flags = resize_flags;
                                 }
                                 else if(is_point_inside_rect(cursor, titlebar_bounds)){
                                     gui.action      = Gui_Action.Dragging_Window;
