@@ -39,12 +39,11 @@ struct Gui_State{
     Gui_ID message_id;
     Gui_ID hover_widget;
 
-    Gui_Action action;
-    Window_Resize_Type window_resize_type;
     Gui_ID active_id;
+    Gui_Action action;
+    uint window_resize_type;
     Vec2 grab_offset;
 
-    Gui_ID      text_buffer_widget_id;
     Text_Buffer text_buffer;
 
     // "Events" that are passed to widgets.
@@ -363,12 +362,16 @@ bool handle_event(Gui_State* gui, Event* evt){
     bool consumed = false;
     // Unfortunately, D can't deduce which handle_event function we mean without specifying
     // the module name.
-    if(gui.text_buffer_widget_id != Null_Gui_ID && display.handle_event(&gui.text_buffer, evt)){
+    if(is_text_input_enabled() && display.handle_event(&gui.text_buffer, evt)){
         consumed = true;
     }
     else{
         switch(evt.type){
             default: break;
+
+            // TODO: Should we move most of the Window Action handling code into update_gui?
+            // We do need to be able to flag mouse clicks as consumed, but that's about all.
+            // We could sum all the mouse motion events, for instance.
 
             case Event_Type.Mouse_Motion:{
                 auto motion = &evt.mouse_motion;
@@ -432,6 +435,7 @@ bool handle_event(Gui_State* gui, Event* evt){
                         if(btn.pressed){
                             auto window = get_window_under_cursor(gui);
                             auto cursor = gui.cursor_pos;
+                            gui.mouse_left_pressed = true;
 
                             if(window){
                                 consumed = true;
@@ -452,9 +456,6 @@ bool handle_event(Gui_State* gui, Event* evt){
                                     gui.action      = Gui_Action.Dragging_Window;
                                     gui.active_id   = window.id;
                                     gui.grab_offset = window.bounds.center - gui.cursor_pos;
-                                }
-                                else{
-                                    gui.mouse_left_pressed = true;
                                 }
                             }
                             else{
@@ -557,49 +558,61 @@ void update_gui(Gui_State* gui, float dt){
 
                     if(widget.id == gui.active_id){
                         active_widget = widget;
-
-                        if(widget.type == Widget_Type.Text_Field){
-                            auto field = cast(Text_Field*)widget;
-                            (*field.used) = gui.text_buffer.used;
-                        }
                     }
+
+                    // TODO: Update widgets that need updating even when they're not the
+                    // active widget here. Also, call the update_custom_widgets function
+                    // (when we add it) here.
                 } break;
             }
         }
     }
 
-    if(gui.mouse_left_pressed){
-        gui.active_id = Null_Gui_ID;
-        if(hover_widget){
-            gui.active_id = hover_widget.id;
-
-            if(hover_widget.type == Widget_Type.Text_Field){
-                auto field = cast(Text_Field*)hover_widget;
-                begin_text_input();
-                gui.text_buffer_widget_id = hover_widget.id;
-                // TODO: Set cursor based on click position.
-                set_buffer(&gui.text_buffer, field.buffer, 0);
-            }
-        }
-    }
-
-    if(gui.mouse_left_released && active_widget){
-        if(active_widget.type != Widget_Type.Text_Field){
+    if(gui.action == Gui_Action.None){
+        if(gui.mouse_left_pressed){
             gui.active_id = Null_Gui_ID;
-            if(hover_widget == active_widget){
-                gui.message_id = active_widget.id;
+            if(hover_widget){
+                // TODO: Deactivate text input mode if we already activated it. This is important if
+                // the previously actvie widget it a text field and the next one is as well.
+                // TODO: Maybe we souldn't even have a text input mode. Perhaps we should just
+                // generate those events and ignore them if we don't care. That might be best.
+                if(hover_widget.type == Widget_Type.Text_Field && hover_widget.id != gui.active_id){
+                    auto field = cast(Text_Field*)hover_widget;
+                    set_text_input_status(true);
+                    set_buffer(&gui.text_buffer, field.buffer, (*field.used), 0); // TODO: Set cursor based on click position.
+                }
+                else{
+                    set_text_input_status(false);
+                }
+
+                gui.active_id = hover_widget.id;
+            }
+            else{
+                set_text_input_status(false);
             }
         }
-    }
 
-    gui.hover_widget = Null_Gui_ID;
-    if(hover_widget){
-        gui.hover_widget = hover_widget.id;
-    }
+        if(gui.mouse_left_released && active_widget){
+            if(active_widget.type != Widget_Type.Text_Field){
+                gui.active_id = Null_Gui_ID;
+                if(hover_widget == active_widget){
+                    gui.message_id = active_widget.id;
+                }
+            }
+        }
 
-    if(gui.text_buffer_widget_id != Null_Gui_ID && gui.active_id != gui.text_buffer_widget_id){
-        gui.text_buffer_widget_id = Null_Gui_ID;
-        end_text_input();
+        gui.hover_widget = Null_Gui_ID;
+        if(hover_widget){
+            gui.hover_widget = hover_widget.id;
+        }
+
+        // Update the active widget.
+        if(active_widget){
+            if(active_widget.type == Widget_Type.Text_Field){
+                auto field = cast(Text_Field*)active_widget;
+                (*field.used) = gui.text_buffer.used;
+            }
+        }
     }
 
     // Clear event flags
@@ -692,7 +705,7 @@ void render_gui(Gui_State* gui, Camera_Data* camera_data, Shader* shader_rects, 
 
                             render_rect(rp_rects, bounds, bg_color);
                             render_button_bounds(rp_rects, bounds, gui.active_id == widget.id);
-                            auto baseline = center_text(font, text, bounds);
+                            auto baseline = center_text_left(font, text, bounds) + Vec2(Button_Padding, 0);
                             render_text(rp_text, font, baseline, text, Vec4(0, 0, 0, 1));
                         } break;
                     }

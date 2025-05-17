@@ -152,14 +152,16 @@ Window* get_window_info(){
     return result;
 }
 
-void begin_text_input(){
-    assert(!g_text_input_mode);
-    g_text_input_mode = true;
+bool is_text_input_enabled(){
+    bool result = g_text_input_enabled;
+    return result;
 }
 
-void end_text_input(){
-    assert(g_text_input_mode);
-    g_text_input_mode = false;
+// TODO: This may require platform-specific things to be done. For instance, platforms like the
+// PS4 use an on-screen keyboard for input. This function should handle toggling that off and on
+// and ignore it if g_text_input_enabled is already set to the value of "status."
+void set_text_input_status(bool status){
+    g_text_input_enabled = status;
 }
 
 struct Text_Buffer{
@@ -168,10 +170,10 @@ struct Text_Buffer{
     uint   cursor;
 }
 
-void set_buffer(Text_Buffer* buffer, char[] source, uint cursor){
+void set_buffer(Text_Buffer* buffer, char[] source, uint used, uint cursor){
     buffer.text   = source;
     buffer.cursor = cursor;
-    buffer.used   = false;
+    buffer.used    = used;
 }
 
 bool handle_event(Text_Buffer* buffer, Event* evt){
@@ -279,7 +281,7 @@ import logging;
 import core.stdc.string : strlen, memcpy, memmove; // TODO: Have a strlen of our own?
 
 __gshared Window g_window_info;
-__gshared bool   g_text_input_mode;
+__gshared bool   g_text_input_enabled;
 
 version(linux){
     pragma(lib, "Xext");
@@ -849,15 +851,17 @@ version(linux){
                     break;
                 }
 
-                if(g_text_input_mode){
+                if(g_text_input_enabled){
                     if(just_pressed && keycode >= 0x20 && keycode < 0xff){
                         // NOTE: KeySyms in X11 maps directly to ASCII characters within a certain range. See here:
                         // https://stackoverflow.com/questions/12343987/convert-ascii-character-to-x11-keycode
                         // TODO: We don't want to get ASCII characters, we want UTF-8. Learn how to support internationalization.
                         auto ascii = cast(char)keycode;
-                        g_text_buffer[0] = ascii;
+                        if(xevt.xkey.state & ShiftMask && ascii >= 'a' && ascii <= 'z')
+                            ascii -= 32;
 
                         evt.type = Event_Type.Text;
+                        g_text_buffer[0] = ascii;
                         evt.text.data = g_text_buffer[0 .. 1];
 
                         event_translated = true;

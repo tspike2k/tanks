@@ -309,6 +309,12 @@ Vec2 center_text(Font* font, String text, Rect bounds){
     return result;
 }
 
+Vec2 center_text_left(Font* font, String text, Rect bounds){
+    auto h = cast(float)font.metrics.cap_height;
+    auto result = floor(Vec2(left(bounds), bounds.center.y - 0.5f*h));
+    return result;
+}
+
 void render_text(Render_Pass* pass, Font* font, Vec2 pos, String text, Vec4 color = Vec4(1, 1, 1, 1)){
     auto cmd      = push_command!Render_Text(pass);
     cmd.text      = text;
