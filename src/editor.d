@@ -25,10 +25,11 @@ import assets;
 import meta;
 import gui;
 
-enum Window_ID_Editor_Test   = 1;
-enum Window_ID_Editor_Test_2 = 2;
-enum Button_ID_Editor_Test   = gui_id(Window_ID_Editor_Test);
-enum Button_ID_Editor_Test_2 = gui_id(Window_ID_Editor_Test_2);
+enum Window_ID_Editor_Test    = 1;
+enum Window_ID_Editor_Test_2  = 2;
+enum Button_ID_Editor_Test    = gui_id(Window_ID_Editor_Test);
+enum Button_ID_Editor_Test_2  = gui_id(Window_ID_Editor_Test_2);
+enum Text_Field_Dest_Filename = gui_id(Window_ID_Editor_Test);
 
 bool editor_is_open;
 
@@ -44,6 +45,8 @@ private{
         Tank,
     }
 
+    char[256]  g_dest_file_name;
+    uint       g_dest_file_name_used;
     bool       g_initialized;
     bool       g_mouse_left_is_down;
     bool       g_mouse_right_is_down;
@@ -127,9 +130,6 @@ Entity* get_entity_under_cursor(World* world, Vec2 cursor_world){
     return result;
 }
 
-char[4]     g_text_buffer_data;
-Text_Buffer g_text_buffer;
-
 void editor_simulate(App_State* s, float dt){
     assert(editor_is_open);
 
@@ -141,13 +141,7 @@ void editor_simulate(App_State* s, float dt){
     Event evt;
     bool text_buffer_updated = false;
     while(next_event(&evt)){
-        auto text_buffer_consumed = false;
-        if(handle_event(&g_text_buffer, &evt)){
-            text_buffer_updated  = true;
-            text_buffer_consumed = true;
-        }
-
-        if(!text_buffer_consumed && !handle_event(&s.gui, &evt)){
+        if(!handle_event(&s.gui, &evt)){
             switch(evt.type){
                 default: break;
 
@@ -379,20 +373,6 @@ void editor_simulate(App_State* s, float dt){
             }
         } break;
     }
-
-    if(text_buffer_updated){
-        foreach(i; 0 .. g_text_buffer.used+1){
-            if(i == g_text_buffer.cursor){
-                log("c");
-            }
-            else{
-                log(" ");
-            }
-        }
-        log("\n");
-
-        log("{0}\n", g_text_buffer.text[0 .. g_text_buffer.used]);
-    }
 }
 
 void editor_render(App_State* s, Render_Pass* rp_world, Render_Pass* rp_text){
@@ -482,9 +462,6 @@ void editor_toggle(App_State* s){
 
     auto gui = &s.gui;
     if(!editor_is_open){
-        begin_text_input();
-        set_buffer(&g_text_buffer, g_text_buffer_data[], 0);
-
         s.world.entities_count = 0;
         g_mouse_left_is_down  = false;
         g_mouse_right_is_down = false;
@@ -492,16 +469,14 @@ void editor_toggle(App_State* s){
         auto memory = (malloc(4086)[0 .. 4086]);
         auto window = add_window(gui, "Test Window", Window_ID_Editor_Test, rect_from_min_wh(Vec2(20, 20), 200, 80), memory);
         button(window, Button_ID_Editor_Test, "Test Button");
-        button(window, gui_id(window.id), "Button B");
         next_row(window);
-        button(window, gui_id(window.id), "Button C");
+        text_field(window, Text_Field_Dest_Filename, g_dest_file_name[], &g_dest_file_name_used);
 
         memory = (malloc(4086)[0 .. 4086]);
         window = add_window(gui, "Alt Window", Window_ID_Editor_Test_2, rect_from_min_wh(Vec2(20, 20), 200, 80), memory);
         button(window, Button_ID_Editor_Test_2, "Test Button");
     }
     else{
-        end_text_input();
         // Close all the windows.
         // TODO: Only close editor windows!
         auto window = gui.windows.bottom;
