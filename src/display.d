@@ -299,6 +299,18 @@ version(linux){
     enum Target_OpenGL_Version_Major = 3;
     enum Target_OpenGL_Version_Minor = 2;
 
+/+
+    Correct text input event handling is wild in X11 (what else is new). If we wish to do it
+    right, and handle IME support, we need to do a lot of stuff. Here's what I have so far.
+
+    The application needs to create and store an "input context." This is done using the
+    XCreateIC function. This is a varargs function for some reason. But we also need to
+    manage the "focus" of the input context using XSetICFocus/XUnsetICFocus.
+
+    Once we have an input context, we can use Xutf8LookupString. This should *only* be done
+    with key press events, as key release events are undefined.
++/
+
     T zero_type(T)(){
         import core.stdc.string: memset;
         T result = void;
@@ -328,6 +340,8 @@ version(linux){
     __gshared Atom     g_x11_atom_WMDeleteWindow;
     __gshared Atom     g_x11_atom_WMIcon;
     __gshared Atom     g_x11_atom_clipboard;
+    __gshared XIC      g_x11_input_context;
+    __gshared XIM      g_x11_input_method;
     __gshared int      g_last_mouse_x;
     __gshared int      g_last_mouse_y;
     __gshared int      g_libXI_extension_opcode;
@@ -835,8 +849,9 @@ version(linux){
 
                 // If the user presses ctl+v, we want to paste from the clipboard.
                 //
-                // TODO: Should this be a public function instead? This way, the paste command
-                // could be mapped to different keys at a higher level.
+                // TODO: Should this be exposed as a function at the API level instead?
+                // This way, the paste command could be mapped to different keys at
+                // at the application level. Call it something like "request_paste_event."
                 if(just_pressed && xevt.xkey.state & ControlMask && keycode == XK_v){
                     // TODO: Do we need to store the selection atom and test for it on the
                     // response event? It seems we can get by just checking the response
@@ -852,20 +867,21 @@ version(linux){
                 }
 
                 if(g_text_input_enabled){
-                    if(just_pressed && keycode >= 0x20 && keycode < 0xff){
-                        // NOTE: KeySyms in X11 maps directly to ASCII characters within a certain range. See here:
-                        // https://stackoverflow.com/questions/12343987/convert-ascii-character-to-x11-keycode
-                        // TODO: We don't want to get ASCII characters, we want UTF-8. Learn how to support internationalization.
-                        auto ascii = cast(char)keycode;
-                        if(xevt.xkey.state & ShiftMask && ascii >= 'a' && ascii <= 'z')
-                            ascii -= 32;
+                    if(just_pressed){
+                        KeySym keysym_result;
+                        // TODO: Use Xutf8LookupString instead. This will require all sorts of crazy
+                        // stuff to do. See here:
+                        // https://gist.github.com/baines/5a49f1334281b2685af5dcae81a6fa8a
+                        auto text_count = XLookupString(
+                            &xevt.xkey, g_text_buffer.ptr, g_text_buffer.length, &keysym_result, null
+                        );
+                        if(text_count > 0 && g_text_buffer[0] >= ' ' && g_text_buffer[0] != 127){ // TODO: Use a better way to filter out ASCII control characters.
+                            evt.type = Event_Type.Text;
+                            evt.text.data = g_text_buffer[0 .. text_count]; // TODO: This isn't null terminated. Should it be?
 
-                        evt.type = Event_Type.Text;
-                        g_text_buffer[0] = ascii;
-                        evt.text.data = g_text_buffer[0 .. 1];
-
-                        event_translated = true;
-                        break;
+                            event_translated = true;
+                            break;
+                        }
                     }
                 }
 

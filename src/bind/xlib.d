@@ -61,6 +61,12 @@ alias XPointer = char*;
 alias VisualID = c_ulong;
 alias Display  = XDisplay;
 alias GC       = void*;
+alias XIC      = _XIC*;
+alias XIM      = _XIM*;
+
+private struct _XIM;
+private struct _XIC;
+struct XComposeStatus;
 
 alias int Status;
 alias int Bool;
@@ -408,6 +414,23 @@ Bool XQueryExtension(Display*, const(char)*, int*, int*, int*);
 int XPutImage(Display* display, Drawable d, GC gc, XImage* image, int src_x, int src_y, int dest_x, int dest_y, uint width, uint height);
 int XMapWindow(Display*, Window);
 int XGetErrorText(Display* display, int code, char* buffer, int length); // TODO: What length?
+
+int XLookupString(XKeyEvent* event_struct, char* buffer_return, int	bytes_buffer, KeySym* keysym_return, XComposeStatus* status_in_out);
+char* XSetLocaleModifiers(const(char)* modifier_list);
+XIM XOpenIM(Display* dpy, _XrmHashBucketRec* rdb, char* res_name, char* res_class);
+Status XCloseIM(XIM im);
+char* XGetIMValues(XIM im, ...);
+char* XSetIMValues(XIM im, ...);
+XIC XCreateIC(XIM im , ...);
+void XDestroyIC(XIC ic);
+void XSetICFocus(XIC ic);
+void XUnsetICFocus(XIC ic);
+char* Xutf8ResetIC(XIC ic);
+char* XSetICValues(XIC ic, ...);
+char *XGetICValues(XIC ic , ...);
+extern XIM XIMOfIC(XIC ic);
+Bool XFilterEvent(XEvent* event, Window	window);
+int Xutf8LookupString(XIC ic, XKeyPressedEvent* event, char* buffer_return, int bytes_buffer, KeySym* keysym_return, Status* status_return);
 
 private struct _XPrivate;
 private struct _XrmHashBucketRec;
