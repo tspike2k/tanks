@@ -390,20 +390,18 @@ void editor_simulate(App_State* s, float dt){
         } break;
 
         case Edit_Mode.Erase:{
-        /+
-            auto hover_e = get_entity_under_cursor(&s.world, s.mouse_world);
-
+            auto hover_e = editor_get_entity(s.mouse_world);
             if(hover_e){
                 s.highlight_entity_id = hover_e.id;
                 s.highlight_material  = &s.material_eraser;
 
                 if(g_mouse_left_is_down && hover_e){
-                    destroy_entity(hover_e);
+                    remove_entity(hover_e);
                 }
             }
             else{
                 s.highlight_entity_id = Null_Entity_ID;
-            }+/
+            }
         } break;
     }
 }
@@ -462,8 +460,7 @@ void editor_render(App_State* s, Render_Passes rp){
                 mat4_translate(p)*mat4_scale(Vec3(0.25f, 0.25f, 0.25f))
             );
 
-            /+
-            auto e = get_entity_by_id(&s.world, g_selected_entity_id);
+            auto e = g_selected_entity;
             if(e){
                 pen.y -= font_small.metrics.line_gap;
                 pen.x = padding;
@@ -501,7 +498,7 @@ void editor_render(App_State* s, Render_Passes rp){
                         );
                     } break;
                 }
-            }+/
+            }
         } break;
 
         case Edit_Mode.Place:{
