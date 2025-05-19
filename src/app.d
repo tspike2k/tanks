@@ -351,12 +351,11 @@ bool is_valid_block(Entity* e){
     return result;
 }
 
-Entity* add_entity(World* world, Vec2 pos, Entity_Type type){
-    Entity* e = &world.entities[world.entities_count++];
+void make_entity(Entity* e, Entity_ID id, Vec2 pos, Entity_Type type){
     clear_to_zero(*e);
     e.health = 1;
     e.parent_id = Null_Entity_ID;
-    e.id   = world.next_entity_id++;
+    e.id   = id;
     e.type = type;
     e.pos  = pos;
 
@@ -368,7 +367,9 @@ Entity* add_entity(World* world, Vec2 pos, Entity_Type type){
             e.extents = Vec2(0.55f, 0.324f); break;
 
         case Entity_Type.Block:
-            e.extents = Vec2(0.5f, 0.5f); break;
+            e.extents = Vec2(0.5f, 0.5f);
+            e.block_height = 1;
+            break;
 
         case Entity_Type.Bullet:
             e.extents = Vec2(0.25f, 0.25f)*0.5f; break;
@@ -376,7 +377,11 @@ Entity* add_entity(World* world, Vec2 pos, Entity_Type type){
         case Entity_Type.Mine:
             e.extents = Vec2(0.25f, 0.25f); break;
     }
+}
 
+Entity* add_entity(World* world, Vec2 pos, Entity_Type type){
+    Entity* e = &world.entities[world.entities_count++];
+    make_entity(e, world.next_entity_id++, pos, type);
     return e;
 }
 

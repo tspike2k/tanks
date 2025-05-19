@@ -29,6 +29,8 @@ enum Button_ID_Editor_Test    = gui_id(Window_ID_Editor_Test);
 enum Button_ID_Editor_Test_2  = gui_id(Window_ID_Editor_Test_2);
 enum Text_Field_Dest_Filename = gui_id(Window_ID_Editor_Test);
 
+enum Synthetic_Entity_ID = Null_Entity_ID+1;
+
 bool editor_is_open;
 
 private{
@@ -54,6 +56,7 @@ private{
     bool       g_dragging_selected;
     Vec2       g_drag_offset;
 
+    Editor_Level*     g_current_level;
     List!Editor_Level g_levels;
 }
 
@@ -141,6 +144,15 @@ Entity* get_entity_under_cursor(World* world, Vec2 cursor_world){
         }
     }
 
+    return result;
+}
+
+Entity* editor_add_entity(Vec2 pos, Entity_Type type){
+    auto entry  = alloc_type!Editor_Entity(g_allocator);
+    auto list = &g_current_level.entities;
+    list.insert(list.top, entry);
+    make_entity(&entry.entity, Synthetic_Entity_ID, pos, type);
+    auto result = &entry.entity;
     return result;
 }
 
@@ -360,18 +372,21 @@ void editor_simulate(App_State* s, float dt){
         } break;
 
         case Edit_Mode.Place:{
-            if(g_placement_mode == Place_Mode.Block && g_mouse_left_is_down){
-                auto tile = floor(s.mouse_world);
-                if(!block_exists_on_tile(&s.world, tile) && inside_grid(tile)){
-                    add_block(&s.world, tile, 1);
+            if(inside_grid(s.mouse_world)){
+                if(g_placement_mode == Place_Mode.Block && g_mouse_left_is_down){
+                    auto tile = floor(s.mouse_world);
+                    if(!block_exists_on_tile(&s.world, tile)){
+                        editor_add_entity(tile + Vec2(0.5f, 0.5f), Entity_Type.Block);
+                    }
                 }
-            }
-            else if(g_placement_mode == Place_Mode.Tank && mouse_left_pressed){
-                add_entity(&s.world, s.mouse_world, Entity_Type.Tank);
+                else if(g_placement_mode == Place_Mode.Tank && mouse_left_pressed){
+                    editor_add_entity(s.mouse_world, Entity_Type.Tank);
+                }
             }
         } break;
 
         case Edit_Mode.Erase:{
+        /+
             auto hover_e = get_entity_under_cursor(&s.world, s.mouse_world);
 
             if(hover_e){
@@ -384,7 +399,7 @@ void editor_simulate(App_State* s, float dt){
             }
             else{
                 s.highlight_entity_id = Null_Entity_ID;
-            }
+            }+/
         } break;
     }
 }
@@ -413,6 +428,7 @@ void editor_render(App_State* s, Render_Passes rp){
                 mat4_translate(p)*mat4_scale(Vec3(0.25f, 0.25f, 0.25f))
             );
 
+            /+
             auto e = get_entity_by_id(&s.world, g_selected_entity_id);
             if(e){
                 pen.y -= font_small.metrics.line_gap;
@@ -451,22 +467,27 @@ void editor_render(App_State* s, Render_Passes rp){
                         );
                     } break;
                 }
-            }
+            }+/
         } break;
 
         case Edit_Mode.Place:{
             if(inside_grid(s.mouse_world)){
                 if(g_placement_mode == Place_Mode.Block){
-                    auto p = world_to_render_pos(floor(s.mouse_world)) + Vec3(0.5f, 0.5f, -0.5f);
-                    render_mesh(rp.world, &s.cube_mesh, &s.material_block, mat4_translate(p));
+                    Entity e = void;
+                    make_entity(&e, Synthetic_Entity_ID, floor(s.mouse_world) + Vec2(0.5f, 0.5f), Entity_Type.Block);
+                    render_entity(s, &e, rp);
                 }
                 else if(g_placement_mode == Place_Mode.Tank){
-                    auto p = world_to_render_pos(s.mouse_world) + Vec3(0, 0.18f, 0);
-                    render_mesh(rp.world, &s.tank_base_mesh, &s.material_enemy_tank, mat4_translate(p));
-                    render_mesh(rp.world, &s.tank_top_mesh, &s.material_enemy_tank, mat4_translate(p));
+                    Entity e = void;
+                    make_entity(&e, Synthetic_Entity_ID, s.mouse_world, Entity_Type.Tank);
+                    render_entity(s, &e, rp);
                 }
             }
         } break;
+    }
+
+    foreach(ref entry; g_current_level.entities.iterate()){
+        render_entity(s, &entry.entity, rp);
     }
 }
 
@@ -474,7 +495,7 @@ Editor_Level* editor_add_level(){
     auto level = alloc_type!Editor_Level(g_allocator);
     level.entities.make();
     g_levels.insert(g_levels.top, level);
-    //g_current_level = level;
+    g_current_level = level;
     return level;
 }
 
