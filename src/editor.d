@@ -6,12 +6,10 @@ See accompanying file LICENSE_BOOST.txt or copy at http://www.boost.org/LICENSE_
 
 /+
 TODO:
-    - Make an actual GUI for the editor.
     - Fix memory leak with calls to load_campaign_from_file. This should load the campaign into
     an allocator specially reserved for campaign memory. When we load, we should reset the
     allocator each time.
-    - In the future, don't use the "world" as the place for the editor to edit
-    entities? Maybe.
+    - In the future, don't use the "world" as the place for the editor to edit entities.
 +/
 
 import app;
@@ -45,9 +43,9 @@ private{
         Tank,
     }
 
+    Allocator* g_allocator;
     char[256]  g_dest_file_name;
     uint       g_dest_file_name_used;
-    bool       g_initialized;
     bool       g_mouse_left_is_down;
     bool       g_mouse_right_is_down;
     Place_Mode g_placement_mode;
@@ -55,6 +53,22 @@ private{
     Entity_ID  g_selected_entity_id;
     bool       g_dragging_selected;
     Vec2       g_drag_offset;
+
+    List!Editor_Level g_levels;
+}
+
+struct Editor_Entity{
+    Editor_Entity* next;
+    Editor_Entity* prev;
+
+    Entity entity;
+}
+
+struct Editor_Level{
+    Editor_Level* next;
+    Editor_Level* prev;
+
+    List!Editor_Entity entities;
 }
 
 void save_campaign_file(App_State* s){
@@ -375,7 +389,7 @@ void editor_simulate(App_State* s, float dt){
     }
 }
 
-void editor_render(App_State* s, Render_Pass* rp_world, Render_Pass* rp_text){
+void editor_render(App_State* s, Render_Passes rp){
     auto window = get_window_info();
 
     auto font_small = &s.font_editor_small;
@@ -383,7 +397,7 @@ void editor_render(App_State* s, Render_Pass* rp_world, Render_Pass* rp_text){
     auto padding = 16;
     auto pen = Vec2(padding, window.height - padding - font_small.metrics.height);
     render_text(
-        rp_text, font_small, pen,
+        rp.hud_text, font_small, pen,
         gen_string("Mode: {0}", enum_string(g_edit_mode), &s.frame_memory)
     );
 
@@ -395,7 +409,7 @@ void editor_render(App_State* s, Render_Pass* rp_world, Render_Pass* rp_text){
             auto p = world_to_render_pos(s.mouse_world);
             auto material = &s.material_block;
             render_mesh(
-                rp_world, &s.cube_mesh, material,
+                rp.world, &s.cube_mesh, material,
                 mat4_translate(p)*mat4_scale(Vec3(0.25f, 0.25f, 0.25f))
             );
 
@@ -405,7 +419,7 @@ void editor_render(App_State* s, Render_Pass* rp_world, Render_Pass* rp_text){
                 pen.x = padding;
 
                 render_text(
-                    rp_text, font_small, pen,
+                    rp.hud_text, font_small, pen,
                     gen_string("Selected : {0}", enum_string(e.type), &s.frame_memory)
                 );
                 pen.y -= font_small.metrics.line_gap;
@@ -420,7 +434,7 @@ void editor_render(App_State* s, Render_Pass* rp_world, Render_Pass* rp_text){
                         }
 
                         render_text(
-                            rp_text, font_small, pen,
+                            rp.hud_text, font_small, pen,
                             gen_string("Height: {0} {1}", e.block_height, extra, &s.frame_memory)
                         );
                     } break;
@@ -432,7 +446,7 @@ void editor_render(App_State* s, Render_Pass* rp_world, Render_Pass* rp_text){
                         }
 
                         render_text(
-                            rp_text, font_small, pen,
+                            rp.hud_text, font_small, pen,
                             gen_string("Player Index: {0} {1}", e.player_index, extra, &s.frame_memory)
                         );
                     } break;
@@ -444,16 +458,32 @@ void editor_render(App_State* s, Render_Pass* rp_world, Render_Pass* rp_text){
             if(inside_grid(s.mouse_world)){
                 if(g_placement_mode == Place_Mode.Block){
                     auto p = world_to_render_pos(floor(s.mouse_world)) + Vec3(0.5f, 0.5f, -0.5f);
-                    render_mesh(rp_world, &s.cube_mesh, &s.material_block, mat4_translate(p));
+                    render_mesh(rp.world, &s.cube_mesh, &s.material_block, mat4_translate(p));
                 }
                 else if(g_placement_mode == Place_Mode.Tank){
                     auto p = world_to_render_pos(s.mouse_world) + Vec3(0, 0.18f, 0);
-                    render_mesh(rp_world, &s.tank_base_mesh, &s.material_enemy_tank, mat4_translate(p));
-                    render_mesh(rp_world, &s.tank_top_mesh, &s.material_enemy_tank, mat4_translate(p));
+                    render_mesh(rp.world, &s.tank_base_mesh, &s.material_enemy_tank, mat4_translate(p));
+                    render_mesh(rp.world, &s.tank_top_mesh, &s.material_enemy_tank, mat4_translate(p));
                 }
             }
         } break;
     }
+}
+
+Editor_Level* editor_add_level(){
+    auto level = alloc_type!Editor_Level(g_allocator);
+    level.entities.make();
+    g_levels.insert(g_levels.top, level);
+    //g_current_level = level;
+    return level;
+}
+
+void editor_new_campaign(){
+    // IMPORTANT: This frees all the memory used by the editor.
+    reset(g_allocator);
+
+    g_levels.make();
+    editor_add_level();
 }
 
 void editor_toggle(App_State* s){
@@ -462,9 +492,13 @@ void editor_toggle(App_State* s){
 
     auto gui = &s.gui;
     if(!editor_is_open){
-        s.world.entities_count = 0;
+        g_allocator = &s.editor_memory;
+
         g_mouse_left_is_down  = false;
         g_mouse_right_is_down = false;
+
+        // TODO: Initially load any campaign we've been working on.
+        editor_new_campaign();
 
         auto memory = (malloc(4086)[0 .. 4086]);
         auto window = add_window(gui, "Test Window", Window_ID_Editor_Test, rect_from_min_wh(Vec2(20, 20), 200, 80), memory);

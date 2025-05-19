@@ -38,7 +38,9 @@ import gui;
 
 enum Main_Memory_Size    =  4*1024*1024;
 enum Frame_Memory_Size   =  8*1024*1024;
+enum Editor_Memory_Size  =  4*1024*1024;
 enum Scratch_Memory_Size = 16*1024*1024;
+enum Total_Memory_Size   = Main_Memory_Size + Frame_Memory_Size + Editor_Memory_Size + Scratch_Memory_Size;
 
 enum Campaign_File_Name = "./build/main.camp"; // TODO: Use a specific folder for campaigns?
 
@@ -245,10 +247,18 @@ void decode(Cmd_Make_Tank* cmd, Entity* e){
     e.angle = cmd.angle;
 }
 
+struct Render_Passes{
+    Render_Pass* holes;
+    Render_Pass* hole_cutouts;
+    Render_Pass* world;
+    Render_Pass* hud_text;
+}
+
 struct App_State{
     Allocator main_memory;
     Allocator frame_memory;
-    Allocator campaign_memory;
+    Allocator editor_memory;
+    //Allocator campaign_memory; // TODO: Implement this?
 
     bool      running;
     float     t;
@@ -1052,8 +1062,103 @@ Mat4_Pair make_hud_camera(uint window_width, uint window_height){
     return result;
 }
 
+void render_entity(App_State* s, Entity* e, Render_Passes rp){
+    Vec3 p = world_to_render_pos(e.pos);
+    switch(e.type){
+        default: break;
+
+        case Entity_Type.Block:{
+            assert(is_valid_block(e));
+            if(!is_hole(e)){
+                float height = 1.0f + 0.5f*cast(float)(e.block_height-1);
+                auto scale = Vec3(1, height, 1);
+                auto pos = p + Vec3(0, height*0.5f, 0);
+
+                auto material = choose_material(s, e);
+                render_mesh(
+                    rp.world, &s.cube_mesh, material,
+                    mat4_translate(pos)*mat4_scale(scale)
+                );
+            }
+            else{
+                // A hole is modeled using an inside-out cylinder. This way the inner
+                // faces will be visible when rendering. In order to see the hole through
+                // the ground mesh, we need a way to "cut out" part of the ground. This
+                // can be done by using the depth-buffer to mask off portions of the mesh.
+                //
+                // For each hole, we first draw the hole mesh as we normally would. We
+                // then disable culling so the outer faces of the hole mesh will be
+                // rendered. We also disable writing to the color buffer and render the
+                // mesh again in order to fill the z-buffer with the outer faces of our
+                // mesh.
+                //
+                // Based on information found here:
+                // https://gamedev.stackexchange.com/questions/115501/how-to-combine-depth-and-stencil-tests
+                // https://www.youtube.com/watch?v=cHhxs12ZfSQ
+                // https://www.youtube.com/watch?v=uxXEV91xsSc
+                //
+                // A similar result can also be achieved by writing to the stencil buffer
+                // and discarding the result when drawing the ground. See here:
+                // https://community.khronos.org/t/masking-away-an-area-of-a-terrain-surface/104810/4
+                // https://www.blog.radiator.debacle.us/2012/08/how-to-dig-holes-in-unity3d-terrains.html
+                // https://www.youtube.com/watch?v=y-SEiDTbszk
+                auto hole_scale  = Vec3(0.70f, 0.25f, 0.70f);
+                auto hole_offset = Vec3(0, -0.5f*hole_scale.y+0.01f, 0);
+
+                auto material = choose_material(s, e);
+                auto xform = mat4_translate(p + hole_offset)*mat4_scale(hole_scale);
+                render_mesh(rp.holes, &s.hole_mesh, material, xform);
+                render_mesh(rp.hole_cutouts, &s.hole_mesh, material, xform);
+            }
+        } break;
+
+        case Entity_Type.Tank:{
+            auto material = choose_material(s, e);
+            auto mat_tran = mat4_translate(p + Vec3(0, 0.18f, 0));
+            render_mesh(
+                rp.world, &s.tank_base_mesh, material,
+                mat_tran*mat4_rot_y(e.angle)
+            );
+            render_mesh(
+                rp.world, &s.tank_top_mesh, material,
+                mat_tran*mat4_rot_y(e.turret_angle)
+            );
+        } break;
+
+        case Entity_Type.Bullet:{
+            auto material = choose_material(s, e);
+            //auto mat_tran = mat4_translate(p);
+            auto mat_tran = mat4_translate(p + Vec3(0, 0.5f, 0)); // TODO: Use this offset when we're done testing the camera
+            render_mesh(rp.world, &s.bullet_mesh, material, mat_tran*mat4_rot_y(e.angle));
+        } break;
+
+        case Entity_Type.Mine:{
+            // TODO: Dynamic material? This thing needs to blink. Perhaps we should have
+            // a shader for that?
+            if(!is_exploding(e)){
+                render_mesh(
+                    rp.world, &s.half_sphere_mesh, choose_material(s, e),
+                    mat4_translate(p)*mat4_scale(Vec3(0.5f, 0.5f, 0.5f))
+                );
+            }
+            else{
+                // TODO: The explosion should spin over time. This would only have any impact
+                // once we add a texture to it.
+                auto material = &s.material_eraser; // TODO: Have a dedicated explosion material
+
+                auto radius = e.extents.x;
+                auto scale = Vec3(radius, radius, radius)*2.0f;
+                render_mesh(
+                    rp.world, &s.half_sphere_mesh, material,
+                    mat4_translate(p)*mat4_scale(scale)
+                );
+            }
+        } break;
+    }
+}
+
 extern(C) int main(int args_count, char** args){
-    auto app_memory = os_alloc(Main_Memory_Size + Scratch_Memory_Size + Frame_Memory_Size, 0);
+    auto app_memory = os_alloc(Total_Memory_Size, 0);
     scope(exit) os_dealloc(app_memory);
 
     version(none){
@@ -1077,10 +1182,12 @@ extern(C) int main(int args_count, char** args){
         s = alloc_type!App_State(&main_memory);
         s.main_memory       = main_memory;
         s.frame_memory      = make_sub_allocator(&memory, Frame_Memory_Size);
+        s.editor_memory     = make_sub_allocator(&memory, Editor_Memory_Size);
         auto scratch_memory = make_sub_allocator(&memory, Scratch_Memory_Size);
 
         s.main_memory.scratch  = &scratch_memory;
         s.frame_memory.scratch = &scratch_memory;
+        s.editor_memory.scratch = &scratch_memory;
     }
 
     /+
@@ -1205,12 +1312,19 @@ extern(C) int main(int args_count, char** args){
         scope(exit) pop_frame(&s.frame_memory);
 
         auto window = get_window_info();
+        auto dt = target_dt;
 
-        auto world_camera = zero_type!Camera_Data;
-        auto hud_camera   = zero_type!Camera_Data;
 
-        float aspect_ratio = (cast(float)window.width) / (cast(float)window.height);
+        Camera_Data hud_camera = void;
         {
+            auto mat = make_hud_camera(window.width, window.height);
+            hud_camera.mat = mat.mat;
+            hud_camera.pos = Vec3(0, 0, 0); // TODO: Is this the center of the hud camera?
+        }
+
+        Camera_Data world_camera = void;
+        {
+            float aspect_ratio = (cast(float)window.width) / (cast(float)window.height);
             auto camera_extents = Vec2((Grid_Width+2), (aspect_ratio*0.5f)*cast(float)(Grid_Height+2))*0.5f;
             auto camera_bounds = Rect(Vec2(0, 0), camera_extents);
 
@@ -1229,8 +1343,6 @@ extern(C) int main(int args_count, char** args){
             ray_vs_plane(mouse_picker_ray, Vec3(0, 0, 0), Vec3(0, 1, 0), &cursor_3d);
             s.mouse_world = Vec2(cursor_3d.x, -cursor_3d.z);
         }
-
-        auto dt = target_dt;
 
         if(editor_is_open){
             editor_simulate(s, target_dt);
@@ -1453,131 +1565,34 @@ extern(C) int main(int args_count, char** args){
 
         //light.pos = Vec3(cos(s.t)*18.0f, 2, sin(s.t)*18.0f);
 
-        auto rp_holes = add_render_pass(&world_camera);
-        set_shader(rp_holes, &shader);
+        Render_Passes render_passes;
+        render_passes.holes = add_render_pass(&world_camera);
+        set_shader(render_passes.holes, &shader);
 
-        auto rp_hole_cutouts = add_render_pass(&world_camera);
-        set_shader(rp_hole_cutouts, &shader); // TODO: We should use a more stripped-down shader for this. We don't need lighting!
-        rp_hole_cutouts.flags = Render_Flag_Disable_Culling|Render_Flag_Disable_Color;
+        render_passes.hole_cutouts = add_render_pass(&world_camera);
+        set_shader(render_passes.hole_cutouts, &shader); // TODO: We should use a more stripped-down shader for this. We don't need lighting!
+        render_passes.hole_cutouts.flags = Render_Flag_Disable_Culling|Render_Flag_Disable_Color;
 
-        auto rp_world = add_render_pass(&world_camera);
-        set_shader(rp_world, &shader);
-        set_light(rp_world, &light);
+        render_passes.world = add_render_pass(&world_camera);
+        set_shader(render_passes.world, &shader);
+        set_light(render_passes.world, &light);
+
+        render_passes.hud_text  = add_render_pass(&hud_camera);
+        set_shader(render_passes.hud_text, &text_shader);
+        render_passes.hud_text.flags = Render_Flag_Disable_Depth_Test;
+
         auto ground_xform = mat4_translate(grid_center)*mat4_scale(Vec3(grid_extents.x, 1.0f, grid_extents.y));
-        render_mesh(rp_world, &s.ground_mesh, &s.material_ground, ground_xform);
+        render_mesh(render_passes.world, &s.ground_mesh, &s.material_ground, ground_xform);
 
-        foreach(ref e; iterate_entities(&s.world)){
-            Vec3 p = world_to_render_pos(e.pos);
-            switch(e.type){
-                default: break;
-
-                case Entity_Type.Block:{
-                    assert(is_valid_block(&e));
-                    if(!is_hole(&e)){
-                        float height = 1.0f + 0.5f*cast(float)(e.block_height-1);
-                        auto scale = Vec3(1, height, 1);
-                        auto pos = p + Vec3(0, height*0.5f, 0);
-
-                        auto material = choose_material(s, &e);
-                        render_mesh(
-                            rp_world, &s.cube_mesh, material,
-                            mat4_translate(pos)*mat4_scale(scale)
-                        );
-                    }
-                    else{
-                        // A hole is modeled using an inside-out cylinder. This way the inner
-                        // faces will be visible when rendering. In order to see the hole through
-                        // the ground mesh, we need a way to "cut out" part of the ground. This
-                        // can be done by using the depth-buffer to mask off portions of the mesh.
-                        //
-                        // For each hole, we first draw the hole mesh as we normally would. We
-                        // then disable culling so the outer faces of the hole mesh will be
-                        // rendered. We also disable writing to the color buffer and render the
-                        // mesh again in order to fill the z-buffer with the outer faces of our
-                        // mesh.
-                        //
-                        // Based on information found here:
-                        // https://gamedev.stackexchange.com/questions/115501/how-to-combine-depth-and-stencil-tests
-                        // https://www.youtube.com/watch?v=cHhxs12ZfSQ
-                        // https://www.youtube.com/watch?v=uxXEV91xsSc
-                        //
-                        // A similar result can also be achieved by writing to the stencil buffer
-                        // and discarding the result when drawing the ground. See here:
-                        // https://community.khronos.org/t/masking-away-an-area-of-a-terrain-surface/104810/4
-                        // https://www.blog.radiator.debacle.us/2012/08/how-to-dig-holes-in-unity3d-terrains.html
-                        // https://www.youtube.com/watch?v=y-SEiDTbszk
-                        auto hole_scale  = Vec3(0.70f, 0.25f, 0.70f);
-                        auto hole_offset = Vec3(0, -0.5f*hole_scale.y+0.01f, 0);
-
-                        auto material = choose_material(s, &e);
-                        auto xform = mat4_translate(p + hole_offset)*mat4_scale(hole_scale);
-                        render_mesh(rp_holes, &s.hole_mesh, material, xform);
-                        render_mesh(rp_hole_cutouts, &s.hole_mesh, material, xform);
-                    }
-                } break;
-
-                case Entity_Type.Tank:{
-                    auto material = choose_material(s, &e);
-                    auto mat_tran = mat4_translate(p + Vec3(0, 0.18f, 0));
-                    render_mesh(
-                        rp_world, &s.tank_base_mesh, material,
-                        mat_tran*mat4_rot_y(e.angle)
-                    );
-                    render_mesh(
-                        rp_world, &s.tank_top_mesh, material,
-                        mat_tran*mat4_rot_y(e.turret_angle)
-                    );
-                } break;
-
-                case Entity_Type.Bullet:{
-                    auto material = choose_material(s, &e);
-                    //auto mat_tran = mat4_translate(p);
-                    auto mat_tran = mat4_translate(p + Vec3(0, 0.5f, 0)); // TODO: Use this offset when we're done testing the camera
-                    render_mesh(rp_world, &s.bullet_mesh, material, mat_tran*mat4_rot_y(e.angle));
-                } break;
-
-                case Entity_Type.Mine:{
-                    // TODO: Dynamic material? This thing needs to blink. Perhaps we should have
-                    // a shader for that?
-                    if(!is_exploding(&e)){
-                        render_mesh(
-                            rp_world, &s.half_sphere_mesh, choose_material(s, &e),
-                            mat4_translate(p)*mat4_scale(Vec3(0.5f, 0.5f, 0.5f))
-                        );
-                    }
-                    else{
-                        // TODO: The explosion should spin over time. This would only have any impact
-                        // once we add a texture to it.
-                        auto material = &s.material_eraser; // TODO: Have a dedicated explosion material
-
-                        auto radius = e.extents.x;
-                        auto scale = Vec3(radius, radius, radius)*2.0f;
-                        render_mesh(
-                            rp_world, &s.half_sphere_mesh, material,
-                            mat4_translate(p)*mat4_scale(scale)
-                        );
-                    }
-                } break;
+        if(!editor_is_open){
+            foreach(ref e; iterate_entities(&s.world)){
+                render_entity(s, &e, render_passes);
             }
         }
-
-        {
-            auto mat = make_hud_camera(window.width, window.height);
-            hud_camera.mat = mat.mat;
-            hud_camera.pos = Vec3(0, 0, 0); // TODO: Is this the center of the hud camera?
+        else{
+            editor_render(s, render_passes);
         }
 
-        auto rp_hud_rects = add_render_pass(&hud_camera);
-        set_shader(rp_hud_rects, &rect_shader);
-        rp_hud_rects.flags = Render_Flag_Disable_Depth_Test;
-
-        auto rp_hud_text  = add_render_pass(&hud_camera);
-        set_shader(rp_hud_text, &text_shader);
-        rp_hud_text.flags = Render_Flag_Disable_Depth_Test;
-
-        if(editor_is_open){
-            editor_render(s, rp_world, rp_hud_text);
-        }
         render_gui(&s.gui, &hud_camera, &rect_shader, &text_shader);
 
         render_end_frame();
