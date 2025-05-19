@@ -80,8 +80,6 @@ void save_campaign_file(App_State* s){
     push_frame(scratch);
     scope(exit) pop_frame(scratch);
 
-    auto world = &s.world;
-
     auto dest_buffer = begin_reserve_all(scratch);
     auto serializer = Serializer(dest_buffer);
 
@@ -96,10 +94,11 @@ void save_campaign_file(App_State* s){
     section.type = Campaign_Section_Type.Blocks;
     section.size = 0;
 
-    foreach(ref e; iterate_entities(world)){
+    foreach(ref entry; g_current_level.entities.iterate()){
+        auto e = &entry.entity;
         if(e.type == Entity_Type.Block){
             auto cmd = eat_type!Cmd_Make_Block(&serializer);
-            encode(cmd, &e);
+            encode(cmd, e);
 
             section.size += Cmd_Make_Block.sizeof;
         }
@@ -109,10 +108,11 @@ void save_campaign_file(App_State* s){
     section.type = Campaign_Section_Type.Tanks;
     section.size = 0;
 
-    foreach(ref e; iterate_entities(world)){
+    foreach(ref entry; g_current_level.entities.iterate()){
+        auto e = &entry.entity;
         if(e.type == Entity_Type.Tank){
             auto cmd = eat_type!Cmd_Make_Tank(&serializer);
-            encode(cmd, &e);
+            encode(cmd, e);
             section.size += Cmd_Make_Tank.sizeof;
         }
     }
@@ -121,7 +121,7 @@ void save_campaign_file(App_State* s){
     write_file_from_memory(Campaign_File_Name, serializer.buffer[0 .. serializer.buffer_used]);
 }
 
-bool block_exists_on_tile(World* world, Vec2 tile){
+bool block_exists_on_tile(Vec2 tile){
     bool result = false;
     assert(floor(tile) == tile);
     foreach(ref entry; g_current_level.entities.iterate()){
@@ -379,7 +379,7 @@ void editor_simulate(App_State* s, float dt){
             if(inside_grid(s.mouse_world)){
                 if(g_placement_mode == Place_Mode.Block && g_mouse_left_is_down){
                     auto tile = floor(s.mouse_world);
-                    if(!block_exists_on_tile(&s.world, tile)){
+                    if(!block_exists_on_tile(tile)){
                         editor_add_entity(tile + Vec2(0.5f, 0.5f), Entity_Type.Block);
                     }
                 }
