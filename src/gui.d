@@ -378,6 +378,33 @@ uint get_window_resize_flags(Vec2 cursor, Rect bounds){
     return result;
 }
 
+auto iterate_widgets(Window* window){
+    struct Range{
+        Serializer buffer;
+        Widget* front;
+
+        bool empty(){
+            bool result = !front;
+            return result;
+        }
+
+        void popFront(){
+            front = null;
+            while(auto cmd = eat_type!Window_Cmd(&buffer)){
+                auto cmd_memory = eat_bytes(&buffer, cmd.size);
+                if(cmd.type == Window_Cmd_Type.Widget){
+                    front = cast(Widget*)cmd_memory;
+                    break;
+                }
+            }
+        }
+    }
+
+    auto result = Range(Serializer(window.buffer[0 .. window.buffer_used]));
+    result.popFront(); // Prime the "pump"
+    return result;
+}
+
 bool handle_event(Gui_State* gui, Event* evt){
     auto display_window = get_window_info();
 
@@ -558,30 +585,21 @@ void update_gui(Gui_State* gui, float dt){
 
         // Search for the current hover widget
         auto work_area = get_work_area(window);
-        auto buffer    = Serializer(window.buffer[0 .. window.buffer_used]);
-        while(auto cmd = eat_type!Window_Cmd(&buffer)){
-            switch(cmd.type){
-                default:
-                    eat_bytes(&buffer, cmd.size); break;
-
-                case Window_Cmd_Type.Widget:{
-                    auto widget = cast(Widget*)eat_bytes(&buffer, cmd.size);
-                    auto bounds = get_widget_bounds(work_area, widget);
-                    if(next_hover_window_id == window.id
-                    && is_point_inside_rect(cursor, work_area)
-                    && is_point_inside_rect(cursor, bounds)){
-                        hover_widget = widget;
-                    }
-
-                    if(widget.id == gui.active_id){
-                        active_widget = widget;
-                    }
-
-                    // TODO: Update widgets that need updating even when they're not the
-                    // active widget here. Also, call the update_custom_widgets function
-                    // (when we add it) here.
-                } break;
+        foreach(ref widget; iterate_widgets(window)){
+            auto bounds = get_widget_bounds(work_area, widget);
+            if(next_hover_window_id == window.id
+            && is_point_inside_rect(cursor, work_area)
+            && is_point_inside_rect(cursor, bounds)){
+                hover_widget = widget;
             }
+
+            if(widget.id == gui.active_id){
+                active_widget = widget;
+            }
+
+            // TODO: Update widgets that need updating even when they're not the
+            // active widget here. Also, call the update_custom_widgets function
+            // (when we add it) here.
         }
     }
 
@@ -675,63 +693,51 @@ void render_gui(Gui_State* gui, Camera_Data* camera_data, Shader* shader_rects, 
         push_scissor(rp_rects, scissor_area);
         push_scissor(rp_text, scissor_area);
 
-        // TODO: We should have a window command buffer iterator.
-        auto buffer = Serializer(window.buffer[0 .. window.buffer_used]);
-        while(auto cmd = eat_type!Window_Cmd(&buffer)){
-            switch(cmd.type){
-                default:
-                    eat_bytes(&buffer, cmd.size); break;
+        foreach(ref widget; iterate_widgets(window)){
+            auto bounds = get_widget_bounds(work_area, widget);
+            switch(widget.type){
+                default: assert(0);
 
-                case Window_Cmd_Type.Widget:{
-                    auto widget_data = eat_bytes(&buffer, cmd.size);
-                    auto widget = cast(Widget*)widget_data;
-
-                    auto bounds = get_widget_bounds(work_area, widget);
-                    switch(widget.type){
-                        default: assert(0);
-
-                        case Widget_Type.Button:{
-                            auto btn = cast(Button*)widget_data;
-                            auto bg_color = Vec4(0.75f, 0.75f, 0.75f, 1);
-                            if(gui.active_id == widget.id){
-                                bg_color *= 0.75f;
-                                bg_color.a = 1;
-                            }
-                            else if(gui.hover_widget == widget.id){
-                                bg_color = Vec4(0.9f, 0.9f, 0.9f, 1);
-                            }
-
-                            render_rect(rp_rects, bounds, bg_color);
-                            render_button_bounds(rp_rects, bounds, gui.active_id == widget.id);
-                            auto baseline = center_text(font, btn.label, bounds);
-                            render_text(rp_text, font, baseline, btn.label, Vec4(0, 0, 0, 1));
-                        } break;
-
-                        case Widget_Type.Text_Field:{
-                            auto field = cast(Text_Field*)widget_data;
-                            auto bg_color = Vec4(0.75f, 0.75f, 0.75f, 1);
-                            if(gui.active_id == widget.id){
-                                bg_color *= 0.75f;
-                                bg_color.a = 1;
-                            }
-                            else if(gui.hover_widget == widget.id){
-                                bg_color = Vec4(0.9f, 0.9f, 0.9f, 1);
-                            }
-
-                            auto text = field.buffer[0 .. (*field.used)];
-
-                            render_rect(rp_rects, bounds, bg_color);
-                            render_button_bounds(rp_rects, bounds, gui.active_id == widget.id);
-                            auto baseline = center_text_left(font, text, bounds) + Vec2(Button_Padding, 0);
-                            render_text(rp_text, font, baseline, text, Vec4(0, 0, 0, 1));
-                        } break;
-
-                        case Widget_Type.Label:{
-                            auto label = cast(Label*)widget_data;
-                            auto baseline = center_text_left(font, label.text, bounds) + Vec2(Button_Padding, 0);
-                            render_text(rp_text, font, baseline, label.text, Vec4(0, 0, 0, 1));
-                        } break;
+                case Widget_Type.Button:{
+                    auto btn = cast(Button*)widget;
+                    auto bg_color = Vec4(0.75f, 0.75f, 0.75f, 1);
+                    if(gui.active_id == widget.id){
+                        bg_color *= 0.75f;
+                        bg_color.a = 1;
                     }
+                    else if(gui.hover_widget == widget.id){
+                        bg_color = Vec4(0.9f, 0.9f, 0.9f, 1);
+                    }
+
+                    render_rect(rp_rects, bounds, bg_color);
+                    render_button_bounds(rp_rects, bounds, gui.active_id == widget.id);
+                    auto baseline = center_text(font, btn.label, bounds);
+                    render_text(rp_text, font, baseline, btn.label, Vec4(0, 0, 0, 1));
+                } break;
+
+                case Widget_Type.Text_Field:{
+                    auto field = cast(Text_Field*)widget;
+                    auto bg_color = Vec4(0.75f, 0.75f, 0.75f, 1);
+                    if(gui.active_id == widget.id){
+                        bg_color *= 0.75f;
+                        bg_color.a = 1;
+                    }
+                    else if(gui.hover_widget == widget.id){
+                        bg_color = Vec4(0.9f, 0.9f, 0.9f, 1);
+                    }
+
+                    auto text = field.buffer[0 .. (*field.used)];
+
+                    render_rect(rp_rects, bounds, bg_color);
+                    render_button_bounds(rp_rects, bounds, gui.active_id == widget.id);
+                    auto baseline = center_text_left(font, text, bounds) + Vec2(Button_Padding, 0);
+                    render_text(rp_text, font, baseline, text, Vec4(0, 0, 0, 1));
+                } break;
+
+                case Widget_Type.Label:{
+                    auto label = cast(Label*)widget;
+                    auto baseline = center_text_left(font, label.text, bounds) + Vec2(Button_Padding, 0);
+                    render_text(rp_text, font, baseline, label.text, Vec4(0, 0, 0, 1));
                 } break;
             }
         }

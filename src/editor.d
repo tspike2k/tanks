@@ -301,6 +301,7 @@ void editor_simulate(App_State* s, float dt){
             }
         }
     }
+
     update_gui(&s.gui, dt);
 
     if(s.gui.message_id != Null_Gui_ID){
