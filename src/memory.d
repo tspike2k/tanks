@@ -207,18 +207,21 @@ size_t calc_alignment_push(void* ptr, size_t alignment){
 }
 
 void[] alloc(Allocator* block, size_t size, uint flags = 0, uint alignment = Default_Align){
-    assert(block.used <= block.memory.length);
-    assert(size <= block.memory.length - block.used);
+    void[] result = null;
+    if(size > 0){
+        assert(block.used <= block.memory.length);
+        assert(size <= block.memory.length - block.used);
 
-    size_t align_push = calc_alignment_push(&block.memory[block.used], alignment);
+        size_t align_push = calc_alignment_push(&block.memory[block.used], alignment);
 
-    size_t index = block.used + align_push;
-    assert(index + size <= block.memory.length);
-    void *raw = &block.memory[index];
-    memset(raw, 0, size); // TODO: Flag for not clearing memory
-    auto result = raw[0 .. size];
+        size_t index = block.used + align_push;
+        assert(index + size <= block.memory.length);
+        void *raw = &block.memory[index];
+        memset(raw, 0, size); // TODO: Flag for not clearing memory
+        result = raw[0 .. size];
 
-    block.used += size + align_push;
+        block.used += size + align_push;
+    }
 
     return result;
 }

@@ -9,7 +9,6 @@ TODO:
     - Fix memory leak with calls to load_campaign_from_file. This should load the campaign into
     an allocator specially reserved for campaign memory. When we load, we should reset the
     allocator each time.
-    - In the future, don't use the "world" as the place for the editor to edit entities.
 +/
 
 import app;
@@ -35,14 +34,15 @@ bool editor_is_open;
 
 private{
     enum Edit_Mode : uint{
+        Map,
+        Level,
+        Info,
+    }
+
+    enum Cursor_Mode : uint{
         Select,
         Place,
         Erase,
-    }
-
-    enum Place_Mode : uint{
-        Block,
-        Tank,
     }
 
     Allocator*  g_allocator;
@@ -50,15 +50,19 @@ private{
     uint        g_dest_file_name_used;
     bool        g_mouse_left_is_down;
     bool        g_mouse_right_is_down;
-    Place_Mode  g_placement_mode;
     Edit_Mode   g_edit_mode;
+    Cursor_Mode g_cursor_mode;
     Entity*     g_selected_entity; // TODO: Should we use ids?
     bool        g_dragging_selected;
     Vec2        g_drag_offset;
     Entity_ID   g_next_entity_id;
+    uint        g_next_map_id;
 
-    Editor_Level*     g_current_level;
-    List!Editor_Level g_levels;
+    Editor_World* g_current_level;
+    Editor_World* g_current_map;
+
+    List!Editor_World g_levels;
+    List!Editor_World g_maps;
 }
 
 struct Editor_Entity{
@@ -68,14 +72,15 @@ struct Editor_Entity{
     Entity entity;
 }
 
-struct Editor_Level{
-    Editor_Level* next;
-    Editor_Level* prev;
+struct Editor_World{
+    Editor_World* next;
+    Editor_World* prev;
 
+    uint map_id;
     List!Editor_Entity entities;
 }
 
-void save_campaign_file(App_State* s){
+void save_campaign_file(App_State* s, String file_name){
     auto scratch = s.frame_memory.scratch;
     push_frame(scratch);
     scope(exit) pop_frame(scratch);
@@ -83,48 +88,60 @@ void save_campaign_file(App_State* s){
     auto dest_buffer = begin_reserve_all(scratch);
     auto serializer = Serializer(dest_buffer);
 
-    Asset_Header header;
+    auto header = eat_type!Asset_Header(&serializer);
+    clear_to_zero(*header);
     header.magic        = Campaign_Meta.magic;
     header.file_version = Campaign_Meta.file_version;
     header.asset_type   = Campaign_Meta.type;
-    write(&serializer, to_void(&header));
 
-    // TODO: Upgrade to using Asset_Sections instead.
-    auto section = eat_type!Campaign_Section(&serializer);
-    section.type = Campaign_Section_Type.Blocks;
-    section.size = 0;
+    auto info_section = begin_writing_section(&serializer, Campaign_Section_Type.Info);
+    auto info = zero_type!Campaign_Info;
+    // TODO: Get info strings from editor state
+    info.name   = "WII Play Tanks";
+    info.author = "tspike";
+    info.next_map_id = g_next_map_id;
+    // TODO: Put date
+    info.levels_count = cast(uint)g_levels.count;
+    info.maps_count   = cast(uint)g_maps.count;
+    write_campaign_info(&serializer, &info);
+    end_writing_section(&serializer, info_section);
 
-    foreach(ref entry; g_current_level.entities.iterate()){
-        auto e = &entry.entity;
-        if(e.type == Entity_Type.Block){
+    foreach(ref map; g_maps.iterate()){
+        auto section = begin_writing_section(&serializer, Campaign_Section_Type.Map);
+        write(&serializer, to_void(&map.map_id));
+        uint entities_count = cast(uint)map.entities.count;
+        write(&serializer, to_void(&entities_count));
+        foreach(ref entry; map.entities.iterate()){
+            auto e = &entry.entity;
+            assert(e.type == Entity_Type.Block);
             auto cmd = eat_type!Cmd_Make_Block(&serializer);
             encode(cmd, e);
-
-            section.size += Cmd_Make_Block.sizeof;
         }
+        end_writing_section(&serializer, section);
     }
 
-    section = eat_type!Campaign_Section(&serializer);
-    section.type = Campaign_Section_Type.Tanks;
-    section.size = 0;
-
-    foreach(ref entry; g_current_level.entities.iterate()){
-        auto e = &entry.entity;
-        if(e.type == Entity_Type.Tank){
+    foreach(ref level; g_levels.iterate()){
+        auto section = begin_writing_section(&serializer, Campaign_Section_Type.Level);
+        write(&serializer, to_void(&level.map_id));
+        uint entities_count = cast(uint)level.entities.count;
+        write(&serializer, to_void(&entities_count));
+        foreach(ref entry; level.entities.iterate()){
+            auto e = &entry.entity;
+            assert(e.type == Entity_Type.Tank);
             auto cmd = eat_type!Cmd_Make_Tank(&serializer);
             encode(cmd, e);
-            section.size += Cmd_Make_Tank.sizeof;
         }
+        end_writing_section(&serializer, section);
     }
 
     end_reserve_all(scratch, serializer.buffer, serializer.buffer_used);
-    write_file_from_memory(Campaign_File_Name, serializer.buffer[0 .. serializer.buffer_used]);
+    write_file_from_memory(file_name, serializer.buffer[0 .. serializer.buffer_used]);
 }
 
 bool block_exists_on_tile(Vec2 tile){
     bool result = false;
     assert(floor(tile) == tile);
-    foreach(ref entry; g_current_level.entities.iterate()){
+    foreach(ref entry; g_current_map.entities.iterate()){
         if(floor(entry.entity.pos) == tile){
             result = true;
             break;
@@ -133,24 +150,9 @@ bool block_exists_on_tile(Vec2 tile){
     return result;
 }
 
-Entity* get_entity_under_cursor(World* world, Vec2 cursor_world){
-    Entity* result;
-
-    float closest_dist_sq = float.max;
-    foreach(ref e; iterate_entities(world)){
-        auto dsq = dist_sq(e.pos, cursor_world);
-        if(dsq < closest_dist_sq && dsq < squared(0.5f)){
-            closest_dist_sq = dsq;
-            result = &e;
-        }
-    }
-
-    return result;
-}
-
-Entity* editor_add_entity(Vec2 pos, Entity_Type type){
+Entity* editor_add_entity(Editor_World *world, Vec2 pos, Entity_Type type){
     auto entry  = alloc_type!Editor_Entity(g_allocator);
-    auto list = &g_current_level.entities;
+    auto list = &world.entities;
     list.insert(list.top, entry);
     make_entity(&entry.entity, g_next_entity_id++, pos, type);
     auto result = &entry.entity;
@@ -215,7 +217,7 @@ void editor_simulate(App_State* s, float dt){
                             } break;
 
                             case Key_ID_K:{
-                                if(g_edit_mode == Edit_Mode.Select){
+                                if(g_cursor_mode == Cursor_Mode.Select){
                                     auto e = g_selected_entity;
                                     if(e && e.type == Entity_Type.Block){
                                         e.breakable = !e.breakable;
@@ -231,7 +233,7 @@ void editor_simulate(App_State* s, float dt){
                             {
                                 if(!key.is_repeat){
                                     auto index = key.id - Key_ID_0;
-                                    if(g_edit_mode == Edit_Mode.Select){
+                                    if(g_cursor_mode == Cursor_Mode.Select){
                                         auto e = g_selected_entity;
                                         if(e && e.type == Entity_Type.Tank){
                                             e.player_index = index;
@@ -241,27 +243,27 @@ void editor_simulate(App_State* s, float dt){
                             } break;
 
                             case Key_ID_T:{
-                                g_placement_mode = Place_Mode.Tank;
+                                g_edit_mode = Edit_Mode.Level;
                             } break;
 
                             case Key_ID_B:{
-                                g_placement_mode = Place_Mode.Block;
+                                g_edit_mode = Edit_Mode.Map;
                             } break;
 
                             case Key_ID_C:{
-                                g_edit_mode = Edit_Mode.Select;
+                                g_cursor_mode = Cursor_Mode.Select;
                             } break;
 
                             case Key_ID_P:{
-                                g_edit_mode = Edit_Mode.Place;
+                                g_cursor_mode = Cursor_Mode.Place;
                             } break;
 
                             case Key_ID_E:{
-                                g_edit_mode = Edit_Mode.Erase;
+                                g_cursor_mode = Cursor_Mode.Erase;
                             } break;
 
                             case Key_ID_Delete:{
-                                if(g_edit_mode == Edit_Mode.Select){
+                                if(g_cursor_mode == Cursor_Mode.Select){
                                     auto e = g_selected_entity;
                                     if(e){
                                         remove_entity(e);
@@ -273,7 +275,7 @@ void editor_simulate(App_State* s, float dt){
                             case Key_ID_S:{
                                 if(!key.is_repeat){
                                     if(key.modifier & Key_Modifier_Ctrl){
-                                        save_campaign_file(s);
+                                        save_campaign_file(s, "./build/test.camp");
                                     }
                                 }
                             } break;
@@ -311,10 +313,18 @@ void editor_simulate(App_State* s, float dt){
         }
     }
 
-    switch(g_edit_mode){
+    Editor_World* world;
+    if(g_edit_mode == Edit_Mode.Map){
+        world = g_current_map;
+    }
+    else{
+        world = g_current_level;
+    }
+
+    switch(g_cursor_mode){
         default: break;
 
-        case Edit_Mode.Select:{
+        case Cursor_Mode.Select:{
             if(g_selected_entity){
                 s.highlight_entity_id = g_selected_entity.id;
             }
@@ -324,7 +334,7 @@ void editor_simulate(App_State* s, float dt){
             s.highlight_material = &s.material_eraser;
 
             if(mouse_left_pressed){
-                auto e = editor_get_entity(s.mouse_world);
+                auto e = editor_get_entity(world, s.mouse_world);
                 g_selected_entity = e;
                 if(e){
                     g_drag_offset = e.pos - s.mouse_world;
@@ -375,22 +385,22 @@ void editor_simulate(App_State* s, float dt){
             }
         } break;
 
-        case Edit_Mode.Place:{
+        case Cursor_Mode.Place:{
             if(inside_grid(s.mouse_world)){
-                if(g_placement_mode == Place_Mode.Block && g_mouse_left_is_down){
+                if(g_edit_mode == Edit_Mode.Map && g_mouse_left_is_down){
                     auto tile = floor(s.mouse_world);
                     if(!block_exists_on_tile(tile)){
-                        editor_add_entity(tile + Vec2(0.5f, 0.5f), Entity_Type.Block);
+                        editor_add_entity(g_current_map, tile + Vec2(0.5f, 0.5f), Entity_Type.Block);
                     }
                 }
-                else if(g_placement_mode == Place_Mode.Tank && mouse_left_pressed){
-                    editor_add_entity(s.mouse_world, Entity_Type.Tank);
+                else if(g_edit_mode == Edit_Mode.Level && mouse_left_pressed){
+                    editor_add_entity(g_current_level, s.mouse_world, Entity_Type.Tank);
                 }
             }
         } break;
 
-        case Edit_Mode.Erase:{
-            auto hover_e = editor_get_entity(s.mouse_world);
+        case Cursor_Mode.Erase:{
+            auto hover_e = editor_get_entity(world, s.mouse_world);
             if(hover_e){
                 s.highlight_entity_id = hover_e.id;
                 s.highlight_material  = &s.material_eraser;
@@ -406,11 +416,11 @@ void editor_simulate(App_State* s, float dt){
     }
 }
 
-Entity* editor_get_entity(Vec2 p){
+Entity* editor_get_entity(Editor_World* world, Vec2 p){
     Entity* result = null;
 
     float min_dist_sq = squared(0.5f);
-    foreach(ref entry; g_current_level.entities.iterate()){
+    foreach(ref entry; world.entities.iterate()){
         auto e = &entry.entity;
 
         auto aabb = Rect(e.pos, e.extents);
@@ -445,13 +455,13 @@ void editor_render(App_State* s, Render_Passes rp){
     auto pen = Vec2(padding, window.height - padding - font_small.metrics.height);
     render_text(
         rp.hud_text, font_small, pen,
-        gen_string("Mode: {0}", enum_string(g_edit_mode), &s.frame_memory)
+        gen_string("Mode: {0}", enum_string(g_cursor_mode), &s.frame_memory)
     );
 
-    switch(g_edit_mode){
+    switch(g_cursor_mode){
         default: break;
 
-        case Edit_Mode.Select:{
+        case Cursor_Mode.Select:{
             // Draw cursor
             auto p = world_to_render_pos(s.mouse_world);
             auto material = &s.material_block;
@@ -501,14 +511,14 @@ void editor_render(App_State* s, Render_Passes rp){
             }
         } break;
 
-        case Edit_Mode.Place:{
+        case Cursor_Mode.Place:{
             if(inside_grid(s.mouse_world)){
-                if(g_placement_mode == Place_Mode.Block){
+                if(g_edit_mode == Edit_Mode.Map){
                     Entity e = void;
                     make_entity(&e, Synthetic_Entity_ID, floor(s.mouse_world) + Vec2(0.5f, 0.5f), Entity_Type.Block);
                     render_entity(s, &e, rp);
                 }
-                else if(g_placement_mode == Place_Mode.Tank){
+                else if(g_edit_mode == Edit_Mode.Level){
                     Entity e = void;
                     make_entity(&e, Synthetic_Entity_ID, s.mouse_world, Entity_Type.Tank);
                     render_entity(s, &e, rp);
@@ -517,17 +527,31 @@ void editor_render(App_State* s, Render_Passes rp){
         } break;
     }
 
+    foreach(ref entry; g_current_map.entities.iterate()){
+        render_entity(s, &entry.entity, rp);
+    }
+
     foreach(ref entry; g_current_level.entities.iterate()){
         render_entity(s, &entry.entity, rp);
     }
 }
 
-Editor_Level* editor_add_level(){
-    auto level = alloc_type!Editor_Level(g_allocator);
+Editor_World* editor_add_level(){
+    auto level = alloc_type!Editor_World(g_allocator);
     level.entities.make();
     g_levels.insert(g_levels.top, level);
     g_current_level = level;
     return level;
+}
+
+Editor_World* editor_add_map(){
+    auto map = alloc_type!Editor_World(g_allocator);
+    map.entities.make();
+    g_maps.insert(g_maps.top, map);
+    map.map_id = g_next_map_id++;
+    g_current_map = map;
+
+    return map;
 }
 
 void editor_new_campaign(){
@@ -536,6 +560,8 @@ void editor_new_campaign(){
 
     g_next_entity_id = Null_Entity_ID+1;
     g_levels.make();
+    g_maps.make();
+    editor_add_map();
     editor_add_level();
 }
 

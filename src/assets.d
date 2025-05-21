@@ -106,7 +106,7 @@ struct Pixels{
 // TODO: Convert Campaign files to using the Asset structure.
 
 enum Campaign_File_Magic = ('T' << 0 | 'a' << 8 | 'n' << 16 | 'k' << 24);
-enum Campaign_File_Version = 0;
+enum Campaign_File_Version = 1;
 
 struct Campaign_Meta{
     enum magic        = Campaign_File_Magic;
@@ -118,13 +118,30 @@ struct Campaign_Meta{
 enum Campaign_Section_Type : uint{
     None,
     Info,
-    Blocks,
-    Tanks,
+    Blocks, // Depricated
+    Tanks,  // Depricated
+    Level,
+    Map,
 }
 
-struct Campaign_Section{
-    Campaign_Section_Type type;
-    uint                  size;
+enum Campaign_Difficuly : uint{
+    Easy,
+    Normal,
+    Hard,
+    Extreme,
+    Impossible,
+}
+
+struct Campaign_Info{
+    String             name;
+    String             author;
+    String             date;
+    String             description;
+    Campaign_Difficuly difficulty;
+    uint               players_count;
+    uint               levels_count;
+    uint               maps_count;
+    uint               next_map_id; // For editing
 }
 
 ////

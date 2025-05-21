@@ -42,7 +42,8 @@ enum Editor_Memory_Size  =  4*1024*1024;
 enum Scratch_Memory_Size = 16*1024*1024;
 enum Total_Memory_Size   = Main_Memory_Size + Frame_Memory_Size + Editor_Memory_Size + Scratch_Memory_Size;
 
-enum Campaign_File_Name = "./build/main.camp"; // TODO: Use a specific folder for campaigns?
+//enum Campaign_File_Name = "./build/main.camp"; // TODO: Use a specific folder for campaigns?
+enum Campaign_File_Name = "./build/test.camp"; // TODO: Use a specific folder for campaigns?
 
 enum Max_Bullets_Per_Tank = 5;
 enum Max_Mines_Per_Tank   = 3;
@@ -52,26 +53,6 @@ enum Mine_Explosion_End_Time = Mine_Detonation_Time + 1.0f;
 
 enum Grid_Width  = 22;
 enum Grid_Height = 16;
-
-enum Difficuly : uint{
-    Easy,
-    Normal,
-    Hard,
-    Extreme,
-    Impossible,
-}
-
-struct Campaign_Info{
-    String    name;
-    String    author;
-    String    date;
-    String    description;
-    Difficuly difficulty;
-    uint      players_count;
-    uint      levels_count;
-    uint      maps_count;
-    uint      next_map_id;
-}
 
 struct Campaign_Map{
     uint id;
@@ -89,16 +70,57 @@ struct Campaign{
     Campaign_Level[] levels;
 }
 
-Campaign_Section* get_campaign_section(Serializer* serializer){
-    auto result = eat_type!Campaign_Section(serializer);
-    if(result && result.size > bytes_left(serializer)){
-        result = null;
-    }
-
-    return result;
+void read_array(T)(Serializer* reader, ref T[] array){
+    uint count = 0;
+    read(reader, to_void(&count));
+    array = cast(T[])eat_bytes(reader, count*T.sizeof);
 }
 
-bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* allocator){
+void write_array(T)(Serializer* reader, T[] array){
+    uint count = cast(uint)array.length;
+    write(reader, to_void(&count));
+    write(reader, cast(void[])array);
+}
+
+void read_campaign_info(Serializer* reader, Campaign_Info* info){
+    read_array(reader, info.name);
+    read_array(reader, info.author);
+    read_array(reader, info.date);
+    read_array(reader, info.description);
+    read(reader, to_void(&info.difficulty));
+    read(reader, to_void(&info.players_count));
+    read(reader, to_void(&info.levels_count));
+    read(reader, to_void(&info.maps_count));
+    read(reader, to_void(&info.next_map_id));
+}
+
+void write_campaign_info(Serializer* reader, Campaign_Info* info){
+    write_array(reader, info.name);
+    write_array(reader, info.author);
+    write_array(reader, info.date);
+    write_array(reader, info.description);
+    write(reader, to_void(&info.difficulty));
+    write(reader, to_void(&info.players_count));
+    write(reader, to_void(&info.levels_count));
+    write(reader, to_void(&info.maps_count));
+    write(reader, to_void(&info.next_map_id));
+}
+
+version(none) bool load_old_campaign_from_file(Campaign* campaign, String file_name, Allocator* allocator){
+    struct Campaign_Section{
+        Campaign_Section_Type type;
+        uint                  size;
+    }
+
+    Campaign_Section* get_campaign_section(Serializer* serializer){
+        auto result = eat_type!Campaign_Section(serializer);
+        if(result && result.size > bytes_left(serializer)){
+            result = null;
+        }
+
+        return result;
+    }
+
     auto scratch = allocator.scratch;
     push_frame(scratch);
     scope(exit) pop_frame(scratch);
@@ -157,6 +179,106 @@ bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* al
     return success;
 }
 
+
+bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* allocator){
+    auto scratch = allocator.scratch;
+    push_frame(scratch);
+    scope(exit) pop_frame(scratch);
+
+    bool success = false;
+    auto memory = read_file_into_memory(file_name, scratch);
+    if(memory.length){
+        auto reader = Serializer(memory);
+
+        auto header = eat_type!Asset_Header(&reader);
+        if(verify_asset_header!Campaign_Meta(file_name, header)){
+            auto start_section = eat_type!Asset_Section(&reader);
+            if(start_section && start_section.type == Campaign_Section_Type.Info){
+                auto info_reader = Serializer(eat_bytes(&reader, start_section.size));
+                Campaign_Info info;
+                read_campaign_info(&info_reader, &info);
+
+
+                campaign.maps   = alloc_array!Campaign_Map(allocator, info.maps_count);
+                campaign.levels = alloc_array!Campaign_Level(allocator, info.levels_count);
+
+                uint map_index   = 0;
+                uint level_index = 0;
+                while(auto section = eat_type!Asset_Section(&reader)){
+                    auto section_memory = Serializer(eat_bytes(&reader, section.size));
+                    switch(section.type){
+                        default:
+                            break;
+
+                        case Campaign_Section_Type.Map:{
+                            auto map = &campaign.maps[map_index++];
+                            read(&section_memory, to_void(&map.id));
+                            uint blocks_count;
+                            read(&section_memory, to_void(&blocks_count));
+                            map.blocks = alloc_array!Cmd_Make_Block(allocator, blocks_count);
+                            read(&section_memory, map.blocks);
+                        } break;
+
+                        case Campaign_Section_Type.Level:{
+                            auto level = &campaign.levels[level_index++];
+                            read(&section_memory, to_void(&level.map_id));
+                            uint tanks_count;
+                            read(&section_memory, to_void(&tanks_count));
+                            level.tanks = alloc_array!Cmd_Make_Tank(allocator, tanks_count);
+                            read(&section_memory, level.tanks);
+                        } break;
+                    }
+                }
+
+                success = map_index == campaign.maps.length
+                      && level_index == campaign.levels.length;
+            }
+            else{
+                log_error("Campaign file {0} doesn't begin with a valid Campaign_Info section.\n", file_name);
+            }
+        }
+
+/+
+        if(true){
+
+            uint map_index;
+            uint level_index;
+
+            // TODO: Switch to using Asset_Section instead
+            while(auto section = get_campaign_section(&serializer)){
+                switch(section.type){
+                    default:
+                        eat_bytes(&serializer, section.size);
+                        break;
+
+                    case Campaign_Section_Type.Blocks:{
+                        auto map = &campaign.maps[map_index++];
+
+                        auto count = section.size / Cmd_Make_Block.sizeof;
+                        map.blocks = alloc_array!Cmd_Make_Block(allocator, count);
+                        read(&serializer, map.blocks);
+                    } break;
+
+                    case Campaign_Section_Type.Tanks:{
+                        auto level = &campaign.levels[level_index++];
+                        auto count = section.size / Cmd_Make_Tank.sizeof;
+                        level.tanks = alloc_array!Cmd_Make_Tank(allocator, count);
+                        read(&serializer, level.tanks);
+                    } break;
+                }
+            }
+            success = map_index == campaign.maps.length
+                      && level_index == campaign.levels.length;;
+        }+/
+    }
+
+    if(!success){
+        log_error("Unable to load campaign from file {0}\n", file_name);
+    }
+
+    return success;
+}
+
 // TODO: Gracefully handle the level index being out of bounds. Generate the test level?
 // Also handle map_index being invalid.
 void load_campaign_level(App_State* s, Campaign* campaign, uint level_index){
@@ -168,6 +290,7 @@ void load_campaign_level(App_State* s, Campaign* campaign, uint level_index){
     foreach(ref m; campaign.maps){
         if(m.id == level.map_id){
             map = &m;
+            break;
         }
     }
 
@@ -191,7 +314,7 @@ void load_campaign_level(App_State* s, Campaign* campaign, uint level_index){
 struct Cmd_Make_Block{
     align(1):
     ubyte  info;
-    ushort pos;
+    ushort pos; // TODO: We could make this easy and change to ubyte x, ubyte y.
 }
 
 struct Cmd_Make_Tank{
