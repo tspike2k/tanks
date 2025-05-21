@@ -31,7 +31,6 @@ enum Window_Resize_Slack = 4; // Additional space for grabbing window border for
 
 struct Gui_State{
     List!Window windows;
-
     Font*   font;
 
     Vec2 cursor_pos;
@@ -45,6 +44,7 @@ struct Gui_State{
     Vec2 grab_offset;
 
     Text_Buffer text_buffer;
+    Window* edit_window;
 
     // "Events" that are passed to widgets.
     //
@@ -99,7 +99,7 @@ void init_gui(Gui_State* gs){
     gs.hover_widget = Null_Gui_ID;
 }
 
-Window* add_window(Gui_State* gui, String window_name, Gui_ID id, Rect bounds, void[] buffer){
+void begin_window(Gui_State* gui, Gui_ID id, String window_name, Rect bounds, void[] buffer){
     auto width  = max(width(bounds), Window_Min_Width);
     auto height = max(height(bounds), Window_Min_Height);
     auto bbox   = rect_from_min_wh(Vec2(left(bounds), top(bounds) - height), width, height);
@@ -114,7 +114,11 @@ Window* add_window(Gui_State* gui, String window_name, Gui_ID id, Rect bounds, v
     result.dirty  = true;
 
     gui.windows.insert(gui.windows.top, result);
-    return result;
+    gui.edit_window = result;
+}
+
+void end_window(Gui_State* gui){
+    gui.edit_window = null;
 }
 
 void remove_window(Window* window){
@@ -272,7 +276,9 @@ struct Label{
     String text;
 }
 
-Serializer begin_window_cmd(Window* window, Window_Cmd_Type type){
+/+
+Serializer begin_window_cmd(Gui_State* gui, Window_Cmd_Type type){
+
     auto dest = Serializer(window.buffer[window.buffer_used .. $]);
     auto entry = eat_type!Window_Cmd(&dest);
     entry.type = type;
@@ -296,21 +302,64 @@ T* push_widget(T)(Serializer* dest, Gui_ID id, float w, float h){
     widget.rel_bounds = Rect(Vec2(0, 0), Vec2(w, h)*0.5f);
     return widget;
 }
++/
 
-void button(Window* window, Gui_ID id, String label, bool disabled = false){
-    auto buffer = begin_window_cmd(window, Window_Cmd_Type.Widget);
-    auto font = window.gui.font;
-
-    float w = get_text_width(font, label) + Button_Padding*2.0f;
-    float h = font.metrics.height + Button_Padding*2.0f;
-    auto btn = push_widget!Button(&buffer, id, w, h);
-    btn.label    = label;
-    btn.disabled = disabled;
-
-    end_window_cmd(window, &buffer);
+Gui_ID window_id_from_widget_id(Gui_ID widget_id){
+    Gui_ID result = (widget_id >> 16) & 0xfffff;
+    return result;
 }
 
-void text_field(Window* window, Gui_ID id, char[] buffer, uint* buffer_used){
+void[] begin_widget(Gui_State* gui, Gui_ID id, Widget_Type type, uint size){
+    void[] result;
+
+    auto window_id = window_id_from_widget_id(id);
+    if(gui.edit_window){
+        auto window = gui.edit_window;
+        assert(window.id == window_id);
+
+        auto cmd = cast(Window_Cmd*)push_to_command_buffer(window, Window_Cmd.sizeof);
+        cmd.type = Window_Cmd_Type.Widget;
+        cmd.size = size;
+
+        result = push_to_command_buffer(window, size);
+        clear_to_zero(result);
+        auto widget = cast(Widget*)result;
+        widget.id   = id;
+        widget.type = type;
+    }
+    else{
+        auto window = get_window_by_id(gui, window_id);
+        // TODO: Lookup acceleration structure
+        foreach(ref widget; iterate_widgets(window)){
+            if(widget.id == id){
+                auto raw = cast(void*)widget;
+                result = raw[0 .. size];
+            }
+        }
+    }
+
+    return result;
+}
+
+void end_widget(Gui_State* gui, Widget* widget, float w, float h){
+    widget.rel_bounds.extents = Vec2(w, h)*0.5f;
+}
+
+void button(Gui_State* gui, Gui_ID id, String label, bool disabled = false){
+    auto font = gui.font;
+
+    auto btn = cast(Button*)begin_widget(gui, id, Widget_Type.Button, Button.sizeof);
+
+    btn.label    = label;
+    btn.disabled = disabled;
+    float w = get_text_width(font, label) + Button_Padding*2.0f;
+    float h = font.metrics.height + Button_Padding*2.0f;
+
+    end_widget(gui, &btn.widget, w, h);
+}
+
+void text_field(Gui_State* gui, Gui_ID id, char[] buffer, uint* buffer_used){
+/+
     auto font = window.gui.font;
 
     auto writer = begin_window_cmd(window, Window_Cmd_Type.Widget);
@@ -320,10 +369,11 @@ void text_field(Window* window, Gui_ID id, char[] buffer, uint* buffer_used){
     widget.buffer = buffer;
     widget.used = buffer_used;
 
-    end_window_cmd(window, &writer);
+    end_window_cmd(window, &writer);+/
 }
 
-void label(Window* window, Gui_ID id, String text){
+void label(Gui_State* gui, Gui_ID id, String text){
+/+
     auto font = window.gui.font;
 
     auto writer = begin_window_cmd(window, Window_Cmd_Type.Widget);
@@ -333,12 +383,13 @@ void label(Window* window, Gui_ID id, String text){
     auto widget = push_widget!Label(&writer, id, w, h);
     widget.text = text;
 
-    end_window_cmd(window, &writer);
+    end_window_cmd(window, &writer);+/
 }
 
-void next_row(Window* window){
-    auto buffer = begin_window_cmd(window, Window_Cmd_Type.Next_Row);
-    end_window_cmd(window, &buffer);
+void next_row(Gui_State* gui){
+    auto cmd = cast(Window_Cmd*)push_to_command_buffer(gui.edit_window, Window_Cmd.sizeof);
+    cmd.type = Window_Cmd_Type.Next_Row;
+    cmd.size = 0;
 }
 
 void raise_window(Window* window){
@@ -745,4 +796,12 @@ void render_gui(Gui_State* gui, Camera_Data* camera_data, Shader* shader_rects, 
         pop_scissor(rp_rects);
         pop_scissor(rp_text);
     }
+}
+
+private:
+
+void[] push_to_command_buffer(Window* window, size_t size){
+    void[] result = window.buffer[window.buffer_used .. window.buffer_used + size];
+    window.buffer_used += size;
+    return result;
 }

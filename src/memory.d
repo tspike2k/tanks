@@ -12,7 +12,12 @@ public import core.stdc.string : memset, memcpy, strlen;
 alias String = const(char)[];
 
 void clear_to_zero(T)(ref T t){
-    memset(&t, 0, T.sizeof);
+    static if(isArray!T){
+        memset(t.ptr, 0, t.length * T[0].init.sizeof);
+    }
+    else{
+        memset(&t, 0, T.sizeof);
+    }
 }
 
 void[] to_void(T)(T* t){

@@ -302,6 +302,25 @@ void editor_simulate(App_State* s, float dt){
         }
     }
 
+    // TODO: I don't much like how we're having to loop over all the windows and widgets.
+    // It's pretty annoying. Plus, each widget has an ID that contains the id of the source
+    // window. We should use that for lookups, so the only thing the user would need to do is
+    // the following:
+    // label(Label_Map_ID, gen_string(...));
+    foreach(window; s.gui.windows.iterate()){
+        foreach(widget; iterate_widgets(window)){
+            switch(widget.id){
+                default: break;
+
+                case Label_Map_ID:{
+                    auto lbl = cast(Label*)widget;
+                    lbl.text = gen_string("map_id {0}", g_current_map.map_id, &s.frame_memory);
+                    window.dirty = true;
+                } break;
+            }
+        }
+    }
+
     update_gui(&s.gui, dt);
 
     if(s.gui.message_id != Null_Gui_ID){
@@ -581,13 +600,13 @@ void editor_toggle(App_State* s){
         editor_new_campaign();
 
         auto memory = (malloc(4086)[0 .. 4086]);
-        auto window = add_window(gui, "Test Window", Window_ID_Main, rect_from_min_wh(Vec2(20, 20), 200, 80), memory);
-
-        button(window, Button_Prev_Map, "<");
-        label(window, Label_Map_ID, "map_id");
-        button(window, Button_Next_Map, ">");
-        button(window, Button_New_Map, "+");
-        next_row(window);
+        begin_window(gui, Window_ID_Main, "Test Window", rect_from_min_wh(Vec2(20, 20), 200, 80), memory);
+            button(gui, Button_Prev_Map, "<");
+            label(gui, Label_Map_ID, "map_id");
+            button(gui, Button_Next_Map, ">");
+            button(gui, Button_New_Map, "+");
+            next_row(gui);
+        end_window(gui);
 
         /+
         memory = (malloc(4086)[0 .. 4086]);
