@@ -264,6 +264,14 @@ struct Text_Field{
     uint*  used;
 }
 
+struct Label{
+    enum Type = Widget_Type.Label;
+    Widget widget;
+    alias widget this;
+
+    String text;
+}
+
 Serializer begin_window_cmd(Window* window, Window_Cmd_Type type){
     auto dest = Serializer(window.buffer[window.buffer_used .. $]);
     auto entry = eat_type!Window_Cmd(&dest);
@@ -311,6 +319,19 @@ void text_field(Window* window, Gui_ID id, char[] buffer, uint* buffer_used){
     auto widget = push_widget!Text_Field(&writer, id, w, h);
     widget.buffer = buffer;
     widget.used = buffer_used;
+
+    end_window_cmd(window, &writer);
+}
+
+void label(Window* window, Gui_ID id, String text){
+    auto font = window.gui.font;
+
+    auto writer = begin_window_cmd(window, Window_Cmd_Type.Widget);
+
+    float w = get_text_width(font, text) + Button_Padding*2.0f;
+    float h = font.metrics.height + Button_Padding*2.0f;
+    auto widget = push_widget!Label(&writer, id, w, h);
+    widget.text = text;
 
     end_window_cmd(window, &writer);
 }
@@ -703,6 +724,12 @@ void render_gui(Gui_State* gui, Camera_Data* camera_data, Shader* shader_rects, 
                             render_button_bounds(rp_rects, bounds, gui.active_id == widget.id);
                             auto baseline = center_text_left(font, text, bounds) + Vec2(Button_Padding, 0);
                             render_text(rp_text, font, baseline, text, Vec4(0, 0, 0, 1));
+                        } break;
+
+                        case Widget_Type.Label:{
+                            auto label = cast(Label*)widget_data;
+                            auto baseline = center_text_left(font, label.text, bounds) + Vec2(Button_Padding, 0);
+                            render_text(rp_text, font, baseline, label.text, Vec4(0, 0, 0, 1));
                         } break;
                     }
                 } break;

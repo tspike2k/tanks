@@ -22,11 +22,11 @@ import assets;
 import meta;
 import gui;
 
-enum Window_ID_Editor_Test    = 1;
-enum Window_ID_Editor_Test_2  = 2;
-enum Button_ID_Editor_Test    = gui_id(Window_ID_Editor_Test);
-enum Button_ID_Editor_Test_2  = gui_id(Window_ID_Editor_Test_2);
-enum Text_Field_Dest_Filename = gui_id(Window_ID_Editor_Test);
+enum Window_ID_Main           = 1;
+enum Label_Map_ID             = gui_id(Window_ID_Main);
+enum Button_Prev_Map          = gui_id(Window_ID_Main);
+enum Button_Next_Map          = gui_id(Window_ID_Main);
+enum Button_New_Map           = gui_id(Window_ID_Main);
 
 enum Synthetic_Entity_ID = Entity_ID.max; // This is just for entity placement previews.
 
@@ -58,11 +58,11 @@ private{
     Entity_ID   g_next_entity_id;
     uint        g_next_map_id;
 
-    Editor_World* g_current_level;
-    Editor_World* g_current_map;
+    Edit_Layer* g_current_level;
+    Edit_Layer* g_current_map;
 
-    List!Editor_World g_levels;
-    List!Editor_World g_maps;
+    List!Edit_Layer g_levels;
+    List!Edit_Layer g_maps;
 }
 
 struct Editor_Entity{
@@ -72,9 +72,9 @@ struct Editor_Entity{
     Entity entity;
 }
 
-struct Editor_World{
-    Editor_World* next;
-    Editor_World* prev;
+struct Edit_Layer{
+    Edit_Layer* next;
+    Edit_Layer* prev;
 
     uint map_id;
     List!Editor_Entity entities;
@@ -150,7 +150,7 @@ bool block_exists_on_tile(Vec2 tile){
     return result;
 }
 
-Entity* editor_add_entity(Editor_World *world, Vec2 pos, Entity_Type type){
+Entity* editor_add_entity(Edit_Layer *world, Vec2 pos, Entity_Type type){
     auto entry  = alloc_type!Editor_Entity(g_allocator);
     auto list = &world.entities;
     list.insert(list.top, entry);
@@ -307,18 +307,18 @@ void editor_simulate(App_State* s, float dt){
         switch(s.gui.message_id){
             default: break;
 
-            case Button_ID_Editor_Test:{
-                log("Test button pressed!\n");
+            case Button_New_Map:{
+                editor_add_map();
             } break;
         }
     }
 
-    Editor_World* world;
+    Edit_Layer* layer;
     if(g_edit_mode == Edit_Mode.Map){
-        world = g_current_map;
+        layer = g_current_map;
     }
     else{
-        world = g_current_level;
+        layer = g_current_level;
     }
 
     switch(g_cursor_mode){
@@ -334,7 +334,7 @@ void editor_simulate(App_State* s, float dt){
             s.highlight_material = &s.material_eraser;
 
             if(mouse_left_pressed){
-                auto e = editor_get_entity(world, s.mouse_world);
+                auto e = editor_get_entity(layer, s.mouse_world);
                 g_selected_entity = e;
                 if(e){
                     g_drag_offset = e.pos - s.mouse_world;
@@ -400,7 +400,7 @@ void editor_simulate(App_State* s, float dt){
         } break;
 
         case Cursor_Mode.Erase:{
-            auto hover_e = editor_get_entity(world, s.mouse_world);
+            auto hover_e = editor_get_entity(layer, s.mouse_world);
             if(hover_e){
                 s.highlight_entity_id = hover_e.id;
                 s.highlight_material  = &s.material_eraser;
@@ -416,7 +416,7 @@ void editor_simulate(App_State* s, float dt){
     }
 }
 
-Entity* editor_get_entity(Editor_World* world, Vec2 p){
+Entity* editor_get_entity(Edit_Layer* world, Vec2 p){
     Entity* result = null;
 
     float min_dist_sq = squared(0.5f);
@@ -536,16 +536,16 @@ void editor_render(App_State* s, Render_Passes rp){
     }
 }
 
-Editor_World* editor_add_level(){
-    auto level = alloc_type!Editor_World(g_allocator);
+Edit_Layer* editor_add_level(){
+    auto level = alloc_type!Edit_Layer(g_allocator);
     level.entities.make();
     g_levels.insert(g_levels.top, level);
     g_current_level = level;
     return level;
 }
 
-Editor_World* editor_add_map(){
-    auto map = alloc_type!Editor_World(g_allocator);
+Edit_Layer* editor_add_map(){
+    auto map = alloc_type!Edit_Layer(g_allocator);
     map.entities.make();
     g_maps.insert(g_maps.top, map);
     map.map_id = g_next_map_id++;
@@ -580,14 +580,18 @@ void editor_toggle(App_State* s){
         editor_new_campaign();
 
         auto memory = (malloc(4086)[0 .. 4086]);
-        auto window = add_window(gui, "Test Window", Window_ID_Editor_Test, rect_from_min_wh(Vec2(20, 20), 200, 80), memory);
-        button(window, Button_ID_Editor_Test, "Test Button");
-        next_row(window);
-        text_field(window, Text_Field_Dest_Filename, g_dest_file_name[], &g_dest_file_name_used);
+        auto window = add_window(gui, "Test Window", Window_ID_Main, rect_from_min_wh(Vec2(20, 20), 200, 80), memory);
 
+        button(window, Button_Prev_Map, "<");
+        label(window, Label_Map_ID, "map_id");
+        button(window, Button_Next_Map, ">");
+        button(window, Button_New_Map, "+");
+        next_row(window);
+
+        /+
         memory = (malloc(4086)[0 .. 4086]);
         window = add_window(gui, "Alt Window", Window_ID_Editor_Test_2, rect_from_min_wh(Vec2(20, 20), 200, 80), memory);
-        button(window, Button_ID_Editor_Test_2, "Test Button");
+        button(window, Button_ID_Editor_Test_2, "Test Button");+/
     }
     else{
         // Close all the windows.
