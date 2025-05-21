@@ -276,34 +276,6 @@ struct Label{
     String text;
 }
 
-/+
-Serializer begin_window_cmd(Gui_State* gui, Window_Cmd_Type type){
-
-    auto dest = Serializer(window.buffer[window.buffer_used .. $]);
-    auto entry = eat_type!Window_Cmd(&dest);
-    entry.type = type;
-    entry.size = 0;
-
-    return dest;
-}
-
-void end_window_cmd(Window* window, Serializer* buffer){
-    auto header = cast(Window_Cmd*)buffer.buffer;
-    assert(buffer.buffer_used >= Window_Cmd.sizeof);
-    header.size = cast(uint)(buffer.buffer_used - Window_Cmd.sizeof);
-    window.buffer_used += buffer.buffer_used;
-}
-
-T* push_widget(T)(Serializer* dest, Gui_ID id, float w, float h){
-    auto widget = eat_type!T(dest);
-    clear_to_zero(*widget);
-    widget.id         = id;
-    widget.type       = T.Type;
-    widget.rel_bounds = Rect(Vec2(0, 0), Vec2(w, h)*0.5f);
-    return widget;
-}
-+/
-
 Gui_ID window_id_from_widget_id(Gui_ID widget_id){
     Gui_ID result = (widget_id >> 16) & 0xfffff;
     return result;
@@ -342,7 +314,16 @@ void[] begin_widget(Gui_State* gui, Gui_ID id, Widget_Type type, uint size){
 }
 
 void end_widget(Gui_State* gui, Widget* widget, float w, float h){
+    auto old_w = width(widget.rel_bounds);
+    auto old_h = height(widget.rel_bounds);
     widget.rel_bounds.extents = Vec2(w, h)*0.5f;
+
+    if(old_w != w || old_h != h){
+        // TODO: We already looked up the window in begin_widget. Pass that down here somehow.
+        auto window_id = window_id_from_widget_id(widget.id);
+        auto window = get_window_by_id(gui, window_id);
+        window.dirty = true;
+    }
 }
 
 void button(Gui_State* gui, Gui_ID id, String label, bool disabled = false){
@@ -373,17 +354,15 @@ void text_field(Gui_State* gui, Gui_ID id, char[] buffer, uint* buffer_used){
 }
 
 void label(Gui_State* gui, Gui_ID id, String text){
-/+
-    auto font = window.gui.font;
+    auto font = gui.font;
 
-    auto writer = begin_window_cmd(window, Window_Cmd_Type.Widget);
+    auto label = cast(Label*)begin_widget(gui, id, Widget_Type.Label, Label.sizeof);
 
     float w = get_text_width(font, text) + Button_Padding*2.0f;
     float h = font.metrics.height + Button_Padding*2.0f;
-    auto widget = push_widget!Label(&writer, id, w, h);
-    widget.text = text;
+    label.text = text;
 
-    end_window_cmd(window, &writer);+/
+    end_widget(gui, &label.widget, w, h);
 }
 
 void next_row(Gui_State* gui){

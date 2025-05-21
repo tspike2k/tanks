@@ -302,25 +302,8 @@ void editor_simulate(App_State* s, float dt){
         }
     }
 
-    // TODO: I don't much like how we're having to loop over all the windows and widgets.
-    // It's pretty annoying. Plus, each widget has an ID that contains the id of the source
-    // window. We should use that for lookups, so the only thing the user would need to do is
-    // the following:
-    // label(Label_Map_ID, gen_string(...));
-    foreach(window; s.gui.windows.iterate()){
-        foreach(widget; iterate_widgets(window)){
-            switch(widget.id){
-                default: break;
-
-                case Label_Map_ID:{
-                    auto lbl = cast(Label*)widget;
-                    lbl.text = gen_string("map_id {0}", g_current_map.map_id, &s.frame_memory);
-                    window.dirty = true;
-                } break;
-            }
-        }
-    }
-
+    //label(&s.gui, Label_Map_ID, gen_string("map_id: {0}", g_current_map.map_id, &s.frame_memory));
+    label(&s.gui, Label_Map_ID, "map_id: 437489324789");
     update_gui(&s.gui, dt);
 
     if(s.gui.message_id != Null_Gui_ID){
