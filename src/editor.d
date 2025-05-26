@@ -9,6 +9,8 @@ TODO:
     - Fix memory leak with calls to load_campaign_from_file. This should load the campaign into
     an allocator specially reserved for campaign memory. When we load, we should reset the
     allocator each time.
+    - Our use of Edit_Layers complicates things more than it needs to. We should figure
+    out a better way of doing this.
 +/
 
 import app;
@@ -159,8 +161,59 @@ Entity* editor_add_entity(Edit_Layer *world, Vec2 pos, Entity_Type type){
     return result;
 }
 
+Edit_Layer* get_active_layer(){
+    Edit_Layer* result;
+    if(g_edit_mode == Edit_Mode.Map){
+        result = g_current_map;
+    }
+    else{
+        result = g_current_level;
+    }
+    return result;
+}
+
+bool editor_load_campaign(String name){
+    push_frame(g_allocator.scratch);
+    scope(exit) pop_frame(g_allocator.scratch);
+    bool success = false;
+
+    Campaign campaign;
+    if(load_campaign_from_file(&campaign, name, g_allocator.scratch)){
+        success = true;
+        prepare_campaign();
+
+        foreach(ref source; campaign.maps){
+            auto map   = editor_add_map();
+            map.map_id = source.id;
+
+            foreach(ref block; source.blocks){
+                auto e = editor_add_entity(map, Vec2(0, 0), Entity_Type.Block);
+                decode(&block, e);
+            }
+        }
+
+        foreach(ref source; campaign.levels){
+            auto level  = editor_add_level();
+            level.map_id = source.map_id;
+
+            foreach(ref tank; source.tanks){
+                auto e = editor_add_entity(level, Vec2(0, 0), Entity_Type.Tank);
+                decode(&tank, e);
+            }
+        }
+    }
+    else{
+        // TODO: Have a GUI-facing error log for the editor?
+        log_error("Unable to edit campaign file {0}. Failed to load file.", name);
+    }
+
+    return success;
+}
+
 void editor_simulate(App_State* s, float dt){
     assert(editor_is_open);
+
+    bool should_close = false;
 
     bool arrow_up_pressed    = false;
     bool arrow_down_pressed  = false;
@@ -266,7 +319,7 @@ void editor_simulate(App_State* s, float dt){
                                 if(g_cursor_mode == Cursor_Mode.Select){
                                     auto e = g_selected_entity;
                                     if(e){
-                                        remove_entity(e);
+                                        remove_entity(get_active_layer(), e);
                                         g_selected_entity = null;
                                     }
                                 }
@@ -281,18 +334,14 @@ void editor_simulate(App_State* s, float dt){
                             } break;
 
                             case Key_ID_L:{
-                                if(!key.is_repeat){
-                                    if(key.modifier & Key_Modifier_Ctrl){
-                                        if(load_campaign_from_file(&s.campaign, Campaign_File_Name, &s.main_memory)){
-                                            load_campaign_level(s, &s.campaign, 0);
-                                        }
-                                    }
+                                if(!key.is_repeat && key.modifier & Key_Modifier_Ctrl){
+                                    editor_load_campaign(Campaign_File_Name);
                                 }
                             } break;
 
                             case Key_ID_F2:
                                 if(!key.is_repeat){
-                                    editor_toggle(s);
+                                    should_close = true;
                                 }
                             break;
                         }
@@ -302,8 +351,7 @@ void editor_simulate(App_State* s, float dt){
         }
     }
 
-    //label(&s.gui, Label_Map_ID, gen_string("map_id: {0}", g_current_map.map_id, &s.frame_memory));
-    label(&s.gui, Label_Map_ID, "map_id: 437489324789");
+    label(&s.gui, Label_Map_ID, gen_string("map_id: {0}", g_current_map.map_id, &s.frame_memory));
     update_gui(&s.gui, dt);
 
     if(s.gui.message_id != Null_Gui_ID){
@@ -313,16 +361,26 @@ void editor_simulate(App_State* s, float dt){
             case Button_New_Map:{
                 editor_add_map();
             } break;
+
+            case Button_Next_Map:{
+                auto next_map = g_current_map.next;
+                if(g_maps.is_sentinel(next_map)){
+                    next_map = next_map.next;
+                }
+                g_current_map = next_map;
+            } break;
+
+            case Button_Prev_Map:{
+                auto next_map = g_current_map.prev;
+                if(g_maps.is_sentinel(next_map)){
+                    next_map = next_map.prev;
+                }
+                g_current_map = next_map;
+            } break;
         }
     }
 
-    Edit_Layer* layer;
-    if(g_edit_mode == Edit_Mode.Map){
-        layer = g_current_map;
-    }
-    else{
-        layer = g_current_level;
-    }
+    auto layer = get_active_layer();
 
     switch(g_cursor_mode){
         default: break;
@@ -409,13 +467,17 @@ void editor_simulate(App_State* s, float dt){
                 s.highlight_material  = &s.material_eraser;
 
                 if(g_mouse_left_is_down && hover_e){
-                    remove_entity(hover_e);
+                    remove_entity(layer, hover_e);
                 }
             }
             else{
                 s.highlight_entity_id = Null_Entity_ID;
             }
         } break;
+    }
+
+    if(should_close){
+        editor_toggle(s);
     }
 }
 
@@ -443,9 +505,9 @@ Editor_Entity* to_editor_entity(Entity* e){
     return result;
 }
 
-void remove_entity(Entity* e){
+void remove_entity(Edit_Layer* world, Entity* e){
     auto entry = to_editor_entity(e);
-    g_current_level.entities.remove(entry);
+    world.entities.remove(entry);
     // TODO: Add entry to free list! This is a MEMORY LEAK!
 }
 
@@ -557,13 +619,15 @@ Edit_Layer* editor_add_map(){
     return map;
 }
 
-void editor_new_campaign(){
-    // IMPORTANT: This frees all the memory used by the editor.
-    reset(g_allocator);
-
+void prepare_campaign(){
+    reset(g_allocator); // IMPORTANT: This frees all the memory used by the editor.
     g_next_entity_id = Null_Entity_ID+1;
     g_levels.make();
     g_maps.make();
+}
+
+void editor_new_campaign(){
+    prepare_campaign();
     editor_add_map();
     editor_add_level();
 }
@@ -579,8 +643,9 @@ void editor_toggle(App_State* s){
         g_mouse_left_is_down  = false;
         g_mouse_right_is_down = false;
 
-        // TODO: Initially load any campaign we've been working on.
-        editor_new_campaign();
+        if(!editor_load_campaign(Campaign_File_Name)){
+            editor_new_campaign();
+        }
 
         auto memory = (malloc(4086)[0 .. 4086]);
         begin_window(gui, Window_ID_Main, "Test Window", rect_from_min_wh(Vec2(20, 20), 200, 80), memory);

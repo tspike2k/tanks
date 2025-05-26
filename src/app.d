@@ -198,7 +198,6 @@ bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* al
                 Campaign_Info info;
                 read_campaign_info(&info_reader, &info);
 
-
                 campaign.maps   = alloc_array!Campaign_Map(allocator, info.maps_count);
                 campaign.levels = alloc_array!Campaign_Level(allocator, info.levels_count);
 
@@ -1313,9 +1312,10 @@ extern(C) int main(int args_count, char** args){
         s.editor_memory     = make_sub_allocator(&memory, Editor_Memory_Size);
         auto scratch_memory = make_sub_allocator(&memory, Scratch_Memory_Size);
 
-        s.main_memory.scratch  = &scratch_memory;
-        s.frame_memory.scratch = &scratch_memory;
+        s.main_memory.scratch   = &scratch_memory;
+        s.frame_memory.scratch  = &scratch_memory;
         s.editor_memory.scratch = &scratch_memory;
+        scratch_memory.scratch  = &scratch_memory;
     }
 
     /+
