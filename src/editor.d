@@ -36,6 +36,11 @@ bool editor_is_open;
 
 private:
 
+enum Place_Type : uint{
+    Block,
+    Tank,
+}
+
 enum Cursor_Mode : uint{
     Select,
     Place,
@@ -54,8 +59,9 @@ char[256]      g_dest_file_name;
 uint           g_dest_file_name_used;
 bool           g_mouse_left_is_down;
 bool           g_mouse_right_is_down;
-//Edit_Mode      g_edit_mode;
+Place_Type     g_place_type;
 Cursor_Mode    g_cursor_mode;
+Map_Cell*      g_selected_cell;
 bool           g_dragging_selected;
 Vec2           g_drag_offset;
 
@@ -123,6 +129,25 @@ void save_campaign_file(App_State* s, String file_name){
     +/
 }
 
+bool is_cell_occupied(Campaign_Map* map, Vec2 cell){
+    auto x = cast(int)cell.x;
+    auto y = cast(int)cell.y;
+    assert(x >= 0 && x <= Grid_Width);
+    assert(y >= 0 && y <= Grid_Height);
+
+    bool result = map.cells[x + y * Grid_Width] != 0;
+    return result;
+}
+
+void set_cell(Campaign_Map* map, Vec2 cell, Map_Cell value){
+    auto x = cast(int)cell.x;
+    auto y = cast(int)cell.y;
+    assert(x >= 0 && x <= Grid_Width);
+    assert(y >= 0 && y <= Grid_Width);
+
+    map.cells[x + y * Grid_Width] = value;
+}
+
 bool editor_load_campaign(String name){
     push_frame(g_allocator.scratch);
     scope(exit) pop_frame(g_allocator.scratch);
@@ -176,8 +201,6 @@ public void editor_simulate(App_State* s, float dt){
     bool text_buffer_updated = false;
     while(next_event(&evt)){
         if(!handle_event(&s.gui, &evt)){
-
-        /+
             switch(evt.type){
                 default: break;
 
@@ -223,6 +246,7 @@ public void editor_simulate(App_State* s, float dt){
                                 arrow_down_pressed = true;
                             } break;
 
+                            /+
                             case Key_ID_K:{
                                 if(g_cursor_mode == Cursor_Mode.Select){
                                     auto e = g_selected_entity;
@@ -247,18 +271,14 @@ public void editor_simulate(App_State* s, float dt){
                                         }
                                     }
                                 }
-                            } break;
+                            } break;+/
 
                             case Key_ID_T:{
-                                g_edit_mode = Edit_Mode.Level;
+                                g_place_type = Place_Type.Tank;
                             } break;
 
                             case Key_ID_B:{
-                                g_edit_mode = Edit_Mode.Map;
-                            } break;
-
-                            case Key_ID_C:{
-                                g_cursor_mode = Cursor_Mode.Select;
+                                g_place_type = Place_Type.Block;
                             } break;
 
                             case Key_ID_P:{
@@ -271,10 +291,9 @@ public void editor_simulate(App_State* s, float dt){
 
                             case Key_ID_Delete:{
                                 if(g_cursor_mode == Cursor_Mode.Select){
-                                    auto e = g_selected_entity;
-                                    if(e){
-                                        remove_entity(get_active_layer(), e);
-                                        g_selected_entity = null;
+                                    if(g_selected_cell){
+                                        *g_selected_cell = 0;
+                                        g_selected_cell = null;
                                     }
                                 }
                             } break;
@@ -283,6 +302,9 @@ public void editor_simulate(App_State* s, float dt){
                                 if(!key.is_repeat){
                                     if(key.modifier & Key_Modifier_Ctrl){
                                         save_campaign_file(s, "./build/test.camp");
+                                    }
+                                    else{
+                                        g_cursor_mode = Cursor_Mode.Select;
                                     }
                                 }
                             } break;
@@ -301,7 +323,7 @@ public void editor_simulate(App_State* s, float dt){
                         }
                     }
                 } break;
-            }+/
+            }
         }
     }
 
@@ -332,6 +354,38 @@ public void editor_simulate(App_State* s, float dt){
                 g_current_map = next_map;
             } break;
         }
+    }
+
+    switch(g_cursor_mode){
+        default: break;
+
+        case Cursor_Mode.Place:{
+            auto map = &g_current_map.map;
+            if(inside_grid(s.mouse_world) && !is_cell_occupied(map, s.mouse_world)){
+                if(mouse_left_pressed){
+                    Map_Cell entry;
+                    if(g_place_type == Place_Type.Tank)
+                        entry |= Map_Cell_Tank;
+                    else
+                        entry |= Map_Cell_Block;
+                    set_cell(map, s.mouse_world, entry);
+                }
+            }
+        } break;
+
+        case Cursor_Mode.Select:{
+            auto map = &g_current_map.map;
+            if(mouse_left_pressed){
+                if(inside_grid(s.mouse_world) && is_cell_occupied(map, s.mouse_world)){
+                    auto x = cast(int)s.mouse_world.x;
+                    auto y = cast(int)s.mouse_world.y;
+                    g_selected_cell = &map.cells[x + y * Grid_Width];
+                }
+                else{
+                    g_selected_cell = null;
+                }
+            }
+        } break;
     }
 
     /+
@@ -445,6 +499,32 @@ public void editor_render(App_State* s, Render_Passes rp){
         rp.hud_text, font_small, pen,
         gen_string("Mode: {0}", enum_string(g_cursor_mode), &s.frame_memory)
     );
+
+    auto map = &g_current_map.map;
+    foreach(y; 0 .. Grid_Height){
+        foreach(x; 0 .. Grid_Width){
+            auto entity_type = map.cells[x + y * Grid_Width];
+            if(entity_type){
+                auto e = zero_type!Entity;
+                e.pos = Vec2(x, y) + Vec2(0.5f, 0.5f); // Center on the tile
+                e.id = 1;
+                if(entity_type & Map_Cell_Tank){
+                    e.type = Entity_Type.Tank;
+                    if(entity_type & Map_Cell_Special){
+                        e.player_index = 1; // TODO: Fix this.
+                    }
+                }
+                else{
+                    e.type = Entity_Type.Block;
+                    if(entity_type & Map_Cell_Special){
+                        e.breakable = true;
+                    }
+                }
+
+                render_entity(s, &e, rp);
+            }
+        }
+    }
 
     /+
     switch(g_cursor_mode){
