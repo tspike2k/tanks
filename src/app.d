@@ -1113,7 +1113,11 @@ Mat4_Pair make_hud_camera(uint window_width, uint window_height){
     return result;
 }
 
-void render_entity(App_State* s, Entity* e, Render_Passes rp){
+void render_entity(App_State* s, Entity* e, Render_Passes rp, Material* material = null){
+    if(!material){
+        material = choose_material(s, e);
+    }
+
     Vec3 p = world_to_render_pos(e.pos);
     switch(e.type){
         default: break;
@@ -1125,7 +1129,7 @@ void render_entity(App_State* s, Entity* e, Render_Passes rp){
                 auto scale = Vec3(1, height, 1);
                 auto pos = p + Vec3(0, height*0.5f, 0);
 
-                auto material = choose_material(s, e);
+
                 render_mesh(
                     rp.world, &s.cube_mesh, material,
                     mat4_translate(pos)*mat4_scale(scale)
@@ -1156,7 +1160,6 @@ void render_entity(App_State* s, Entity* e, Render_Passes rp){
                 auto hole_scale  = Vec3(0.70f, 0.25f, 0.70f);
                 auto hole_offset = Vec3(0, -0.5f*hole_scale.y+0.01f, 0);
 
-                auto material = choose_material(s, e);
                 auto xform = mat4_translate(p + hole_offset)*mat4_scale(hole_scale);
                 render_mesh(rp.holes, &s.hole_mesh, material, xform);
                 render_mesh(rp.hole_cutouts, &s.hole_mesh, material, xform);
@@ -1164,7 +1167,6 @@ void render_entity(App_State* s, Entity* e, Render_Passes rp){
         } break;
 
         case Entity_Type.Tank:{
-            auto material = choose_material(s, e);
             auto mat_tran = mat4_translate(p + Vec3(0, 0.18f, 0));
             render_mesh(
                 rp.world, &s.tank_base_mesh, material,
@@ -1177,7 +1179,6 @@ void render_entity(App_State* s, Entity* e, Render_Passes rp){
         } break;
 
         case Entity_Type.Bullet:{
-            auto material = choose_material(s, e);
             //auto mat_tran = mat4_translate(p);
             auto mat_tran = mat4_translate(p + Vec3(0, 0.5f, 0)); // TODO: Use this offset when we're done testing the camera
             render_mesh(rp.world, &s.bullet_mesh, material, mat_tran*mat4_rot_y(e.angle));
@@ -1188,14 +1189,14 @@ void render_entity(App_State* s, Entity* e, Render_Passes rp){
             // a shader for that?
             if(!is_exploding(e)){
                 render_mesh(
-                    rp.world, &s.half_sphere_mesh, choose_material(s, e),
+                    rp.world, &s.half_sphere_mesh, material,
                     mat4_translate(p)*mat4_scale(Vec3(0.5f, 0.5f, 0.5f))
                 );
             }
             else{
                 // TODO: The explosion should spin over time. This would only have any impact
                 // once we add a texture to it.
-                auto material = &s.material_eraser; // TODO: Have a dedicated explosion material
+                material = &s.material_eraser; // TODO: Have a dedicated explosion material
 
                 auto radius = e.extents.x;
                 auto scale = Vec3(radius, radius, radius)*2.0f;

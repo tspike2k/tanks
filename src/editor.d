@@ -490,6 +490,28 @@ public void editor_simulate(App_State* s, float dt){
     }
 }
 
+Entity make_entity_from_cell(Map_Cell cell, Vec2 pos){
+    assert(cell != 0);
+    Entity result;
+    result.id = 1;
+    result.pos = pos;
+
+    if(cell & Map_Cell_Tank){
+        result.type = Entity_Type.Tank;
+        if(cell & Map_Cell_Special){
+            result.player_index = 1; // TODO: Fix this.
+        }
+    }
+    else{
+        result.type = Entity_Type.Block;
+        if(cell & Map_Cell_Special){
+            result.breakable = true;
+        }
+        result.block_height = (cell & Map_Cell_Index_Mask);
+    }
+    return result;
+}
+
 public void editor_render(App_State* s, Render_Passes rp){
     auto window = get_window_info();
 
@@ -505,28 +527,28 @@ public void editor_render(App_State* s, Render_Passes rp){
     auto map = &g_current_map.map;
     foreach(y; 0 .. Grid_Height){
         foreach(x; 0 .. Grid_Width){
-            auto entity_type = map.cells[x + y * Grid_Width];
+            auto cell = &map.cells[x + y * Grid_Width];
+            auto entity_type = *cell;
             if(entity_type){
-                auto e = zero_type!Entity;
-                e.pos = Vec2(x, y) + Vec2(0.5f, 0.5f); // Center on the tile
-                e.id = 1;
-                if(entity_type & Map_Cell_Tank){
-                    e.type = Entity_Type.Tank;
-                    if(entity_type & Map_Cell_Special){
-                        e.player_index = 1; // TODO: Fix this.
-                    }
-                }
-                else{
-                    e.type = Entity_Type.Block;
-                    if(entity_type & Map_Cell_Special){
-                        e.breakable = true;
-                    }
-                    e.block_height = (entity_type & Map_Cell_Index_Mask);
+                auto p = Vec2(x, y) + Vec2(0.5f, 0.5f); // Center on the tile
+                auto e = make_entity_from_cell(entity_type, p);
+
+                Material* material = null;
+                if(cell == g_selected_cell){
+                    material = &s.material_eraser;
                 }
 
-                render_entity(s, &e, rp);
+                render_entity(s, &e, rp, material);
             }
         }
+    }
+
+    if(g_cursor_mode == Cursor_Mode.Place && inside_grid(s.mouse_world)){
+        bool is_tank = g_place_type == Place_Type.Tank;
+        auto entity_type = encode_map_cell(is_tank, false, 1);
+        auto tile_center = floor(s.mouse_world) + Vec2(0.5f, 0.5f);
+        auto e = make_entity_from_cell(entity_type, tile_center);
+        render_entity(s, &e, rp);
     }
 
     /+
