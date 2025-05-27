@@ -73,7 +73,6 @@ void save_campaign_file(App_State* s, String file_name){
     push_frame(scratch);
     scope(exit) pop_frame(scratch);
 
-    /+
 
     auto dest_buffer = begin_reserve_all(scratch);
     auto serializer = Serializer(dest_buffer);
@@ -89,27 +88,22 @@ void save_campaign_file(App_State* s, String file_name){
     // TODO: Get info strings from editor state
     info.name   = "WII Play Tanks";
     info.author = "tspike";
-    info.next_map_id = g_next_map_id;
+    //info.next_map_id = 0;
     // TODO: Put date
-    info.levels_count = cast(uint)g_levels.count;
+    //info.levels_count = cast(uint)g_levels.count;
     info.maps_count   = cast(uint)g_maps.count;
     write_campaign_info(&serializer, &info);
     end_writing_section(&serializer, info_section);
 
-    foreach(ref map; g_maps.iterate()){
+    foreach(ref entry; g_maps.iterate()){
         auto section = begin_writing_section(&serializer, Campaign_Section_Type.Map);
-        write(&serializer, to_void(&map.map_id));
-        uint entities_count = cast(uint)map.entities.count;
-        write(&serializer, to_void(&entities_count));
-        foreach(ref entry; map.entities.iterate()){
-            auto e = &entry.entity;
-            assert(e.type == Entity_Type.Block);
-            auto cmd = eat_type!Cmd_Make_Block(&serializer);
-            encode(cmd, e);
-        }
+        uint map_id = 0; // TODO: Placeholder in case we want to add this later.
+        write(&serializer, to_void(&map_id));
+        write(&serializer, entry.map.cells[]);
         end_writing_section(&serializer, section);
     }
 
+    /+
     foreach(ref level; g_levels.iterate()){
         auto section = begin_writing_section(&serializer, Campaign_Section_Type.Level);
         write(&serializer, to_void(&level.map_id));
@@ -124,9 +118,9 @@ void save_campaign_file(App_State* s, String file_name){
         end_writing_section(&serializer, section);
     }
 
+    +/
     end_reserve_all(scratch, serializer.buffer, serializer.buffer_used);
     write_file_from_memory(file_name, serializer.buffer[0 .. serializer.buffer_used]);
-    +/
 }
 
 bool is_cell_occupied(Campaign_Map* map, Vec2 cell){

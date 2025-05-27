@@ -139,7 +139,6 @@ bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* al
     scope(exit) pop_frame(scratch);
 
     bool success = false;
-    /+
     auto memory = read_file_into_memory(file_name, scratch);
     if(memory.length){
         auto reader = Serializer(memory);
@@ -153,7 +152,7 @@ bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* al
                 read_campaign_info(&info_reader, &info);
 
                 campaign.maps   = alloc_array!Campaign_Map(allocator, info.maps_count);
-                campaign.levels = alloc_array!Campaign_Level(allocator, info.levels_count);
+                //campaign.levels = alloc_array!Campaign_Level(allocator, info.levels_count);
 
                 uint map_index   = 0;
                 uint level_index = 0;
@@ -165,13 +164,12 @@ bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* al
 
                         case Campaign_Section_Type.Map:{
                             auto map = &campaign.maps[map_index++];
-                            read(&section_memory, to_void(&map.id));
-                            uint blocks_count;
-                            read(&section_memory, to_void(&blocks_count));
-                            map.blocks = alloc_array!Cmd_Make_Block(allocator, blocks_count);
-                            read(&section_memory, map.blocks);
+                            uint map_id = 0;
+                            read(&section_memory, to_void(&map_id));
+                            read(&section_memory, map.cells[]);
                         } break;
 
+                        /+
                         case Campaign_Section_Type.Level:{
                             auto level = &campaign.levels[level_index++];
                             read(&section_memory, to_void(&level.map_id));
@@ -179,7 +177,7 @@ bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* al
                             read(&section_memory, to_void(&tanks_count));
                             level.tanks = alloc_array!Cmd_Make_Tank(allocator, tanks_count);
                             read(&section_memory, level.tanks);
-                        } break;
+                        } break;+/
                     }
                 }
 
@@ -190,7 +188,7 @@ bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* al
                 log_error("Campaign file {0} doesn't begin with a valid Campaign_Info section.\n", file_name);
             }
         }
-    }+/
+    }
 
     if(!success){
         log_error("Unable to load campaign from file {0}\n", file_name);
