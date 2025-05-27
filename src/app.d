@@ -76,7 +76,7 @@ Map_Cell encode_map_cell(bool is_tank, bool is_special, ubyte index){
         result |= Map_Cell_Special;
     }
 
-    result |= (index & ~Map_Cell_Index_Mask);
+    result |= (index & Map_Cell_Index_Mask);
     return result;
 }
 

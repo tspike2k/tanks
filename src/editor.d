@@ -363,11 +363,8 @@ public void editor_simulate(App_State* s, float dt){
             auto map = &g_current_map.map;
             if(inside_grid(s.mouse_world) && !is_cell_occupied(map, s.mouse_world)){
                 if(mouse_left_pressed){
-                    Map_Cell entry;
-                    if(g_place_type == Place_Type.Tank)
-                        entry |= Map_Cell_Tank;
-                    else
-                        entry |= Map_Cell_Block;
+                    bool is_tank = g_place_type == Place_Type.Tank;
+                    auto entry = encode_map_cell(is_tank, false, 1);
                     set_cell(map, s.mouse_world, entry);
                 }
             }
@@ -519,6 +516,7 @@ public void editor_render(App_State* s, Render_Passes rp){
                     if(entity_type & Map_Cell_Special){
                         e.breakable = true;
                     }
+                    e.block_height = (entity_type & Map_Cell_Index_Mask);
                 }
 
                 render_entity(s, &e, rp);
