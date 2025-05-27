@@ -246,15 +246,11 @@ public void editor_simulate(App_State* s, float dt){
                                 arrow_down_pressed = true;
                             } break;
 
-                            /+
-                            case Key_ID_K:{
-                                if(g_cursor_mode == Cursor_Mode.Select){
-                                    auto e = g_selected_entity;
-                                    if(e && e.type == Entity_Type.Block){
-                                        e.breakable = !e.breakable;
-                                    }
+                            case Key_ID_U:{
+                                if(g_cursor_mode == Cursor_Mode.Select && g_selected_cell){
+                                    (*g_selected_cell) ^= Map_Cell_Special; // Toggle the special bit
                                 }
-                            } break;+/
+                            } break;
 
                             case Key_ID_0:
                             case Key_ID_1:
@@ -367,8 +363,8 @@ public void editor_simulate(App_State* s, float dt){
         case Cursor_Mode.Place:{
             auto map = &g_current_map.map;
             if(inside_grid(s.mouse_world) && !is_cell_occupied(map, s.mouse_world)){
-                if(mouse_left_pressed){
-                    bool is_tank = g_place_type == Place_Type.Tank;
+                bool is_tank = g_place_type == Place_Type.Tank;
+                if((is_tank && mouse_left_pressed) || (!is_tank && g_mouse_left_is_down)){
                     auto entry = encode_map_cell(is_tank, false, 1);
                     set_cell(map, s.mouse_world, entry);
                 }
@@ -492,7 +488,7 @@ public void editor_simulate(App_State* s, float dt){
 
 Entity make_entity_from_cell(Map_Cell cell, Vec2 pos){
     assert(cell != 0);
-    Entity result;
+    auto result = zero_type!Entity;
     result.id = 1;
     result.pos = pos;
 
