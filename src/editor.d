@@ -254,24 +254,29 @@ public void editor_simulate(App_State* s, float dt){
                                         e.breakable = !e.breakable;
                                     }
                                 }
-                            } break;
+                            } break;+/
 
                             case Key_ID_0:
                             case Key_ID_1:
                             case Key_ID_2:
                             case Key_ID_3:
                             case Key_ID_4:
+                            case Key_ID_5:
+                            case Key_ID_6:
+                            case Key_ID_7:
                             {
                                 if(!key.is_repeat){
-                                    auto index = key.id - Key_ID_0;
-                                    if(g_cursor_mode == Cursor_Mode.Select){
-                                        auto e = g_selected_entity;
-                                        if(e && e.type == Entity_Type.Tank){
-                                            e.player_index = index;
+                                    ubyte index = cast(ubyte)(key.id - Key_ID_0);
+                                    if(g_cursor_mode == Cursor_Mode.Select && g_selected_cell){
+                                        auto entity_type = *g_selected_cell;
+                                        if(entity_type & Map_Cell_Block){
+                                            entity_type &= ~Map_Cell_Index_Mask;
+                                            entity_type |= (index & Map_Cell_Index_Mask);
                                         }
+                                        *g_selected_cell = entity_type;
                                     }
                                 }
-                            } break;+/
+                            } break;
 
                             case Key_ID_T:{
                                 g_place_type = Place_Type.Tank;
