@@ -51,23 +51,51 @@ enum Max_Mines_Per_Tank   = 3;
 enum Mine_Detonation_Time    = 8.0f;
 enum Mine_Explosion_End_Time = Mine_Detonation_Time + 1.0f;
 
-enum Grid_Width  = 22;
-enum Grid_Height = 16;
+// TODO: Support 4:3 campaigns.
+enum Grid_Width     = 22; // Should be 16 for 4:3 campaigns.
+enum Grid_Height    = 17;
+enum Max_Grid_Cells = Grid_Height*Grid_Width;
 
-struct Campaign_Map{
-    uint id;
-    Cmd_Make_Block[] blocks;
+alias Map_Cell = ubyte;
+enum Map_Cell Map_Cell_Tank       = (1 << 7);
+enum Map_Cell Map_Cell_Block      = (1 << 6);
+enum Map_Cell Map_Cell_Special    = (1 << 5);
+enum Map_Cell Map_Cell_Index_Mask = (0b00011111);
+
+Map_Cell encode_map_cell(bool is_tank, bool is_special, ubyte index){
+    Map_Cell result;
+
+    if(is_tank)
+        result |= Map_Cell_Tank;
+    else
+        result |= Map_Cell_Block;
+
+    // If a tank is marked as special, it's a player tank. If a block is marked as special,
+    // it's breakable.
+    if(is_special){
+        result |= Map_Cell_Special;
+    }
+
+    result |= (index & ~Map_Cell_Index_Mask);
+    return result;
 }
 
-struct Campaign_Level{
-    uint map_id;
-    Cmd_Make_Tank[] tanks;
+struct Campaign_Map{
+    Map_Cell[Max_Grid_Cells] cells;
+}
+
+struct Campaign_Mission{
+    uint tank_bonus; // Multiple bits should be used for the player count. The author can decide if an N-player game should allow bonus tanks on completion.
+    uint map_index_min;
+    uint map_index_max;
+    uint enemies_mask; // Tells if enemies are specially authored for players 1-4
+    //ubyte[32] enemies;
 }
 
 struct Campaign{
-    Campaign_Info    info;
-    Campaign_Map[]   maps;
-    Campaign_Level[] levels;
+    Campaign_Info      info;
+    Campaign_Map[]     maps;
+    Campaign_Mission[] missions;
 }
 
 void read_array(T)(Serializer* reader, ref T[] array){
@@ -106,86 +134,13 @@ void write_campaign_info(Serializer* reader, Campaign_Info* info){
     write(reader, to_void(&info.next_map_id));
 }
 
-version(none) bool load_old_campaign_from_file(Campaign* campaign, String file_name, Allocator* allocator){
-    struct Campaign_Section{
-        Campaign_Section_Type type;
-        uint                  size;
-    }
-
-    Campaign_Section* get_campaign_section(Serializer* serializer){
-        auto result = eat_type!Campaign_Section(serializer);
-        if(result && result.size > bytes_left(serializer)){
-            result = null;
-        }
-
-        return result;
-    }
-
-    auto scratch = allocator.scratch;
-    push_frame(scratch);
-    scope(exit) pop_frame(scratch);
-
-    bool success = false;
-    auto memory = read_file_into_memory(file_name, scratch);
-    if(memory.length){
-        auto serializer = Serializer(memory);
-
-        Asset_Header header;
-        read(&serializer, to_void(&header));
-        //if(verify_asset_header!Campaign_Meta(file_name, &header)){
-        if(true){
-            // TODO: Get these from Campaign_Info once we start saving that out.
-            auto levels_count = 1;
-            auto maps_count   = 1;
-
-            campaign.maps   = alloc_array!Campaign_Map(allocator, maps_count);
-            campaign.levels = alloc_array!Campaign_Level(allocator, levels_count);
-
-            uint map_index;
-            uint level_index;
-
-            // TODO: Switch to using Asset_Section instead
-            while(auto section = get_campaign_section(&serializer)){
-                switch(section.type){
-                    default:
-                        eat_bytes(&serializer, section.size);
-                        break;
-
-                    case Campaign_Section_Type.Blocks:{
-                        auto map = &campaign.maps[map_index++];
-
-                        auto count = section.size / Cmd_Make_Block.sizeof;
-                        map.blocks = alloc_array!Cmd_Make_Block(allocator, count);
-                        read(&serializer, map.blocks);
-                    } break;
-
-                    case Campaign_Section_Type.Tanks:{
-                        auto level = &campaign.levels[level_index++];
-                        auto count = section.size / Cmd_Make_Tank.sizeof;
-                        level.tanks = alloc_array!Cmd_Make_Tank(allocator, count);
-                        read(&serializer, level.tanks);
-                    } break;
-                }
-            }
-            success = map_index == campaign.maps.length
-                      && level_index == campaign.levels.length;;
-        }
-    }
-
-    if(!success){
-        log_error("Unable to load campaign from file {0}\n", file_name);
-    }
-
-    return success;
-}
-
-
 bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* allocator){
     auto scratch = allocator.scratch;
     push_frame(scratch);
     scope(exit) pop_frame(scratch);
 
     bool success = false;
+    /+
     auto memory = read_file_into_memory(file_name, scratch);
     if(memory.length){
         auto reader = Serializer(memory);
@@ -236,40 +191,7 @@ bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* al
                 log_error("Campaign file {0} doesn't begin with a valid Campaign_Info section.\n", file_name);
             }
         }
-
-/+
-        if(true){
-
-            uint map_index;
-            uint level_index;
-
-            // TODO: Switch to using Asset_Section instead
-            while(auto section = get_campaign_section(&serializer)){
-                switch(section.type){
-                    default:
-                        eat_bytes(&serializer, section.size);
-                        break;
-
-                    case Campaign_Section_Type.Blocks:{
-                        auto map = &campaign.maps[map_index++];
-
-                        auto count = section.size / Cmd_Make_Block.sizeof;
-                        map.blocks = alloc_array!Cmd_Make_Block(allocator, count);
-                        read(&serializer, map.blocks);
-                    } break;
-
-                    case Campaign_Section_Type.Tanks:{
-                        auto level = &campaign.levels[level_index++];
-                        auto count = section.size / Cmd_Make_Tank.sizeof;
-                        level.tanks = alloc_array!Cmd_Make_Tank(allocator, count);
-                        read(&serializer, level.tanks);
-                    } break;
-                }
-            }
-            success = map_index == campaign.maps.length
-                      && level_index == campaign.levels.length;;
-        }+/
-    }
+    }+/
 
     if(!success){
         log_error("Unable to load campaign from file {0}\n", file_name);
@@ -283,7 +205,7 @@ bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* al
 void load_campaign_level(App_State* s, Campaign* campaign, uint level_index){
     auto world = &s.world;
     world.entities_count = 0;
-
+/+
     auto level = campaign.levels[level_index];
     Campaign_Map* map;
     foreach(ref m; campaign.maps){
@@ -305,8 +227,10 @@ void load_campaign_level(App_State* s, Campaign* campaign, uint level_index){
         if(e.player_index == 1){
             s.player_entity_id = e.id;
         }
-    }
+    }+/
 }
+
+/+
 
 // The main campaign is made up of distinct levels. Levels are constructed and transmitted
 // using a command buffer. This simplifies a lot of things.
@@ -367,7 +291,7 @@ void decode(Cmd_Make_Tank* cmd, Entity* e){
 
     e.pos = cmd.pos;
     e.angle = cmd.angle;
-}
+}+/
 
 struct Render_Passes{
     Render_Pass* holes;

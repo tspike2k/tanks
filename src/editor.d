@@ -11,6 +11,8 @@ TODO:
     allocator each time.
     - Our use of Edit_Layers complicates things more than it needs to. We should figure
     out a better way of doing this.
+
+    There are two reasons we're breaking entities between maps and levels.
 +/
 
 import app;
@@ -30,62 +32,42 @@ enum Button_Prev_Map          = gui_id(Window_ID_Main);
 enum Button_Next_Map          = gui_id(Window_ID_Main);
 enum Button_New_Map           = gui_id(Window_ID_Main);
 
-enum Synthetic_Entity_ID = Entity_ID.max; // This is just for entity placement previews.
-
 bool editor_is_open;
 
-private{
-    enum Edit_Mode : uint{
-        Map,
-        Level,
-        Info,
-    }
+private:
 
-    enum Cursor_Mode : uint{
-        Select,
-        Place,
-        Erase,
-    }
-
-    Allocator*  g_allocator;
-    char[256]   g_dest_file_name;
-    uint        g_dest_file_name_used;
-    bool        g_mouse_left_is_down;
-    bool        g_mouse_right_is_down;
-    Edit_Mode   g_edit_mode;
-    Cursor_Mode g_cursor_mode;
-    Entity*     g_selected_entity; // TODO: Should we use ids?
-    bool        g_dragging_selected;
-    Vec2        g_drag_offset;
-    Entity_ID   g_next_entity_id;
-    uint        g_next_map_id;
-
-    Edit_Layer* g_current_level;
-    Edit_Layer* g_current_map;
-
-    List!Edit_Layer g_levels;
-    List!Edit_Layer g_maps;
+enum Cursor_Mode : uint{
+    Select,
+    Place,
+    Erase,
 }
 
-struct Editor_Entity{
-    Editor_Entity* next;
-    Editor_Entity* prev;
+struct Map_Entry{
+    Map_Entry* next;
+    Map_Entry* prev;
 
-    Entity entity;
+    Campaign_Map map;
 }
 
-struct Edit_Layer{
-    Edit_Layer* next;
-    Edit_Layer* prev;
+Allocator*     g_allocator;
+char[256]      g_dest_file_name;
+uint           g_dest_file_name_used;
+bool           g_mouse_left_is_down;
+bool           g_mouse_right_is_down;
+//Edit_Mode      g_edit_mode;
+Cursor_Mode    g_cursor_mode;
+bool           g_dragging_selected;
+Vec2           g_drag_offset;
 
-    uint map_id;
-    List!Editor_Entity entities;
-}
+Map_Entry*     g_current_map;
+List!Map_Entry g_maps;
 
 void save_campaign_file(App_State* s, String file_name){
     auto scratch = s.frame_memory.scratch;
     push_frame(scratch);
     scope(exit) pop_frame(scratch);
+
+    /+
 
     auto dest_buffer = begin_reserve_all(scratch);
     auto serializer = Serializer(dest_buffer);
@@ -138,38 +120,7 @@ void save_campaign_file(App_State* s, String file_name){
 
     end_reserve_all(scratch, serializer.buffer, serializer.buffer_used);
     write_file_from_memory(file_name, serializer.buffer[0 .. serializer.buffer_used]);
-}
-
-bool block_exists_on_tile(Vec2 tile){
-    bool result = false;
-    assert(floor(tile) == tile);
-    foreach(ref entry; g_current_map.entities.iterate()){
-        if(floor(entry.entity.pos) == tile){
-            result = true;
-            break;
-        }
-    }
-    return result;
-}
-
-Entity* editor_add_entity(Edit_Layer *world, Vec2 pos, Entity_Type type){
-    auto entry  = alloc_type!Editor_Entity(g_allocator);
-    auto list = &world.entities;
-    list.insert(list.top, entry);
-    make_entity(&entry.entity, g_next_entity_id++, pos, type);
-    auto result = &entry.entity;
-    return result;
-}
-
-Edit_Layer* get_active_layer(){
-    Edit_Layer* result;
-    if(g_edit_mode == Edit_Mode.Map){
-        result = g_current_map;
-    }
-    else{
-        result = g_current_level;
-    }
-    return result;
+    +/
 }
 
 bool editor_load_campaign(String name){
@@ -182,6 +133,7 @@ bool editor_load_campaign(String name){
         success = true;
         prepare_campaign();
 
+        /+
         foreach(ref source; campaign.maps){
             auto map   = editor_add_map();
             map.map_id = source.id;
@@ -200,7 +152,7 @@ bool editor_load_campaign(String name){
                 auto e = editor_add_entity(level, Vec2(0, 0), Entity_Type.Tank);
                 decode(&tank, e);
             }
-        }
+        }+/
     }
     else{
         // TODO: Have a GUI-facing error log for the editor?
@@ -210,7 +162,7 @@ bool editor_load_campaign(String name){
     return success;
 }
 
-void editor_simulate(App_State* s, float dt){
+public void editor_simulate(App_State* s, float dt){
     assert(editor_is_open);
 
     bool should_close = false;
@@ -224,6 +176,8 @@ void editor_simulate(App_State* s, float dt){
     bool text_buffer_updated = false;
     while(next_event(&evt)){
         if(!handle_event(&s.gui, &evt)){
+
+        /+
             switch(evt.type){
                 default: break;
 
@@ -347,11 +301,11 @@ void editor_simulate(App_State* s, float dt){
                         }
                     }
                 } break;
-            }
+            }+/
         }
     }
 
-    label(&s.gui, Label_Map_ID, gen_string("map_id: {0}", g_current_map.map_id, &s.frame_memory));
+    //label(&s.gui, Label_Map_ID, gen_string("map_id: {0}", g_current_map.map_id, &s.frame_memory));
     update_gui(&s.gui, dt);
 
     if(s.gui.message_id != Null_Gui_ID){
@@ -380,8 +334,7 @@ void editor_simulate(App_State* s, float dt){
         }
     }
 
-    auto layer = get_active_layer();
-
+    /+
     switch(g_cursor_mode){
         default: break;
 
@@ -474,44 +427,14 @@ void editor_simulate(App_State* s, float dt){
                 s.highlight_entity_id = Null_Entity_ID;
             }
         } break;
-    }
+    }+/
 
     if(should_close){
         editor_toggle(s);
     }
 }
 
-Entity* editor_get_entity(Edit_Layer* world, Vec2 p){
-    Entity* result = null;
-
-    float min_dist_sq = squared(0.5f);
-    foreach(ref entry; world.entities.iterate()){
-        auto e = &entry.entity;
-
-        auto aabb = Rect(e.pos, e.extents);
-        auto dsq = dist_sq(p, e.pos);
-        if(dsq < min_dist_sq && is_point_inside_rect(p, aabb)){
-            result = e;
-            min_dist_sq = dsq;
-        }
-    }
-
-    return result;
-}
-
-Editor_Entity* to_editor_entity(Entity* e){
-    auto raw = cast(ubyte*)e;
-    auto result = cast(Editor_Entity*)(raw - Editor_Entity.entity.offsetof);
-    return result;
-}
-
-void remove_entity(Edit_Layer* world, Entity* e){
-    auto entry = to_editor_entity(e);
-    world.entities.remove(entry);
-    // TODO: Add entry to free list! This is a MEMORY LEAK!
-}
-
-void editor_render(App_State* s, Render_Passes rp){
+public void editor_render(App_State* s, Render_Passes rp){
     auto window = get_window_info();
 
     auto font_small = &s.font_editor_small;
@@ -523,6 +446,7 @@ void editor_render(App_State* s, Render_Passes rp){
         gen_string("Mode: {0}", enum_string(g_cursor_mode), &s.frame_memory)
     );
 
+    /+
     switch(g_cursor_mode){
         default: break;
 
@@ -598,22 +522,12 @@ void editor_render(App_State* s, Render_Passes rp){
 
     foreach(ref entry; g_current_level.entities.iterate()){
         render_entity(s, &entry.entity, rp);
-    }
+    }+/
 }
 
-Edit_Layer* editor_add_level(){
-    auto level = alloc_type!Edit_Layer(g_allocator);
-    level.entities.make();
-    g_levels.insert(g_levels.top, level);
-    g_current_level = level;
-    return level;
-}
-
-Edit_Layer* editor_add_map(){
-    auto map = alloc_type!Edit_Layer(g_allocator);
-    map.entities.make();
+Map_Entry* editor_add_map(){
+    auto map = alloc_type!Map_Entry(g_allocator);
     g_maps.insert(g_maps.top, map);
-    map.map_id = g_next_map_id++;
     g_current_map = map;
 
     return map;
@@ -621,18 +535,18 @@ Edit_Layer* editor_add_map(){
 
 void prepare_campaign(){
     reset(g_allocator); // IMPORTANT: This frees all the memory used by the editor.
-    g_next_entity_id = Null_Entity_ID+1;
-    g_levels.make();
+    //g_next_entity_id = Null_Entity_ID+1;
+    //g_levels.make();
     g_maps.make();
 }
 
 void editor_new_campaign(){
     prepare_campaign();
     editor_add_map();
-    editor_add_level();
+    //editor_add_level();
 }
 
-void editor_toggle(App_State* s){
+public void editor_toggle(App_State* s){
     // TODO: Don't use malloc and free. Have a free list of window memory.
     import core.stdc.stdlib : malloc, free;
 
