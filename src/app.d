@@ -56,24 +56,47 @@ enum Grid_Width     = 22; // Should be 16 for 4:3 campaigns.
 enum Grid_Height    = 17;
 enum Max_Grid_Cells = Grid_Height*Grid_Width;
 
-alias Map_Cell = ubyte;
-enum Map_Cell Map_Cell_Tank       = (1 << 7);
-enum Map_Cell Map_Cell_Block      = (1 << 6);
-enum Map_Cell Map_Cell_Special    = (1 << 5);
-enum Map_Cell Map_Cell_Index_Mask = (0b00011111);
+// NOTE: Enemies are limited by the number of bytes that encode a map cell.
+enum Max_Enemies = 8;
+enum Max_Players = 4;
 
+alias Map_Cell = ubyte;
+enum Map_Cell Map_Cell_Is_Tank     = (1 << 7);
+enum Map_Cell Map_Cell_Is_Special  = (1 << 6);
+enum Map_Cell Map_Cell_Extra_Flag  = (1 << 3);
+enum Map_Cell Map_Cell_Index_Mask  = (0b00000111);
+enum Map_Cell Map_Cell_Facing_Mask = (0b00110000);
+
+alias Map_Cell_Is_Breakable = Map_Cell_Is_Special;
+alias Map_Cell_Is_Player    = Map_Cell_Is_Special;
+
+// Each campaign map is borken up into cells. Each cell can contain zero or one entity.
+// The type of entity and its properties are determined by the value stored in a given
+// cell. If the value is zero, the cell is empty.
+//
+// Each cell value is a single byte. The bits in each byte are encoded like so:
+//
+// tsffeiii
+//
+// t    - If set, the entity is a tank. If not set, the entity is a block.
+// s    - Special flag. If set when entity is a block, the block is breakable.
+//        If set when a tank, the tank is controlled by a player.
+// ff   - The facing direction of a tank. Unused for now, but might be worth adding.
+// e    - Extra flag. Must be set to 1 for blocks, otherwise a block with 0 height
+//        would be encoded as all zeroes.
+// iii  - The "index" value of the entity. When a block, determines height. When a player tank,
+//        determines the index of the player that controls the tank. Determines the enemy slot
+//        to use from the current campaign mission for enemy tanks.
 Map_Cell encode_map_cell(bool is_tank, bool is_special, ubyte index){
     Map_Cell result;
 
     if(is_tank)
-        result |= Map_Cell_Tank;
+        result |= Map_Cell_Is_Tank;
     else
-        result |= Map_Cell_Block;
+        result |= Map_Cell_Extra_Flag; // Must always be set for blocks to ensure non-zero values.
 
-    // If a tank is marked as special, it's a player tank. If a block is marked as special,
-    // it's breakable.
     if(is_special)
-        result |= Map_Cell_Special;
+        result |= Map_Cell_Is_Special;
 
     result |= (index & Map_Cell_Index_Mask);
     return result;
@@ -207,15 +230,24 @@ void load_campaign_level(App_State* s, Campaign* campaign, uint mission_index){
             auto p = Vec2(x, y) + Vec2(0.5f, 0.5f);
             auto occupant = map.cells[x + y * Grid_Width];
             if(occupant){
-                if(occupant & Map_Cell_Block){
-                    auto e = add_entity(world, p, Entity_Type.Block);
-                    e.block_height = occupant & Map_Cell_Index_Mask;
-                }
-                else if(occupant & Map_Cell_Tank){
+                auto cell_index = occupant & Map_Cell_Index_Mask;
+                if(occupant & Map_Cell_Is_Tank){
+                    // TODO: Entity should face either left or right depending on distance from
+                    // center? How does this work in the original? Do we need facing info?
                     auto e = add_entity(world, p, Entity_Type.Tank);
+                    e.cell_info = occupant;
+                    bool is_player = (occupant & Map_Cell_Is_Player) != 0;
+                    if(is_player){
+                        if(cell_index == 0){
+                            // TODO: We should use an array of of entity_ids that maps to player
+                            // indeces
+                            s.player_entity_id = e.id;
+                        }
+                    }
                 }
                 else{
-                    assert(0);
+                    auto e = add_entity(world, p, Entity_Type.Block);
+                    e.cell_info = occupant;
                 }
             }
         }
@@ -286,15 +318,13 @@ struct Entity{
     Entity_ID   parent_id;
     Entity_Type type;
 
-    Vec2  pos;
-    Vec2  extents;
-    Vec2  vel;
-    float angle;
-    float turret_angle;
-    uint  health;
-    uint  player_index;
-    uint  block_height; // TODO: Just store the encoded block_info?
-    bool  breakable;    // TODO: Just store the encoded block_info?
+    Vec2     pos;
+    Vec2     extents;
+    Vec2     vel;
+    float    angle;
+    float    turret_angle;
+    uint     health;
+    Map_Cell cell_info;
     float mine_timer;
 }
 
@@ -322,7 +352,8 @@ struct World{
 
 bool is_valid_block(Entity* e){
     assert(e.type == Entity_Type.Block);
-    bool result = e.block_height >=0 && e.block_height <= 7;
+    ubyte index = e.cell_info & Map_Cell_Index_Mask;
+    bool result = index >= 0 && index <= 7;
     return result;
 }
 
@@ -343,7 +374,6 @@ void make_entity(Entity* e, Entity_ID id, Vec2 pos, Entity_Type type){
 
         case Entity_Type.Block:
             e.extents = Vec2(0.5f, 0.5f);
-            e.block_height = 1;
             break;
 
         case Entity_Type.Bullet:
@@ -522,14 +552,6 @@ bool inside_grid(Vec2 p){
     return result;
 }
 
-Entity* add_block(World* world, Vec2 p, uint block_height){
-    assert(inside_grid(p));
-
-    auto e = add_entity(world, p + Vec2(0.5f, 0.5f), Entity_Type.Block);
-    e.block_height = block_height;
-    return e;
-}
-
 void spawn_mine(World* world, Vec2 p, Entity_ID id){
     auto e = add_entity(world, p, Entity_Type.Mine);
     e.parent_id = id;
@@ -706,6 +728,19 @@ Vec3 world_to_render_pos(Vec2 p){
     return result;
 }
 
+ubyte get_player_index(Entity* e){
+    assert(e.type == Entity_Type.Tank);
+    assert(e.cell_info & Map_Cell_Is_Player);
+    ubyte result = e.cell_info & Map_Cell_Index_Mask;
+    return result;
+}
+
+bool is_breakable(Entity* e){
+    assert(e.type == Entity_Type.Block);
+    bool result = (e.cell_info & Map_Cell_Is_Breakable) != 0;
+    return result;
+}
+
 Material* choose_material(App_State*s, Entity* e){
     Material* result;
     if(e.id == s.highlight_entity_id){
@@ -718,10 +753,10 @@ Material* choose_material(App_State*s, Entity* e){
             } break;
 
             case Entity_Type.Tank: {
-                if(e.player_index == 0)
-                    result = &s.material_enemy_tank;
-                else
+                if(is_tank_player(e))
                     result = &s.material_player_tank;
+                else
+                    result = &s.material_enemy_tank;
             } break;
 
             case Entity_Type.Block: {
@@ -729,7 +764,7 @@ Material* choose_material(App_State*s, Entity* e){
                     result = &s.material_ground;
                 }
                 else{
-                    if(!e.breakable)
+                    if(!is_breakable(e))
                         result = &s.material_block;
                     else
                         result = &s.material_breakable_block;
@@ -744,10 +779,10 @@ void generate_test_level(App_State* s){
     {
         auto player = add_entity(&s.world, Vec2(2, 2), Entity_Type.Tank);
         s.player_entity_id = player.id;
-        player.player_index = 1;
+        player.cell_info |= Map_Cell_Is_Player;
     }
 
-    add_block(&s.world, Vec2(2, 2), 1);
+    //add_block(&s.world, Vec2(2, 2), 1);
 
     //add_entity(&s.world, Vec2(-4, -4), Entity_Type.Tank);
 
@@ -860,7 +895,7 @@ bool should_handle_overlap(Entity* a, Entity* b){
         } break;
 
         case make_collision_id(Entity_Type.Block, Entity_Type.Mine):{
-            result = is_exploding(b) && !is_hole(a) && a.breakable;
+            result = is_exploding(b) && !is_hole(a) && is_breakable(a);
         } break;
     }
     return result;
@@ -906,7 +941,7 @@ bool detect_collision(Entity* a, Entity* b, Vec2* hit_normal, float* hit_depth){
 
 bool is_tank_player(Entity* e){
     assert(e.type == Entity_Type.Tank);
-    bool result = e.player_index > 0;
+    bool result = (e.cell_info & Map_Cell_Is_Player) != 0;
     return result;
 }
 
@@ -1004,7 +1039,7 @@ bool rect_vs_circle(Vec2 a_center, Vec2 a_extents, Vec2 b_center, float b_radius
 }
 
 bool is_hole(Entity* e){
-    bool result = e.type == Entity_Type.Block && e.block_height == 0;
+    bool result = e.type == Entity_Type.Block && (e.cell_info & Map_Cell_Index_Mask) == 0;
     return result;
 }
 
@@ -1054,7 +1089,8 @@ void render_entity(App_State* s, Entity* e, Render_Passes rp, Material* material
         case Entity_Type.Block:{
             assert(is_valid_block(e));
             if(!is_hole(e)){
-                float height = 1.0f + 0.5f*cast(float)(e.block_height-1);
+                auto block_height = (e.cell_info & Map_Cell_Index_Mask);
+                float height = 1.0f + 0.5f*cast(float)(block_height-1);
                 auto scale = Vec3(1, height, 1);
                 auto pos = p + Vec3(0, height*0.5f, 0);
 

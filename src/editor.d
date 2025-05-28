@@ -226,7 +226,7 @@ public void editor_simulate(App_State* s, float dt){
 
                             case Key_ID_U:{
                                 if(g_cursor_mode == Cursor_Mode.Select && g_selected_cell){
-                                    (*g_selected_cell) ^= Map_Cell_Special; // Toggle the special bit
+                                    (*g_selected_cell) ^= Map_Cell_Is_Special; // Toggle the special bit
                                 }
                             } break;
 
@@ -243,7 +243,7 @@ public void editor_simulate(App_State* s, float dt){
                                     ubyte index = cast(ubyte)(key.id - Key_ID_0);
                                     if(g_cursor_mode == Cursor_Mode.Select && g_selected_cell){
                                         auto entity_type = *g_selected_cell;
-                                        if(entity_type & Map_Cell_Block){
+                                        if(!(entity_type & Map_Cell_Is_Tank)){
                                             entity_type &= ~Map_Cell_Index_Mask;
                                             entity_type |= (index & Map_Cell_Index_Mask);
                                         }
@@ -343,7 +343,8 @@ public void editor_simulate(App_State* s, float dt){
             if(inside_grid(s.mouse_world) && !is_cell_occupied(map, s.mouse_world)){
                 bool is_tank = g_place_type == Place_Type.Tank;
                 if((is_tank && mouse_left_pressed) || (!is_tank && g_mouse_left_is_down)){
-                    auto entry = encode_map_cell(is_tank, false, 1);
+                    ubyte default_index = is_tank ? 0 : 1;
+                    auto entry = encode_map_cell(is_tank, false, default_index);
                     set_cell(map, s.mouse_world, entry);
                 }
             }
@@ -470,19 +471,14 @@ Entity make_entity_from_cell(Map_Cell cell, Vec2 pos){
     result.id = 1;
     result.pos = pos;
 
-    if(cell & Map_Cell_Tank){
+    auto cell_index = cell & Map_Cell_Index_Mask;
+    if(cell & Map_Cell_Is_Tank){
         result.type = Entity_Type.Tank;
-        if(cell & Map_Cell_Special){
-            result.player_index = 1; // TODO: Fix this.
-        }
     }
     else{
         result.type = Entity_Type.Block;
-        if(cell & Map_Cell_Special){
-            result.breakable = true;
-        }
-        result.block_height = (cell & Map_Cell_Index_Mask);
     }
+    result.cell_info = cell;
     return result;
 }
 
@@ -518,8 +514,7 @@ public void editor_render(App_State* s, Render_Passes rp){
     }
 
     if(g_cursor_mode == Cursor_Mode.Place && inside_grid(s.mouse_world)){
-        bool is_tank = g_place_type == Place_Type.Tank;
-        auto entity_type = encode_map_cell(is_tank, false, 1);
+        auto entity_type = encode_map_cell(g_place_type == Place_Type.Tank, false, 1);
         auto tile_center = floor(s.mouse_world) + Vec2(0.5f, 0.5f);
         auto e = make_entity_from_cell(entity_type, tile_center);
         render_entity(s, &e, rp);
