@@ -152,26 +152,10 @@ bool editor_load_campaign(String name){
         success = true;
         prepare_campaign();
 
-        /+
         foreach(ref source; campaign.maps){
-            auto map   = editor_add_map();
-            map.map_id = source.id;
-
-            foreach(ref block; source.blocks){
-                auto e = editor_add_entity(map, Vec2(0, 0), Entity_Type.Block);
-                decode(&block, e);
-            }
+            auto entry   = editor_add_map();
+            copy(to_void(&source), to_void(&entry.map));
         }
-
-        foreach(ref source; campaign.levels){
-            auto level  = editor_add_level();
-            level.map_id = source.map_id;
-
-            foreach(ref tank; source.tanks){
-                auto e = editor_add_entity(level, Vec2(0, 0), Entity_Type.Tank);
-                decode(&tank, e);
-            }
-        }+/
     }
     else{
         // TODO: Have a GUI-facing error log for the editor?

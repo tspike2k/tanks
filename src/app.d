@@ -181,8 +181,8 @@ bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* al
                     }
                 }
 
-                success = map_index == campaign.maps.length
-                      && level_index == campaign.levels.length;
+                success = map_index == campaign.maps.length;
+                      //&& level_index == campaign.levels.length;
             }
             else{
                 log_error("Campaign file {0} doesn't begin with a valid Campaign_Info section.\n", file_name);
@@ -197,98 +197,30 @@ bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* al
     return success;
 }
 
-// TODO: Gracefully handle the level index being out of bounds. Generate the test level?
-// Also handle map_index being invalid.
-void load_campaign_level(App_State* s, Campaign* campaign, uint level_index){
+void load_campaign_level(App_State* s, Campaign* campaign, uint mission_index){
     auto world = &s.world;
     world.entities_count = 0;
-/+
-    auto level = campaign.levels[level_index];
-    Campaign_Map* map;
-    foreach(ref m; campaign.maps){
-        if(m.id == level.map_id){
-            map = &m;
-            break;
+
+    auto map = &campaign.maps[0]; // TODO: Get the map based on the mission.
+    foreach(y; 0 .. Grid_Height){
+        foreach(x; 0 .. Grid_Width){
+            auto p = Vec2(x, y) + Vec2(0.5f, 0.5f);
+            auto occupant = map.cells[x + y * Grid_Width];
+            if(occupant){
+                if(occupant & Map_Cell_Block){
+                    auto e = add_entity(world, p, Entity_Type.Block);
+                    e.block_height = occupant & Map_Cell_Index_Mask;
+                }
+                else if(occupant & Map_Cell_Tank){
+                    auto e = add_entity(world, p, Entity_Type.Tank);
+                }
+                else{
+                    assert(0);
+                }
+            }
         }
     }
-
-    foreach(ref cmd; map.blocks){
-        auto e = add_entity(world, Vec2(0, 0), Entity_Type.Block);
-        decode(&cmd, e);
-    }
-
-    foreach(ref cmd; level.tanks){
-        auto e = add_entity(world, Vec2(0, 0), Entity_Type.Tank);
-        decode(&cmd, e);
-
-        if(e.player_index == 1){
-            s.player_entity_id = e.id;
-        }
-    }+/
 }
-
-/+
-
-// The main campaign is made up of distinct levels. Levels are constructed and transmitted
-// using a command buffer. This simplifies a lot of things.
-struct Cmd_Make_Block{
-    align(1):
-    ubyte  info;
-    ushort pos; // TODO: We could make this easy and change to ubyte x, ubyte y.
-}
-
-struct Cmd_Make_Tank{
-    align(1):
-    ushort info;
-    Vec2   pos;
-    float  angle;
-}
-
-void encode(Cmd_Make_Block* cmd, Entity* e){
-    assert(is_valid_block(e));
-    ushort x = cast(ushort)e.pos.x;
-    ushort y = cast(ushort)e.pos.y;
-
-    cmd.info = ((cast(ubyte)e.block_height) & 0x0f) | (cast(ubyte)e.breakable << 7) & 0xf0;
-    cmd.pos  = cast(ushort)((y << 8) | (x));
-}
-
-void decode(Cmd_Make_Block* cmd, Entity* e){
-    e.block_height = cmd.info & 0x0f;
-    e.breakable    = (cmd.info & 0xf0) >> 7;
-
-    ushort x = (cmd.pos)      & 0xff;
-    ushort y = (cmd.pos >> 8) & 0xff;
-    e.pos    = Vec2(x, y) + Vec2(0.5f, 0.5f);
-
-    assert(is_valid_block(e));
-}
-
-void encode(Cmd_Make_Tank* cmd, Entity* e){
-    assert(e.type == Entity_Type.Tank);
-    if(e.player_index != 0){
-        cmd.info = (1 << 15) | cast(ushort)e.player_index;
-    }
-    else{
-        // TODO: Add NPC tank info to the command here
-    }
-
-    cmd.pos = e.pos;
-    cmd.angle = e.angle;
-}
-
-void decode(Cmd_Make_Tank* cmd, Entity* e){
-    assert(e.type == Entity_Type.Tank);
-    if(cmd.info & (1 << 15)){
-        e.player_index = cmd.info & 0xff;
-    }
-    else{
-        // TODO: Add NPC tank info to the command here
-    }
-
-    e.pos = cmd.pos;
-    e.angle = cmd.angle;
-}+/
 
 struct Render_Passes{
     Render_Pass* holes;
