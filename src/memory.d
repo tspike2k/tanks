@@ -515,34 +515,34 @@ T[] eat_array(T)(Serializer* dest, size_t count){
     return result;
 }
 
-void write(Serializer* dest, void[] data){
-    auto buffer = eat_bytes(dest, data.length);
-    if(buffer.length){
-        copy(data, buffer);
-    }
-    else{
-        dest.errors = true;
-    }
-}
-
-void read(Serializer* dest, void[] data){
-    auto buffer = eat_bytes(dest, data.length);
-    if(buffer.length){
-        copy(buffer, data);
-    }
-}
-
 private enum Serialize_Mode{
     Read,
     Write,
 }
 
+void write(T)(Serializer* serializer, ref T t){
+    serialize!(Serialize_Mode.Write)(serializer, t);
+}
+
+void read(T)(Serializer* serializer, ref T t){
+    serialize!(Serialize_Mode.Read)(serializer, t);
+}
+
 private void serialize(Serialize_Mode Mode, T)(Serializer* serializer, ref T t){
     enum bool is_reading = Mode == Serialize_Mode.Read;
-    static if(is_reading)
-        alias policy = read;
-    else
-        alias policy = write;
+
+    void put(Serializer* serializer, void[] data){
+        auto buffer = eat_bytes(serializer, data.length);
+        if(buffer.length){
+            static if(is_reading)
+                copy(buffer, data);
+            else
+                copy(data, buffer);
+        }
+        else{
+            serializer.errors = true;
+        }
+    }
 
     static if(is(T == struct)){
         foreach(i, ref member; t.tupleof){
@@ -553,16 +553,18 @@ private void serialize(Serialize_Mode Mode, T)(Serializer* serializer, ref T t){
     else static if(isArray!T){
         alias Element = ArrayElementType!T;
 
-        uint count = cast(uint)t.length;
-        serialize!Mode(serializer, count);
+        static if(isDynamicArray!T){
+            uint count = cast(uint)t.length;
+            serialize!Mode(serializer, count);
 
-        // Allocate space for the array if we need to.
-        static if(isDynamicArray!T && is_reading){
-            t = alloc_array!Element(serializer.allocator, count);
+            // Allocate space for the array if we need to.
+            static if(is_reading){
+                t = alloc_array!Element(serializer.allocator, count);
+            }
         }
 
-        static if(isIntegral!Element){
-            policy(serializer, cast(void[])t);
+        static if(isBuiltinType!Element){
+            put(serializer, cast(void[])t);
         }
         else{
             foreach(ref e; t){
@@ -570,22 +572,12 @@ private void serialize(Serialize_Mode Mode, T)(Serializer* serializer, ref T t){
             }
         }
     }
-    else static if(isIntegral!T){
-        policy(serializer, to_void(&t));
+    else static if(isBuiltinType!T){
+        put(serializer, to_void(&t));
     }
     else{
         static assert("Unable to serialize type " ~ T.stringof ~ ".\n");
     }
-}
-
-void write(T)(Serializer* serializer, ref T t)
-if(!TypesMatch!(T, void[])){
-    serialize!(Serialize_Mode.Write)(serializer, t);
-}
-
-void read(T)(Serializer* serializer, ref T t)
-if(!TypesMatch!(T, void[])){
-    serialize!(Serialize_Mode.Read)(serializer, t);
 }
 
 // TODO: Remove read_array/write_array. Prefer using memory.read, memory.write.

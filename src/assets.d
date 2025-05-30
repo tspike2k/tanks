@@ -80,17 +80,6 @@ void end_writing_section(Serializer* dest, Asset_Section* section){
     section.size = cast(uint)(&dest.buffer[dest.buffer_used] - cast(void*)(section + 1));
 }
 
-Asset_Section* get_asset_section(Serializer* serializer){
-    auto result = eat_type!Asset_Section(serializer);
-    if(result && result.size > bytes_left(serializer)){
-        result = null;
-    }
-
-    return result;
-
-    return result;
-}
-
 struct Pixels{
     uint   width;
     uint   height;
@@ -361,13 +350,13 @@ bool load_font_from_file(String file_name, Font* font, Pixels* pixels, Allocator
     if(source.length){
         auto serializer = Serializer(source);
         Asset_Header header;
-        read(&serializer, to_void(&header));
+        read(&serializer, header);
         if(verify_asset_header!Font_Meta(file_name, &header)){
             // TODO: Read sections based on the sizes in the section header.
             // Have a function that will return the section payload, deflating compressed
             // data as needed.
             Font_Metrics* metrics;
-            while(auto section = get_asset_section(&serializer)){
+            while(auto section = eat_type!Asset_Section(&serializer)){
                 switch(cast(Font_Section)section.type){
                     default:
                         eat_bytes(&serializer, section.size);
@@ -380,7 +369,7 @@ bool load_font_from_file(String file_name, Font* font, Pixels* pixels, Allocator
 
                     case Font_Section.Glyphs:{
                         uint glyphs_count;
-                        read(&serializer, to_void(&glyphs_count));
+                        read(&serializer, glyphs_count);
                         if(glyphs_count > 0){
                             font.glyphs = eat_array!Font_Glyph(&serializer, glyphs_count);
                         }
@@ -388,25 +377,25 @@ bool load_font_from_file(String file_name, Font* font, Pixels* pixels, Allocator
 
                     case Font_Section.Kerning:{
                         uint kerning_count;
-                        read(&serializer, to_void(&kerning_count));
+                        read(&serializer, kerning_count);
                         if(kerning_count > 0){
                             font.kerning_pairs   = alloc_array!Kerning_Pair(allocator.scratch, kerning_count);
                             font.kerning_advance = alloc_array!float(allocator.scratch, kerning_count);
 
                             foreach(ref entry; font.kerning_pairs){
-                                read(&serializer, to_void(&entry));
+                                read(&serializer, entry);
                             }
 
                             foreach(ref entry; font.kerning_advance){
-                                read(&serializer, to_void(&entry));
+                                read(&serializer, entry);
                             }
                         }
                     } break;
 
                     case Font_Section.Pixels:{
                         uint width, height;
-                        read(&serializer, to_void(&width));
-                        read(&serializer, to_void(&height));
+                        read(&serializer, width);
+                        read(&serializer, height);
                         if(width && height){
                             pixels.data   = eat_array!uint(&serializer, width*height);
                             pixels.width  = width;

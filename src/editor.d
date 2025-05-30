@@ -93,14 +93,14 @@ void save_campaign_file(App_State* s, String file_name){
     // TODO: Put date
     info.missions_count = cast(uint)g_missions.count;
     info.maps_count     = cast(uint)g_maps.count;
-    write_campaign_info(&serializer, &info);
+    write(&serializer, info);
     end_writing_section(&serializer, info_section);
 
     foreach(ref entry; g_maps.iterate()){
         auto section = begin_writing_section(&serializer, Campaign_Section_Type.Map);
         uint map_id = 0; // TODO: Placeholder in case we want to add this later.
         write(&serializer, map_id);
-        write(&serializer, entry.map.cells[]);
+        write(&serializer, entry.map.cells);
         end_writing_section(&serializer, section);
     }
 

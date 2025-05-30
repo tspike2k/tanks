@@ -163,16 +163,7 @@ void read_campaign_info(Serializer* reader, Campaign_Info* info){
 }
 
 void write_campaign_info(Serializer* reader, Campaign_Info* info){
-/+
-    write_array(reader, info.name);
-    write_array(reader, info.author);
-    write_array(reader, info.date);
-    write_array(reader, info.description);
-    write(reader, to_void(&info.difficulty));
-    write(reader, to_void(&info.players_count));
-    write(reader, to_void(&info.missions_count));
-    write(reader, to_void(&info.maps_count));
-    write(reader, to_void(&info.next_map_id));+/
+    write(reader, *info);
 }
 
 bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* allocator){
@@ -189,7 +180,7 @@ bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* al
         if(verify_asset_header!Campaign_Meta(file_name, header)){
             auto start_section = eat_type!Asset_Section(&reader);
             if(start_section && start_section.type == Campaign_Section_Type.Info){
-                auto info_reader = Serializer(eat_bytes(&reader, start_section.size));
+                auto info_reader = Serializer(eat_bytes(&reader, start_section.size), allocator);
                 Campaign_Info info;
                 read_campaign_info(&info_reader, &info);
 
@@ -199,7 +190,7 @@ bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* al
                 uint map_index   = 0;
                 uint mission_index = 0;
                 while(auto section = eat_type!Asset_Section(&reader)){
-                    auto section_memory = Serializer(eat_bytes(&reader, section.size));
+                    auto section_memory = Serializer(eat_bytes(&reader, section.size), allocator);
                     switch(section.type){
                         default:
                             break;
@@ -207,20 +198,20 @@ bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* al
                         case Campaign_Section_Type.Map:{
                             auto map = &campaign.maps[map_index++];
                             uint map_id = 0;
-                            read(&section_memory, to_void(&map_id));
-                            read(&section_memory, map.cells[]);
+                            read(&section_memory, map_id);
+                            read(&section_memory, map.cells);
                         } break;
 
                         case Campaign_Section_Type.Mission:{
                             auto mission = &campaign.missions[mission_index++];
 
-                            read(&section_memory, to_void(&mission.players_tank_bonus));
-                            read(&section_memory, to_void(&mission.map_index_min));
-                            read(&section_memory, to_void(&mission.map_index_max));
-                            read(&section_memory, to_void(&mission.enemies_mask));
+                            read(&section_memory, mission.players_tank_bonus);
+                            read(&section_memory, mission.map_index_min);
+                            read(&section_memory, mission.map_index_max);
+                            read(&section_memory, mission.enemies_mask);
 
                             uint enemies_count;
-                            read(&section_memory, to_void(&enemies_count));
+                            read(&section_memory, enemies_count);
                             mission.enemies = alloc_array!Enemy_Entry(allocator, enemies_count);
                             read(&section_memory, mission.enemies);
                         } break;
