@@ -531,7 +531,7 @@ void read(T)(Serializer* serializer, ref T t){
 private void serialize(Serialize_Mode Mode, T)(Serializer* serializer, ref T t){
     enum bool is_reading = Mode == Serialize_Mode.Read;
 
-    void put(Serializer* serializer, void[] data){
+    void copy_data(Serializer* serializer, void[] data){
         auto buffer = eat_bytes(serializer, data.length);
         if(buffer.length){
             static if(is_reading)
@@ -552,19 +552,32 @@ private void serialize(Serialize_Mode Mode, T)(Serializer* serializer, ref T t){
     }
     else static if(isArray!T){
         alias Element = ArrayElementType!T;
-
         static if(isDynamicArray!T){
-            uint count = cast(uint)t.length;
+            auto count = cast(uint)t.length;
             serialize!Mode(serializer, count);
 
-            // Allocate space for the array if we need to.
+            // When reading dynamic arrays from a buffer you can choose one of two strategies:
+            // 1) Make a deep copy.
+            // 2) Make a shallow copy.
+            // We support both here. If the allocator on the serializer is not null, space is
+            // allocated for the array and the elements are copied to this newly allocated memory.
+            // If the allocator is null, the array points to the memory in the source buffer.
             static if(is_reading){
-                t = alloc_array!Element(serializer.allocator, count);
+                if(serializer.allocator){
+                    t = alloc_array!Element(serializer.allocator, count);
+                }
+                else{
+                    t = eat_array!Element(serializer, count);
+                    if(t.length == 0){
+                        serializer.errors = true;
+                    }
+                    return;
+                }
             }
         }
 
         static if(isBuiltinType!Element){
-            put(serializer, cast(void[])t);
+            copy_data(serializer, cast(void[])t);
         }
         else{
             foreach(ref e; t){
@@ -573,7 +586,7 @@ private void serialize(Serialize_Mode Mode, T)(Serializer* serializer, ref T t){
         }
     }
     else static if(isBuiltinType!T){
-        put(serializer, to_void(&t));
+        copy_data(serializer, to_void(&t));
     }
     else{
         static assert("Unable to serialize type " ~ T.stringof ~ ".\n");

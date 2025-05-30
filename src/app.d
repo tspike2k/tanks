@@ -180,7 +180,7 @@ bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* al
         if(verify_asset_header!Campaign_Meta(file_name, header)){
             auto start_section = eat_type!Asset_Section(&reader);
             if(start_section && start_section.type == Campaign_Section_Type.Info){
-                auto info_reader = Serializer(eat_bytes(&reader, start_section.size), allocator);
+                auto info_reader = Serializer(eat_bytes(&reader, start_section.size));
                 Campaign_Info info;
                 read_campaign_info(&info_reader, &info);
 
