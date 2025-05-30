@@ -9,7 +9,9 @@ module meta;
 public import std.traits;
 public import std.meta;
 
-alias ArrayTarget(T : T[]) = T;
+alias ArrayElementType(T : T[]) = T;
+
+template TypesMatch(T, U){ enum TypesMatch = is(Unqual!T == Unqual!U);};
 
 bool isStructPacked(T)()
 if(is(T == struct))

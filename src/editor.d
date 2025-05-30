@@ -67,6 +67,7 @@ Vec2           g_drag_offset;
 
 Map_Entry*     g_current_map;
 List!Map_Entry g_maps;
+List!Map_Entry g_missions;
 
 void save_campaign_file(App_State* s, String file_name){
     auto scratch = s.frame_memory.scratch;
@@ -90,35 +91,27 @@ void save_campaign_file(App_State* s, String file_name){
     info.author = "tspike";
     //info.next_map_id = 0;
     // TODO: Put date
-    //info.levels_count = cast(uint)g_levels.count;
-    info.maps_count   = cast(uint)g_maps.count;
+    info.missions_count = cast(uint)g_missions.count;
+    info.maps_count     = cast(uint)g_maps.count;
     write_campaign_info(&serializer, &info);
     end_writing_section(&serializer, info_section);
 
     foreach(ref entry; g_maps.iterate()){
         auto section = begin_writing_section(&serializer, Campaign_Section_Type.Map);
         uint map_id = 0; // TODO: Placeholder in case we want to add this later.
-        write(&serializer, to_void(&map_id));
+        write(&serializer, map_id);
         write(&serializer, entry.map.cells[]);
         end_writing_section(&serializer, section);
     }
 
     /+
-    foreach(ref level; g_levels.iterate()){
-        auto section = begin_writing_section(&serializer, Campaign_Section_Type.Level);
-        write(&serializer, to_void(&level.map_id));
-        uint entities_count = cast(uint)level.entities.count;
-        write(&serializer, to_void(&entities_count));
-        foreach(ref entry; level.entities.iterate()){
-            auto e = &entry.entity;
-            assert(e.type == Entity_Type.Tank);
-            auto cmd = eat_type!Cmd_Make_Tank(&serializer);
-            encode(cmd, e);
-        }
+    foreach(ref entry; g_missions.iterate()){
+        auto section = begin_writing_section(&serializer, Campaign_Section_Type.Mission);
+        auto mission = &entry.mission;
+        write(&serializer, *mission);
         end_writing_section(&serializer, section);
-    }
+    }+/
 
-    +/
     end_reserve_all(scratch, serializer.buffer, serializer.buffer_used);
     write_file_from_memory(file_name, serializer.buffer[0 .. serializer.buffer_used]);
 }

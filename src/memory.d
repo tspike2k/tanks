@@ -5,7 +5,7 @@ License:   Boost Software License 1.0 (https://www.boost.org/LICENSE_1_0.txt)
 */
 
 import logging;
-import std.traits;
+import meta;
 
 public import core.stdc.string : memset, memcpy, strlen;
 
@@ -475,8 +475,10 @@ bool to_float(float* f, String s){
 ///
 
 struct Serializer{
-    void[] buffer;
-    size_t buffer_used;
+    void[]     buffer;
+    Allocator* allocator;
+    size_t     buffer_used;
+    bool       errors;
 }
 
 size_t bytes_left(Serializer* serializer){
@@ -518,6 +520,9 @@ void write(Serializer* dest, void[] data){
     if(buffer.length){
         copy(data, buffer);
     }
+    else{
+        dest.errors = true;
+    }
 }
 
 void read(Serializer* dest, void[] data){
@@ -525,6 +530,75 @@ void read(Serializer* dest, void[] data){
     if(buffer.length){
         copy(buffer, data);
     }
+}
+
+private enum Serialize_Mode{
+    Read,
+    Write,
+}
+
+private void serialize(Serialize_Mode Mode, T)(Serializer* serializer, ref T t){
+    enum bool is_reading = Mode == Serialize_Mode.Read;
+    static if(is_reading)
+        alias policy = read;
+    else
+        alias policy = write;
+
+    static if(is(T == struct)){
+        foreach(i, ref member; t.tupleof){
+            // TODO: Allow flagging members as No_Serialize
+            serialize!Mode(serializer, member);
+        }
+    }
+    else static if(isArray!T){
+        alias Element = ArrayElementType!T;
+
+        uint count = cast(uint)t.length;
+        serialize!Mode(serializer, count);
+
+        // Allocate space for the array if we need to.
+        static if(isDynamicArray!T && is_reading){
+            t = alloc_array!Element(serializer.allocator, count);
+        }
+
+        static if(isIntegral!Element){
+            policy(serializer, cast(void[])t);
+        }
+        else{
+            foreach(ref e; t){
+                serialize!Mode(serializer, e);
+            }
+        }
+    }
+    else static if(isIntegral!T){
+        policy(serializer, to_void(&t));
+    }
+    else{
+        static assert("Unable to serialize type " ~ T.stringof ~ ".\n");
+    }
+}
+
+void write(T)(Serializer* serializer, ref T t)
+if(!TypesMatch!(T, void[])){
+    serialize!(Serialize_Mode.Write)(serializer, t);
+}
+
+void read(T)(Serializer* serializer, ref T t)
+if(!TypesMatch!(T, void[])){
+    serialize!(Serialize_Mode.Read)(serializer, t);
+}
+
+// TODO: Remove read_array/write_array. Prefer using memory.read, memory.write.
+void read_array(T)(Serializer* reader, ref T[] array){
+    uint count = 0;
+    read(reader, to_void(&count));
+    array = cast(T[])eat_bytes(reader, count*T.sizeof);
+}
+
+void write_array(T)(Serializer* reader, T[] array){
+    uint count = cast(uint)array.length;
+    write(reader, to_void(&count));
+    write(reader, cast(void[])array);
 }
 
 version(none){

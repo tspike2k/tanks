@@ -22,6 +22,38 @@ TODO:
     Interesting article on frequency of packet transmission in multiplayer games
     used in Source games.
     https://developer.valvesoftware.com/wiki/Source_Multiplayer_Networking
+
+
+----Additional data we need for campaigns----
+
+Campaign Info:
+    Starting lives
+    Tank stats table (include AI parameters)
+        Color info
+        Speed
+        etc
+    Missions
+        Award tank bonus
+        Min map index
+        Max map index
+        Tank ranges to spawn at pos.
+
+We want the designer to have the flexibility to decide which tanks spawn on which levels.
+But what would be the easiest way to handle that? We have spawn points 0-8. The most obvious
+thing to do is to have enemy info for each spawn point.
+
+We could make it simple. Each entry looks like this:
+    struct Enemy_Entry{
+        ubyte players_mask;
+        ubyte pad;
+        ubyte index_min;
+        ubyte index_max;
+    }
+
+The algorithm for selecting which enemy should spawn would be to find all the tank spawners,
+sort them by index, iterate over each of them and pick the next valid Enemy_Entry in the table.
+This sounds fine.
+
 +/
 
 import display;
@@ -75,8 +107,7 @@ alias Map_Cell_Is_Player    = Map_Cell_Is_Special;
 // cell. If the value is zero, the cell is empty.
 //
 // Each cell value is a single byte. The bits in each byte are encoded like so:
-//
-// tsffeiii
+//      tsffeiii
 //
 // t    - If set, the entity is a tank. If not set, the entity is a block.
 // s    - Special flag. If set when entity is a block, the block is breakable.
@@ -106,12 +137,19 @@ struct Campaign_Map{
     Map_Cell[Max_Grid_Cells] cells;
 }
 
+struct Enemy_Entry{
+    ubyte players_flag; // Tells if enemies are specially authored for players 1-4
+    ubyte pad;
+    ubyte index_min;
+    ubyte index_max;
+}
+
 struct Campaign_Mission{
-    uint tank_bonus; // Multiple bits should be used for the player count. The author can decide if an N-player game should allow bonus tanks on completion.
+    uint players_tank_bonus; // Multiple bits should be used for the player count. The author can decide if an N-player game should allow bonus tanks on completion.
     uint map_index_min;
     uint map_index_max;
-    uint enemies_mask; // Tells if enemies are specially authored for players 1-4
-    //ubyte[32] enemies;
+    uint enemies_mask;
+    Enemy_Entry[] enemies;
 }
 
 struct Campaign{
@@ -120,40 +158,21 @@ struct Campaign{
     Campaign_Mission[] missions;
 }
 
-void read_array(T)(Serializer* reader, ref T[] array){
-    uint count = 0;
-    read(reader, to_void(&count));
-    array = cast(T[])eat_bytes(reader, count*T.sizeof);
-}
-
-void write_array(T)(Serializer* reader, T[] array){
-    uint count = cast(uint)array.length;
-    write(reader, to_void(&count));
-    write(reader, cast(void[])array);
-}
-
 void read_campaign_info(Serializer* reader, Campaign_Info* info){
-    read_array(reader, info.name);
-    read_array(reader, info.author);
-    read_array(reader, info.date);
-    read_array(reader, info.description);
-    read(reader, to_void(&info.difficulty));
-    read(reader, to_void(&info.players_count));
-    read(reader, to_void(&info.levels_count));
-    read(reader, to_void(&info.maps_count));
-    read(reader, to_void(&info.next_map_id));
+    read(reader, *info);
 }
 
 void write_campaign_info(Serializer* reader, Campaign_Info* info){
+/+
     write_array(reader, info.name);
     write_array(reader, info.author);
     write_array(reader, info.date);
     write_array(reader, info.description);
     write(reader, to_void(&info.difficulty));
     write(reader, to_void(&info.players_count));
-    write(reader, to_void(&info.levels_count));
+    write(reader, to_void(&info.missions_count));
     write(reader, to_void(&info.maps_count));
-    write(reader, to_void(&info.next_map_id));
+    write(reader, to_void(&info.next_map_id));+/
 }
 
 bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* allocator){
@@ -164,7 +183,7 @@ bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* al
     bool success = false;
     auto memory = read_file_into_memory(file_name, scratch);
     if(memory.length){
-        auto reader = Serializer(memory);
+        auto reader = Serializer(memory, allocator);
 
         auto header = eat_type!Asset_Header(&reader);
         if(verify_asset_header!Campaign_Meta(file_name, header)){
@@ -174,11 +193,11 @@ bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* al
                 Campaign_Info info;
                 read_campaign_info(&info_reader, &info);
 
-                campaign.maps   = alloc_array!Campaign_Map(allocator, info.maps_count);
-                //campaign.levels = alloc_array!Campaign_Level(allocator, info.levels_count);
+                campaign.maps     = alloc_array!Campaign_Map(allocator, info.maps_count);
+                campaign.missions = alloc_array!Campaign_Mission(allocator, info.missions_count);
 
                 uint map_index   = 0;
-                uint level_index = 0;
+                uint mission_index = 0;
                 while(auto section = eat_type!Asset_Section(&reader)){
                     auto section_memory = Serializer(eat_bytes(&reader, section.size));
                     switch(section.type){
@@ -192,20 +211,24 @@ bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* al
                             read(&section_memory, map.cells[]);
                         } break;
 
-                        /+
-                        case Campaign_Section_Type.Level:{
-                            auto level = &campaign.levels[level_index++];
-                            read(&section_memory, to_void(&level.map_id));
-                            uint tanks_count;
-                            read(&section_memory, to_void(&tanks_count));
-                            level.tanks = alloc_array!Cmd_Make_Tank(allocator, tanks_count);
-                            read(&section_memory, level.tanks);
-                        } break;+/
+                        case Campaign_Section_Type.Mission:{
+                            auto mission = &campaign.missions[mission_index++];
+
+                            read(&section_memory, to_void(&mission.players_tank_bonus));
+                            read(&section_memory, to_void(&mission.map_index_min));
+                            read(&section_memory, to_void(&mission.map_index_max));
+                            read(&section_memory, to_void(&mission.enemies_mask));
+
+                            uint enemies_count;
+                            read(&section_memory, to_void(&enemies_count));
+                            mission.enemies = alloc_array!Enemy_Entry(allocator, enemies_count);
+                            read(&section_memory, mission.enemies);
+                        } break;
                     }
                 }
 
-                success = map_index == campaign.maps.length;
-                      //&& level_index == campaign.levels.length;
+                success = map_index == campaign.maps.length
+                      && mission_index == campaign.missions.length;
             }
             else{
                 log_error("Campaign file {0} doesn't begin with a valid Campaign_Info section.\n", file_name);

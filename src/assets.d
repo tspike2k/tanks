@@ -120,7 +120,7 @@ enum Campaign_Section_Type : uint{
     Info,
     Blocks, // Depricated
     Tanks,  // Depricated
-    Level,
+    Mission,
     Map,
 }
 
@@ -139,7 +139,7 @@ struct Campaign_Info{
     String             description;
     Campaign_Difficuly difficulty;
     uint               players_count;
-    uint               levels_count;
+    uint               missions_count;
     uint               maps_count;
     uint               next_map_id; // For editing
 }
