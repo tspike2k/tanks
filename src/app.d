@@ -74,8 +74,7 @@ enum Editor_Memory_Size  =  4*1024*1024;
 enum Scratch_Memory_Size = 16*1024*1024;
 enum Total_Memory_Size   = Main_Memory_Size + Frame_Memory_Size + Editor_Memory_Size + Scratch_Memory_Size;
 
-//enum Campaign_File_Name = "./build/main.camp"; // TODO: Use a specific folder for campaigns?
-enum Campaign_File_Name = "./build/test.camp"; // TODO: Use a specific folder for campaigns?
+enum Campaign_File_Name = "./build/main.camp"; // TODO: Use a specific folder for campaigns?
 
 enum Max_Bullets_Per_Tank = 5;
 enum Max_Mines_Per_Tank   = 3;
@@ -134,14 +133,29 @@ Map_Cell encode_map_cell(bool is_tank, bool is_special, ubyte index){
 }
 
 struct Campaign_Map{
+    uint[4] reserved;
     Map_Cell[Max_Grid_Cells] cells;
 }
 
-struct Enemy_Entry{
+struct Enemy_Data{
     ubyte players_flag; // Tells if enemies are specially authored for players 1-4
     ubyte pad;
     ubyte index_min;
     ubyte index_max;
+}
+
+// Tank params based on "Wii Tanks AI Parameter Sheet" by BigKitty1011
+struct Tank_Data{
+    // TODO: Finish copying over all the tank data.
+    Vec4 body_color;
+    Vec4 turret_color;
+    Vec4[2] reserved;
+    uint model_index;
+    uint invisible;
+    float mine_clearance;
+    uint  mine_limit;
+    float mine_timer_min;
+    float mine_timer_max;
 }
 
 struct Campaign_Mission{
@@ -149,21 +163,14 @@ struct Campaign_Mission{
     uint map_index_min;
     uint map_index_max;
     uint enemies_mask;
-    Enemy_Entry[] enemies;
+    Enemy_Data[] enemies;
 }
 
 struct Campaign{
     Campaign_Info      info;
     Campaign_Map[]     maps;
     Campaign_Mission[] missions;
-}
-
-void read_campaign_info(Serializer* reader, Campaign_Info* info){
-    read(reader, *info);
-}
-
-void write_campaign_info(Serializer* reader, Campaign_Info* info){
-    write(reader, *info);
+    Tank_Data[]        tanks;
 }
 
 bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* allocator){
@@ -180,29 +187,23 @@ bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* al
         if(verify_asset_header!Campaign_Meta(file_name, header)){
             auto start_section = eat_type!Asset_Section(&reader);
             if(start_section && start_section.type == Campaign_Section_Type.Info){
-                auto info_reader = Serializer(eat_bytes(&reader, start_section.size));
                 Campaign_Info info;
-                read_campaign_info(&info_reader, &info);
-
-                campaign.maps     = alloc_array!Campaign_Map(allocator, info.maps_count);
-                campaign.missions = alloc_array!Campaign_Mission(allocator, info.missions_count);
+                read(&reader, info);
 
                 uint map_index   = 0;
                 uint mission_index = 0;
                 while(auto section = eat_type!Asset_Section(&reader)){
-                    auto section_memory = Serializer(eat_bytes(&reader, section.size), allocator);
                     switch(section.type){
                         default:
+                            eat_bytes(&reader, section.size);
                             break;
 
                         case Campaign_Section_Type.Map:{
-                            auto map = &campaign.maps[map_index++];
-                            uint map_id = 0;
-                            read(&section_memory, map_id);
-                            read(&section_memory, map.cells);
+                            read(&reader, campaign.maps);
                         } break;
 
                         case Campaign_Section_Type.Mission:{
+                        /+
                             auto mission = &campaign.missions[mission_index++];
 
                             read(&section_memory, mission.players_tank_bonus);
@@ -213,13 +214,12 @@ bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* al
                             uint enemies_count;
                             read(&section_memory, enemies_count);
                             mission.enemies = alloc_array!Enemy_Entry(allocator, enemies_count);
-                            read(&section_memory, mission.enemies);
+                            read(&section_memory, mission.enemies);+/
                         } break;
                     }
                 }
 
-                success = map_index == campaign.maps.length
-                      && mission_index == campaign.missions.length;
+                success = !reader.errors;
             }
             else{
                 log_error("Campaign file {0} doesn't begin with a valid Campaign_Info section.\n", file_name);

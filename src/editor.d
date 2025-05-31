@@ -54,6 +54,14 @@ struct Map_Entry{
     Campaign_Map map;
 }
 
+struct Mission_Entry{
+    Map_Entry* next;
+    Map_Entry* prev;
+
+    Enemy_Data[Max_Enemies*Max_Players] enemies_memory;
+    Campaign_Mission mission;
+}
+
 Allocator*     g_allocator;
 char[256]      g_dest_file_name;
 uint           g_dest_file_name_used;
@@ -67,13 +75,12 @@ Vec2           g_drag_offset;
 
 Map_Entry*     g_current_map;
 List!Map_Entry g_maps;
-List!Map_Entry g_missions;
+//List! g_missions;
 
 void save_campaign_file(App_State* s, String file_name){
     auto scratch = s.frame_memory.scratch;
     push_frame(scratch);
     scope(exit) pop_frame(scratch);
-
 
     auto dest_buffer = begin_reserve_all(scratch);
     auto serializer = Serializer(dest_buffer);
@@ -91,14 +98,14 @@ void save_campaign_file(App_State* s, String file_name){
     info.author = "tspike";
     //info.next_map_id = 0;
     // TODO: Put date
-    info.missions_count = cast(uint)g_missions.count;
+    //info.missions_count = cast(uint)g_missions.count;
     info.maps_count     = cast(uint)g_maps.count;
     write(&serializer, info);
     end_writing_section(&serializer, info_section);
 
     foreach(ref entry; g_maps.iterate()){
         auto section = begin_writing_section(&serializer, Campaign_Section_Type.Map);
-        uint map_id = 0; // TODO: Placeholder in case we want to add this later.
+        uint map_id = 0; // NOTE: Placeholder in case we want to add this later.
         write(&serializer, map_id);
         write(&serializer, entry.map.cells);
         end_writing_section(&serializer, section);

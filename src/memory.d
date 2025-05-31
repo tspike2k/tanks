@@ -351,7 +351,12 @@ inout(char)[] to_string(inout(char)* s){
     return result;
 }
 
-String eat_line(ref String reader){
+alias Reader_Slice = inout(char)[];
+
+// TODO: Rather than use slices, should we have a buffer with a used value, similar to
+// the Serializer?
+
+String eat_line(ref Reader_Slice reader){
     String result = reader;
     foreach(i, c; reader){
         if(c == '\n'){ // Handle Windows style line ends?
@@ -364,7 +369,7 @@ String eat_line(ref String reader){
     return result;
 }
 
-inout(char)* get_last_char(inout(char)[] s, char target){
+inout(char)* get_last_char(Reader_Slice s, char target){
     inout(char)* result;
 
     foreach(ref c; s){
@@ -376,7 +381,7 @@ inout(char)* get_last_char(inout(char)[] s, char target){
     return result;
 }
 
-String eat_whitespace(ref String reader){
+String eat_whitespace(ref Reader_Slice reader){
     auto result = reader;
     foreach(i, c; reader){
         if(!is_whitespace(c)){
@@ -388,7 +393,7 @@ String eat_whitespace(ref String reader){
     return result;
 }
 
-String eat_between_whitespace(ref String reader){
+String eat_between_whitespace(ref Reader_Slice reader){
     eat_whitespace(reader);
     auto result = reader;
     foreach(i, c; reader){
@@ -401,8 +406,24 @@ String eat_between_whitespace(ref String reader){
     return result;
 }
 
-String eat_between_char(ref String reader, char delimiter){
-    auto result = reader;
+String eat_until_char(ref Reader_Slice reader, char delimiter){
+    String result = reader;
+    auto end = reader.length;
+    foreach(i, c; reader){
+        if(c == delimiter){
+            result = result[0 .. i];
+            end = i+1;
+            break;
+        }
+    }
+    reader = reader[end .. $];
+    return result;
+}
+
+// TODO: This is used by the obj parser. We should switch to using eat_until_char
+// once we iron out how it workds.
+String eat_between_char(ref Reader_Slice reader, char delimiter){
+    String result = reader;
     foreach(i, c; reader){
         if(c == delimiter){
             result = result[0 .. i];
@@ -413,37 +434,47 @@ String eat_between_char(ref String reader, char delimiter){
     return result;
 }
 
-bool to_int(T)(T* t, String s)
+bool to_int(T)(T* result, String s, T base = 10)
 if(isIntegral!T && !isFloatingPoint!T){
-    bool succeeded = s.length > 0;
-
-    bool is_negative;
+    bool succeeded = false;
     if(s.length > 0){
-        is_negative = s[0] == '-';
+        bool is_negative = s[0] == '-';
 
+        // TODO: Override "base" depending on if the string begins with 0x or 0b.
         if(s[0] == '-' || s[0] == '+')
             s = s[1..$];
-    }
 
-    // TODO: Parse hex literals. What about binary and octal?
-    T base = 10;
+        succeeded = s.length > 0;
+        foreach_reverse(i, c; s){
+            auto pow_place = s.length-1 - i;
+            T n;
+            if(c == '_'){
+                // TODO: Won't underscores break the decimal place (pow_place) calculation?
+                continue;
+            }
+            else if(base >= 10 && c >= '0' && c <= '9'){
+                n = (c - '0');
+            }
+            else if(base == 16 && c >= 'a' && c <= 'f'){
+                n = (c - 'a');
+            }
+            else if(base == 16 && c >= 'A' && c <= 'F'){
+                n = (c - 'A');
+            }
+            else{
+                succeeded = false;
+                break;
+            }
 
-    T result = 0;
-    foreach_reverse(i, c; s){
-        if(c >= '0' && c <= '9'){
-            T n = (c - '0');
-            result += n*(base^^(s.length-1 - i)); // ^^ is the pow expression in D
+            *result += n*(base^^(pow_place)); // ^^ is the pow expression in D
         }
-        else if(c != '_'){
-            succeeded = false;
-            break;
+
+        static if(isSigned!T){
+            if(is_negative){
+                *result = (*result)*-1;
+            }
         }
     }
-
-    if(succeeded){
-        *t = result;
-    }
-
     return succeeded;
 }
 

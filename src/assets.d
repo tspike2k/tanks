@@ -130,7 +130,7 @@ struct Campaign_Info{
     uint               players_count;
     uint               missions_count;
     uint               maps_count;
-    uint               next_map_id; // For editing
+    uint               reserved;
 }
 
 ////
