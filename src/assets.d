@@ -95,7 +95,7 @@ struct Pixels{
 // TODO: Convert Campaign files to using the Asset structure.
 
 enum Campaign_File_Magic = ('T' << 0 | 'a' << 8 | 'n' << 16 | 'k' << 24);
-enum Campaign_File_Version = 1;
+enum Campaign_File_Version = 2;
 
 struct Campaign_Meta{
     enum magic        = Campaign_File_Magic;
@@ -107,10 +107,8 @@ struct Campaign_Meta{
 enum Campaign_Section_Type : uint{
     None,
     Info,
-    Blocks, // Depricated
-    Tanks,  // Depricated
-    Mission,
-    Map,
+    Maps,
+    Missions,
 }
 
 enum Campaign_Difficuly : uint{
@@ -131,6 +129,91 @@ struct Campaign_Info{
     uint               missions_count;
     uint               maps_count;
     uint               reserved;
+}
+
+alias Map_Cell = ubyte;
+enum Map_Cell Map_Cell_Is_Tank     = (1 << 7);
+enum Map_Cell Map_Cell_Is_Special  = (1 << 6);
+enum Map_Cell Map_Cell_Extra_Flag  = (1 << 3);
+enum Map_Cell Map_Cell_Index_Mask  = (0b00000111);
+enum Map_Cell Map_Cell_Facing_Mask = (0b00110000);
+
+alias Map_Cell_Is_Breakable = Map_Cell_Is_Special;
+alias Map_Cell_Is_Player    = Map_Cell_Is_Special;
+
+// Each campaign map is borken up into cells. Each cell can contain zero or one entity.
+// The type of entity and its properties are determined by the value stored in a given
+// cell. If the value is zero, the cell is empty.
+//
+// Each cell value is a single byte. The bits in each byte are encoded like so:
+//      tsffeiii
+//
+// t    - If set, the entity is a tank. If not set, the entity is a block.
+// s    - Special flag. If set when entity is a block, the block is breakable.
+//        If set when a tank, the tank is controlled by a player.
+// ff   - The facing direction of a tank. Unused for now, but might be worth adding.
+// e    - Extra flag. Must be set to 1 for blocks, otherwise a block with 0 height
+//        would be encoded as all zeroes.
+// iii  - The "index" value of the entity. When a block, determines height. When a player tank,
+//        determines the index of the player that controls the tank. Determines the enemy slot
+//        to use from the current campaign mission for enemy tanks.
+Map_Cell encode_map_cell(bool is_tank, bool is_special, ubyte index){
+    Map_Cell result;
+
+    if(is_tank)
+        result |= Map_Cell_Is_Tank;
+    else
+        result |= Map_Cell_Extra_Flag; // Must always be set for blocks to ensure non-zero values.
+
+    if(is_special)
+        result |= Map_Cell_Is_Special;
+
+    result |= (index & Map_Cell_Index_Mask);
+    return result;
+}
+
+struct Campaign_Map{
+    uint id;
+    uint width;
+    uint height;
+    uint reserved;
+    Map_Cell[] cells;
+}
+
+struct Enemy_Data{
+    ubyte players_flag; // Tells if enemies are specially authored for players 1-4
+    ubyte pad;
+    ubyte index_min;
+    ubyte index_max;
+}
+
+// Tank params based on "Wii Tanks AI Parameter Sheet" by BigKitty1011
+struct Tank_Data{
+    // TODO: Finish copying over all the tank data.
+    Vec4 body_color;
+    Vec4 turret_color;
+    Vec4[2] reserved;
+    uint model_index;
+    uint invisible;
+    float mine_clearance;
+    uint  mine_limit;
+    float mine_timer_min;
+    float mine_timer_max;
+}
+
+struct Campaign_Mission{
+    uint players_tank_bonus; // Multiple bits should be used for the player count. The author can decide if an N-player game should allow bonus tanks on completion.
+    uint map_index_min;
+    uint map_index_max;
+    uint enemies_mask;
+    Enemy_Data[] enemies;
+}
+
+struct Campaign{
+    Campaign_Info      info;
+    Campaign_Map[]     maps;
+    Campaign_Mission[] missions;
+    Tank_Data[]        tanks;
 }
 
 ////

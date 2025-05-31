@@ -5,6 +5,10 @@ License:   Boost Software License 1.0 (https://www.boost.org/LICENSE_1_0.txt)
 */
 
 /+
+Credits:
+    BigKitty1011 for the very helpful "Wii Tanks AI Parameter Sheet"
+    TheGoldfishKing for the equally helpful "Tanks_Documentation"
+
 TODO:
     - Particles (Explosions, smoke, etc)
     - Enemy AI
@@ -91,88 +95,6 @@ enum Max_Grid_Cells = Grid_Height*Grid_Width;
 enum Max_Enemies = 8;
 enum Max_Players = 4;
 
-alias Map_Cell = ubyte;
-enum Map_Cell Map_Cell_Is_Tank     = (1 << 7);
-enum Map_Cell Map_Cell_Is_Special  = (1 << 6);
-enum Map_Cell Map_Cell_Extra_Flag  = (1 << 3);
-enum Map_Cell Map_Cell_Index_Mask  = (0b00000111);
-enum Map_Cell Map_Cell_Facing_Mask = (0b00110000);
-
-alias Map_Cell_Is_Breakable = Map_Cell_Is_Special;
-alias Map_Cell_Is_Player    = Map_Cell_Is_Special;
-
-// Each campaign map is borken up into cells. Each cell can contain zero or one entity.
-// The type of entity and its properties are determined by the value stored in a given
-// cell. If the value is zero, the cell is empty.
-//
-// Each cell value is a single byte. The bits in each byte are encoded like so:
-//      tsffeiii
-//
-// t    - If set, the entity is a tank. If not set, the entity is a block.
-// s    - Special flag. If set when entity is a block, the block is breakable.
-//        If set when a tank, the tank is controlled by a player.
-// ff   - The facing direction of a tank. Unused for now, but might be worth adding.
-// e    - Extra flag. Must be set to 1 for blocks, otherwise a block with 0 height
-//        would be encoded as all zeroes.
-// iii  - The "index" value of the entity. When a block, determines height. When a player tank,
-//        determines the index of the player that controls the tank. Determines the enemy slot
-//        to use from the current campaign mission for enemy tanks.
-Map_Cell encode_map_cell(bool is_tank, bool is_special, ubyte index){
-    Map_Cell result;
-
-    if(is_tank)
-        result |= Map_Cell_Is_Tank;
-    else
-        result |= Map_Cell_Extra_Flag; // Must always be set for blocks to ensure non-zero values.
-
-    if(is_special)
-        result |= Map_Cell_Is_Special;
-
-    result |= (index & Map_Cell_Index_Mask);
-    return result;
-}
-
-struct Campaign_Map{
-    uint[4] reserved;
-    Map_Cell[Max_Grid_Cells] cells;
-}
-
-struct Enemy_Data{
-    ubyte players_flag; // Tells if enemies are specially authored for players 1-4
-    ubyte pad;
-    ubyte index_min;
-    ubyte index_max;
-}
-
-// Tank params based on "Wii Tanks AI Parameter Sheet" by BigKitty1011
-struct Tank_Data{
-    // TODO: Finish copying over all the tank data.
-    Vec4 body_color;
-    Vec4 turret_color;
-    Vec4[2] reserved;
-    uint model_index;
-    uint invisible;
-    float mine_clearance;
-    uint  mine_limit;
-    float mine_timer_min;
-    float mine_timer_max;
-}
-
-struct Campaign_Mission{
-    uint players_tank_bonus; // Multiple bits should be used for the player count. The author can decide if an N-player game should allow bonus tanks on completion.
-    uint map_index_min;
-    uint map_index_max;
-    uint enemies_mask;
-    Enemy_Data[] enemies;
-}
-
-struct Campaign{
-    Campaign_Info      info;
-    Campaign_Map[]     maps;
-    Campaign_Mission[] missions;
-    Tank_Data[]        tanks;
-}
-
 bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* allocator){
     auto scratch = allocator.scratch;
     push_frame(scratch);
@@ -185,45 +107,41 @@ bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* al
 
         auto header = eat_type!Asset_Header(&reader);
         if(verify_asset_header!Campaign_Meta(file_name, header)){
-            auto start_section = eat_type!Asset_Section(&reader);
-            if(start_section && start_section.type == Campaign_Section_Type.Info){
-                Campaign_Info info;
-                read(&reader, info);
+            uint map_index   = 0;
+            uint mission_index = 0;
+            while(auto section = eat_type!Asset_Section(&reader)){
+                switch(section.type){
+                    default:
+                        eat_bytes(&reader, section.size);
+                        break;
 
-                uint map_index   = 0;
-                uint mission_index = 0;
-                while(auto section = eat_type!Asset_Section(&reader)){
-                    switch(section.type){
-                        default:
-                            eat_bytes(&reader, section.size);
-                            break;
+                    case Campaign_Section_Type.Info:{
+                        read(&reader, campaign.info);
+                    } break;
 
-                        case Campaign_Section_Type.Map:{
-                            read(&reader, campaign.maps);
-                        } break;
+                    case Campaign_Section_Type.Maps:{
+                        read(&reader, campaign.maps);
+                    } break;
 
-                        case Campaign_Section_Type.Mission:{
-                        /+
-                            auto mission = &campaign.missions[mission_index++];
+                    /+
+                    case Campaign_Section_Type.Mission:{
+                        auto mission = &campaign.missions[mission_index++];
 
-                            read(&section_memory, mission.players_tank_bonus);
-                            read(&section_memory, mission.map_index_min);
-                            read(&section_memory, mission.map_index_max);
-                            read(&section_memory, mission.enemies_mask);
+                        read(&section_memory, mission.players_tank_bonus);
+                        read(&section_memory, mission.map_index_min);
+                        read(&section_memory, mission.map_index_max);
+                        read(&section_memory, mission.enemies_mask);
 
-                            uint enemies_count;
-                            read(&section_memory, enemies_count);
-                            mission.enemies = alloc_array!Enemy_Entry(allocator, enemies_count);
-                            read(&section_memory, mission.enemies);+/
-                        } break;
-                    }
+                        uint enemies_count;
+                        read(&section_memory, enemies_count);
+                        mission.enemies = alloc_array!Enemy_Entry(allocator, enemies_count);
+                        read(&section_memory, mission.enemies);
+                    } break;
+                    +/
                 }
+            }
 
-                success = !reader.errors;
-            }
-            else{
-                log_error("Campaign file {0} doesn't begin with a valid Campaign_Info section.\n", file_name);
-            }
+            success = !reader.errors;
         }
     }
 

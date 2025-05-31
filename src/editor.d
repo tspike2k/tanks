@@ -103,13 +103,13 @@ void save_campaign_file(App_State* s, String file_name){
     write(&serializer, info);
     end_writing_section(&serializer, info_section);
 
+    auto section = begin_writing_section(&serializer, Campaign_Section_Type.Maps);
+    auto maps_count = cast(uint)g_maps.count;
+    write(&serializer, maps_count);
     foreach(ref entry; g_maps.iterate()){
-        auto section = begin_writing_section(&serializer, Campaign_Section_Type.Map);
-        uint map_id = 0; // NOTE: Placeholder in case we want to add this later.
-        write(&serializer, map_id);
-        write(&serializer, entry.map.cells);
-        end_writing_section(&serializer, section);
+        write(&serializer, entry.map);
     }
+    end_writing_section(&serializer, section);
 
     /+
     foreach(ref entry; g_missions.iterate()){
@@ -631,7 +631,7 @@ public void editor_toggle(App_State* s){
         g_mouse_left_is_down  = false;
         g_mouse_right_is_down = false;
 
-        if(!editor_load_campaign(Campaign_File_Name)){
+        if(!editor_load_campaign("./build/wii_16x9.camp")){
             editor_new_campaign();
         }
 

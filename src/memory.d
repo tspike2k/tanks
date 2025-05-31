@@ -445,33 +445,33 @@ if(isIntegral!T && !isFloatingPoint!T){
             s = s[1..$];
 
         succeeded = s.length > 0;
-        foreach_reverse(i, c; s){
-            auto pow_place = s.length-1 - i;
+        uint exponent = 0;
+        foreach_reverse(c; s){
             T n;
             if(c == '_'){
-                // TODO: Won't underscores break the decimal place (pow_place) calculation?
                 continue;
             }
             else if(base >= 10 && c >= '0' && c <= '9'){
                 n = (c - '0');
             }
             else if(base == 16 && c >= 'a' && c <= 'f'){
-                n = (c - 'a');
+                n = 10 + (c - 'a');
             }
             else if(base == 16 && c >= 'A' && c <= 'F'){
-                n = (c - 'A');
+                n = 10 + (c - 'A');
             }
             else{
                 succeeded = false;
                 break;
             }
 
-            *result += n*(base^^(pow_place)); // ^^ is the pow expression in D
+            *result += n*(base^^(exponent)); // ^^ is the pow expression in D
+            exponent++;
         }
 
         static if(isSigned!T){
             if(is_negative){
-                *result = (*result)*-1;
+                *result = cast(T)((*result)*-1);
             }
         }
     }
