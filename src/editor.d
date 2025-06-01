@@ -63,6 +63,7 @@ struct Mission_Entry{
 }
 
 Allocator*     g_allocator;
+Allocator*     g_frame_allocator;
 char[256]      g_dest_file_name;
 uint           g_dest_file_name_used;
 bool           g_mouse_left_is_down;
@@ -143,12 +144,12 @@ void set_cell(Campaign_Map* map, Vec2 cell, Map_Cell value){
 }
 
 bool editor_load_campaign(String name){
-    push_frame(g_allocator.scratch);
-    scope(exit) pop_frame(g_allocator.scratch);
+    push_frame(g_frame_allocator);
+    scope(exit) pop_frame(g_frame_allocator);
     bool success = false;
 
     Campaign campaign;
-    if(load_campaign_from_file(&campaign, name, g_allocator.scratch)){
+    if(load_campaign_from_file(&campaign, name, g_frame_allocator)){
         success = true;
         prepare_campaign();
 
@@ -156,18 +157,6 @@ bool editor_load_campaign(String name){
             auto entry   = editor_add_map();
             entry.map = source;
             entry.map.cells = dup_array(source.cells, g_allocator);
-
-            if(source.id == 0){
-                import core.stdc.stdio;
-                foreach(y; 0 .. source.height){
-                    foreach(x; 0 .. source.width){
-                        // TODO: Add left-padding to format specifier. For instance: {0l 5} This would ensure the result is at least 5 chars long, padding space to the left if needed.
-                        printf("%4d, ", source.cells[x + y * source.width]);
-                    }
-                    log("\n");
-                }
-            }
-
         }
     }
     else{
@@ -639,7 +628,8 @@ public void editor_toggle(App_State* s){
 
     auto gui = &s.gui;
     if(!editor_is_open){
-        g_allocator = &s.editor_memory;
+        g_allocator       = &s.editor_memory;
+        g_frame_allocator = &s.frame_memory;
 
         g_mouse_left_is_down  = false;
         g_mouse_right_is_down = false;

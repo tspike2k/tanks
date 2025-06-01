@@ -1119,7 +1119,6 @@ extern(C) int main(int args_count, char** args){
         s.main_memory.scratch   = &scratch_memory;
         s.frame_memory.scratch  = &scratch_memory;
         s.editor_memory.scratch = &scratch_memory;
-        scratch_memory.scratch  = &scratch_memory;
     }
 
     /+
