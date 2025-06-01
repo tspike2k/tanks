@@ -193,18 +193,18 @@ struct Allocator_Frame{
 
 /+
 Every allocator can point to a buffer of scratch memory. Here, scratch memory refers to a block
-of contigious memory that is usually freed before exiting a function. It's similar to stack
-memory, just with more control.
+of contiguous memory functions may use to allocate temporary data that is usually freed en masse
+just before the function exits. It's quite similar to allocating on the stack.
 
-Originally, function that need to use scratch memory would need to have scratch memory passed
-explicitly. This became combersome, especially with functions that would allocate memory
-that needed to persist after the function returns. In that case you would need to pass two
-allocators; one for the persistent memory and the other for the scratch memory. To make this
-less annoying, allocators can now point to scratch memory. Time will tell if this is a good idea
-or not.
+Originally, scratch memory was passed explicitly to functions that required its use. This
+became combersome when such a function also needed to allocate memory that would persistent
+after exiting. In that case you would need to pass two allocators; one for the persistent memory
+and the other for the scratch memory. To make this less annoying, allocators can now point to
+scratch memory. Time will tell if this is a good idea or not.
 
 IMPORTANT: An allocator for persistent memory should never point to itself for the scratch
 allocator! This can cause difficult to track down memory issues. Consider the following example:
+    allocator.scratch = &allocator;
     push_frame(allocator.scratch);
     auto path = search_path(&world, start_p, dest_p, allocator.scratch);
     auto dest = dup_array(path, allocator);
