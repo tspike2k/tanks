@@ -107,8 +107,6 @@ bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* al
 
         auto header = eat_type!Asset_Header(&reader);
         if(verify_asset_header!Campaign_Meta(file_name, header)){
-            uint map_index   = 0;
-            uint mission_index = 0;
             while(auto section = eat_type!Asset_Section(&reader)){
                 switch(section.type){
                     default:
@@ -122,22 +120,6 @@ bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* al
                     case Campaign_Section_Type.Maps:{
                         read(&reader, campaign.maps);
                     } break;
-
-                    /+
-                    case Campaign_Section_Type.Mission:{
-                        auto mission = &campaign.missions[mission_index++];
-
-                        read(&section_memory, mission.players_tank_bonus);
-                        read(&section_memory, mission.map_index_min);
-                        read(&section_memory, mission.map_index_max);
-                        read(&section_memory, mission.enemies_mask);
-
-                        uint enemies_count;
-                        read(&section_memory, enemies_count);
-                        mission.enemies = alloc_array!Enemy_Entry(allocator, enemies_count);
-                        read(&section_memory, mission.enemies);
-                    } break;
-                    +/
                 }
             }
 

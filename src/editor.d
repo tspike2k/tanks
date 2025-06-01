@@ -154,7 +154,20 @@ bool editor_load_campaign(String name){
 
         foreach(ref source; campaign.maps){
             auto entry   = editor_add_map();
-            copy(to_void(&source), to_void(&entry.map));
+            entry.map = source;
+            entry.map.cells = dup_array(source.cells, g_allocator);
+
+            if(source.id == 0){
+                import core.stdc.stdio;
+                foreach(y; 0 .. source.height){
+                    foreach(x; 0 .. source.width){
+                        // TODO: Add left-padding to format specifier. For instance: {0l 5} This would ensure the result is at least 5 chars long, padding space to the left if needed.
+                        printf("%4d, ", source.cells[x + y * source.width]);
+                    }
+                    log("\n");
+                }
+            }
+
         }
     }
     else{
@@ -306,7 +319,7 @@ public void editor_simulate(App_State* s, float dt){
         }
     }
 
-    //label(&s.gui, Label_Map_ID, gen_string("map_id: {0}", g_current_map.map_id, &s.frame_memory));
+    label(&s.gui, Label_Map_ID, gen_string("map_id: {0}", g_current_map.map.id, &s.frame_memory));
     update_gui(&s.gui, dt);
 
     if(s.gui.message_id != Null_Gui_ID){
