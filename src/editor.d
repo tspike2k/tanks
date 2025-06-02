@@ -282,7 +282,7 @@ public void editor_simulate(App_State* s, float dt){
                             case Key_ID_S:{
                                 if(!key.is_repeat){
                                     if(key.modifier & Key_Modifier_Ctrl){
-                                        save_campaign_file(s, "./build/test.camp");
+                                        save_campaign_file(s, "./build/main.camp");
                                     }
                                     else{
                                         g_cursor_mode = Cursor_Mode.Select;

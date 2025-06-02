@@ -606,6 +606,9 @@ private void serialize(Serialize_Mode Mode, T)(Serializer* serializer, ref T t){
             auto count = cast(uint)t.length;
             serialize!Mode(serializer, count);
 
+            if(count == 0)
+                return;
+
             // When reading dynamic arrays from a buffer you can choose one of two strategies:
             // 1) Make a deep copy.
             // 2) Make a shallow copy.
