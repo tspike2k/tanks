@@ -16,7 +16,6 @@ TODO:
     - Multiplayer
     - High score tracking
     - Temp saves
-    - Levels
     - Tanks should be square (a little less than a meter in size)
     - Debug camera?
     - Debug collision volume display?
@@ -107,23 +106,8 @@ bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* al
 
         auto header = eat_type!Asset_Header(&reader);
         if(verify_asset_header!Campaign_Meta(file_name, header)){
-            while(auto section = eat_type!Asset_Section(&reader)){
-                switch(section.type){
-                    default:
-                        eat_bytes(&reader, section.size);
-                        break;
-
-                    case Campaign_Section_Type.Info:{
-                        read(&reader, campaign.info);
-                    } break;
-
-                    case Campaign_Section_Type.Maps:{
-                        read(&reader, campaign.maps);
-                    } break;
-                }
-            }
-
-            success = !reader.errors;
+            read(&reader, *campaign);
+            success = !reader.errors && campaign.variants.length > 0;
         }
     }
 
@@ -134,11 +118,13 @@ bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* al
     return success;
 }
 
-void load_campaign_level(App_State* s, Campaign* campaign, uint mission_index){
+void load_campaign_level(App_State* s, Campaign* campaign, uint variant_index, uint mission_index){
     auto world = &s.world;
     world.entities_count = 0;
 
-    auto map = &campaign.maps[0]; // TODO: Get the map based on the mission.
+    auto variant = &campaign.variants[variant_index];
+
+    auto map = &variant.maps[0]; // TODO: Get the map based on the mission.
     foreach(y; 0 .. Grid_Height){
         foreach(x; 0 .. Grid_Width){
             auto p = Vec2(x, y) + Vec2(0.5f, 0.5f);
@@ -1218,7 +1204,7 @@ extern(C) int main(int args_count, char** args){
     s.world.next_entity_id = Null_Entity_ID+1;
     version(all){
         if(load_campaign_from_file(&s.campaign, Campaign_File_Name, &s.main_memory)){
-            load_campaign_level(s, &s.campaign, 0);
+            load_campaign_level(s, &s.campaign, 0, 0);
         }
         else{
             generate_test_level(s);

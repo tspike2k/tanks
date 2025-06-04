@@ -55,11 +55,31 @@ struct Map_Entry{
 }
 
 struct Mission_Entry{
-    Map_Entry* next;
-    Map_Entry* prev;
+    Mission_Entry* next;
+    Mission_Entry* prev;
 
-    Enemy_Data[Max_Enemies*Max_Players] enemies_memory;
-    Campaign_Mission mission;
+    //Enemy_Entry[Max_Enemies] enemies_memory;
+    //Campaign_Mission mission;
+}
+
+struct Tank_Entry{
+    Tank_Entry* next;
+    Tank_Entry* prev;
+
+    Tank_Params params;
+}
+
+
+struct Variant{
+    Variant* next;
+    Variant* prev;
+
+    uint players;
+    uint lives;
+
+    List!Map_Entry      maps;
+    List!Mission_Entry  missions;
+    List!Tank_Entry     tank_params;
 }
 
 Allocator*     g_allocator;
@@ -74,36 +94,36 @@ Map_Cell*      g_selected_cell;
 bool           g_dragging_selected;
 Vec2           g_drag_offset;
 
+List!Variant   g_variants;
 Map_Entry*     g_current_map;
-List!Map_Entry g_maps;
-//List! g_missions;
+Variant*       g_current_variant;
 
 void save_campaign_file(App_State* s, String file_name){
     auto scratch = s.frame_memory.scratch;
     push_frame(scratch);
     scope(exit) pop_frame(scratch);
 
-    auto dest_buffer = begin_reserve_all(scratch);
-    auto serializer = Serializer(dest_buffer);
-
-    auto header = eat_type!Asset_Header(&serializer);
-    clear_to_zero(*header);
+    auto header = zero_type!Asset_Header;
     header.magic        = Campaign_Meta.magic;
     header.file_version = Campaign_Meta.file_version;
     header.asset_type   = Campaign_Meta.type;
 
-    auto info_section = begin_writing_section(&serializer, Campaign_Section_Type.Info);
-    auto info = zero_type!Campaign_Info;
+    Campaign campaign;
+    auto info = &campaign.info;
     // TODO: Get info strings from editor state
     info.name   = "WII Play Tanks";
     info.author = "tspike";
     //info.next_map_id = 0;
     // TODO: Put date
     //info.missions_count = cast(uint)g_missions.count;
-    info.maps_count     = cast(uint)g_maps.count;
-    write(&serializer, info);
-    end_writing_section(&serializer, info_section);
+    //info.maps_count     = cast(uint)g_maps.count;
 
+    auto dest_buffer = begin_reserve_all(scratch);
+    auto serializer = Serializer(dest_buffer);
+    write(&serializer, header);
+    write(&serializer, campaign);
+
+    /+
     auto section = begin_writing_section(&serializer, Campaign_Section_Type.Maps);
     auto maps_count = cast(uint)g_maps.count;
     write(&serializer, maps_count);
@@ -111,7 +131,7 @@ void save_campaign_file(App_State* s, String file_name){
         write(&serializer, entry.map);
     }
     end_writing_section(&serializer, section);
-
++/
     /+
     foreach(ref entry; g_missions.iterate()){
         auto section = begin_writing_section(&serializer, Campaign_Section_Type.Mission);
@@ -153,7 +173,7 @@ bool editor_load_campaign(String name){
         success = true;
         prepare_campaign();
 
-        foreach(ref source; campaign.maps){
+        foreach(ref source; campaign.variants[0].maps){
             auto entry   = editor_add_map();
             entry.map = source;
             entry.map.cells = dup_array(source.cells, g_allocator);
@@ -161,7 +181,7 @@ bool editor_load_campaign(String name){
     }
     else{
         // TODO: Have a GUI-facing error log for the editor?
-        log_error("Unable to edit campaign file {0}. Failed to load file.", name);
+        log_error("Unable to edit campaign file {0}. Failed to load file.\n", name);
     }
 
     return success;
@@ -321,7 +341,8 @@ public void editor_simulate(App_State* s, float dt){
 
             case Button_Next_Map:{
                 auto next_map = g_current_map.next;
-                if(g_maps.is_sentinel(next_map)){
+                auto variant  = g_current_variant;
+                if(variant.maps.is_sentinel(next_map)){
                     next_map = next_map.next;
                 }
                 g_current_map = next_map;
@@ -329,7 +350,8 @@ public void editor_simulate(App_State* s, float dt){
 
             case Button_Prev_Map:{
                 auto next_map = g_current_map.prev;
-                if(g_maps.is_sentinel(next_map)){
+                auto variant  = g_current_variant;
+                if(variant.maps.is_sentinel(next_map)){
                     next_map = next_map.prev;
                 }
                 g_current_map = next_map;
@@ -601,9 +623,25 @@ public void editor_render(App_State* s, Render_Passes rp){
     }+/
 }
 
+Variant* editor_add_variant(){
+    auto variant = alloc_type!Variant(g_allocator);
+    g_variants.insert(g_variants.top, variant);
+    g_current_variant = variant;
+
+    variant.players = 1;
+    variant.lives   = 4; // TODO: Is this the default of the WII original?
+
+    variant.maps.make();
+    variant.missions.make();
+    variant.tank_params.make();
+
+    return variant;
+}
+
 Map_Entry* editor_add_map(){
+    auto variant = g_current_variant;
     auto map = alloc_type!Map_Entry(g_allocator);
-    g_maps.insert(g_maps.top, map);
+    variant.maps.insert(variant.maps.top, map);
     g_current_map = map;
 
     return map;
@@ -611,15 +649,33 @@ Map_Entry* editor_add_map(){
 
 void prepare_campaign(){
     reset(g_allocator); // IMPORTANT: This frees all the memory used by the editor.
-    //g_next_entity_id = Null_Entity_ID+1;
-    //g_levels.make();
-    g_maps.make();
+    g_variants.make();
 }
 
 void editor_new_campaign(){
     prepare_campaign();
-    editor_add_map();
+    editor_add_variant();
+    //editor_add_map();
     //editor_add_level();
+}
+
+void editor_load_maps_file(String name){
+    push_frame(g_allocator.scratch);
+    scope(exit) pop_frame(g_allocator.scratch);
+
+    auto memory = read_file_into_memory(name, g_allocator.scratch);
+    auto reader = Serializer(memory, g_allocator.scratch);
+    auto header = eat_type!Asset_Header(&reader);
+    if(verify_asset_header!Maps_Meta(name, header)){
+        Campaign_Map[] maps;
+        read(&reader, maps);
+
+        foreach(ref source; maps){
+            auto map_entry = editor_add_map();
+            map_entry.map = source;
+            map_entry.map.cells = dup_array(source.cells, g_allocator);
+        }
+    }
 }
 
 public void editor_toggle(App_State* s){
@@ -634,8 +690,9 @@ public void editor_toggle(App_State* s){
         g_mouse_left_is_down  = false;
         g_mouse_right_is_down = false;
 
-        if(!editor_load_campaign("./build/wii_16x9.camp")){
+        if(!editor_load_campaign("./build/main.camp")){
             editor_new_campaign();
+            editor_load_maps_file("./build/wii_16x9.maps");
         }
 
         auto memory = (malloc(4086)[0 .. 4086]);

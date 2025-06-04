@@ -26,6 +26,7 @@ enum Asset_Type : uint{
     None,
     Font,
     Campaign,
+    Maps,
 }
 
 enum Compression : uint{
@@ -47,7 +48,10 @@ bool verify_asset_header(alias target)(const(char)[] file_name, Asset_Header* he
     }
 
     if(header.magic != target.magic){
-        log("Error reading file {0}. Expected magic {1} but got magic of {2} instead.\n", file_name, header.magic, target.magic);
+        auto header_magic = (cast(char*)&header.magic)[0 .. 4];
+        auto target_magic_raw = target.magic;
+        auto target_magic = (cast(char*)&target_magic_raw)[0 .. 4];
+        log("Error reading file {0}. Expected magic '{1}' but got '{2}' instead.\n", file_name, target_magic, header_magic);
         return false;
     }
 
@@ -86,6 +90,16 @@ struct Pixels{
     uint[] data;
 }
 
+enum Maps_File_Magic = ('M' << 0 | 'a' << 8 | 'p' << 16 | 's' << 24);
+enum Maps_File_Version = 1;
+
+struct Maps_Meta{
+    enum magic        = Maps_File_Magic;
+    enum file_version = Maps_File_Version;
+    enum min_version  = file_version;
+    enum type         = Asset_Type.Maps;
+}
+
 ////
 //
 // Campaign files
@@ -102,13 +116,6 @@ struct Campaign_Meta{
     enum file_version = Campaign_File_Version;
     enum min_version  = file_version;
     enum type         = Asset_Type.Campaign;
-}
-
-enum Campaign_Section_Type : uint{
-    None,
-    Info,
-    Maps,
-    Missions,
 }
 
 enum Campaign_Difficuly : uint{
@@ -180,40 +187,42 @@ struct Campaign_Map{
     Map_Cell[] cells;
 }
 
-struct Enemy_Data{
-    ubyte players_flag; // Tells if enemies are specially authored for players 1-4
-    ubyte pad;
-    ubyte index_min;
-    ubyte index_max;
+struct Enemy_Entry{
+    uint index_min;
+    uint index_max;
+    uint[2] reserved;
 }
 
 // Tank params based on "Wii Tanks AI Parameter Sheet" by BigKitty1011
-struct Tank_Data{
-    // TODO: Finish copying over all the tank data.
+struct Tank_Params{
+    // TODO: Finish copying over tank parameter data.
     Vec4 body_color;
     Vec4 turret_color;
     Vec4[2] reserved;
     uint model_index;
     uint invisible;
-    float mine_clearance;
-    uint  mine_limit;
-    float mine_timer_min;
-    float mine_timer_max;
+    uint[41] params;
 }
 
 struct Campaign_Mission{
-    uint players_tank_bonus; // Multiple bits should be used for the player count. The author can decide if an N-player game should allow bonus tanks on completion.
+    bool awards_tank_bonus;
     uint map_index_min;
     uint map_index_max;
-    uint enemies_mask;
-    Enemy_Data[] enemies;
+    Enemy_Entry[] enemies;
+}
+
+struct Campaign_Variant{
+    uint players;
+    uint lives;
+    uint[4] reserved;
+    Campaign_Map[]     maps;
+    Campaign_Mission[] missions;
+    Tank_Params[]      tanks;
 }
 
 struct Campaign{
     Campaign_Info      info;
-    Campaign_Map[]     maps;
-    Campaign_Mission[] missions;
-    Tank_Data[]        tanks;
+    Campaign_Variant[] variants;
 }
 
 ////
