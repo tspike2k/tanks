@@ -172,10 +172,14 @@ bool editor_load_campaign(String name){
         success = true;
         prepare_campaign();
 
-        foreach(ref source; campaign.variants[0].maps){
-            auto entry   = editor_add_map();
-            entry.map = source;
-            entry.map.cells = dup_array(source.cells, g_allocator);
+        foreach(ref source_variant; campaign.variants){
+            auto variant = editor_add_variant();
+
+            foreach(ref source_map; source_variant.maps){
+                auto entry   = editor_add_map();
+                entry.map = source_map;
+                entry.map.cells = dup_array(source_map.cells, g_allocator);
+            }
         }
     }
     else{
@@ -658,6 +662,7 @@ void editor_new_campaign(){
     //editor_add_level();
 }
 
+/+
 void editor_load_maps_file(String name){
     push_frame(g_allocator.scratch);
     scope(exit) pop_frame(g_allocator.scratch);
@@ -675,7 +680,7 @@ void editor_load_maps_file(String name){
             map_entry.map.cells = dup_array(source.cells, g_allocator);
         }
     }
-}
+}+/
 
 public void editor_toggle(App_State* s){
     // TODO: Don't use malloc and free. Have a free list of window memory.
@@ -691,7 +696,7 @@ public void editor_toggle(App_State* s){
 
         if(!editor_load_campaign("./build/main.camp")){
             editor_new_campaign();
-            editor_load_maps_file("./build/wii_16x9.maps");
+            //editor_load_maps_file("./build/wii_16x9.maps");
         }
 
         auto memory = (malloc(4086)[0 .. 4086]);

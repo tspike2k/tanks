@@ -26,7 +26,6 @@ enum Asset_Type : uint{
     None,
     Font,
     Campaign,
-    Maps,
 }
 
 enum Compression : uint{
@@ -88,16 +87,6 @@ struct Pixels{
     uint   width;
     uint   height;
     uint[] data;
-}
-
-enum Maps_File_Magic = ('M' << 0 | 'a' << 8 | 'p' << 16 | 's' << 24);
-enum Maps_File_Version = 1;
-
-struct Maps_Meta{
-    enum magic        = Maps_File_Magic;
-    enum file_version = Maps_File_Version;
-    enum min_version  = file_version;
-    enum type         = Asset_Type.Maps;
 }
 
 ////
