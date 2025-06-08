@@ -86,6 +86,7 @@ enum Mine_Detonation_Time    = 8.0f;
 enum Mine_Explosion_End_Time = Mine_Detonation_Time + 1.0f;
 
 // TODO: Support 4:3 campaigns.
+// TODO: Remove constants. The maps theselves specify the maps size.
 enum Grid_Width     = 22; // Should be 16 for 4:3 campaigns.
 enum Grid_Height    = 17;
 enum Max_Grid_Cells = Grid_Height*Grid_Width;
@@ -125,10 +126,10 @@ void load_campaign_level(App_State* s, Campaign* campaign, uint variant_index, u
     auto variant = &campaign.variants[variant_index];
 
     auto map = &variant.maps[0]; // TODO: Get the map based on the mission.
-    foreach(y; 0 .. Grid_Height){
-        foreach(x; 0 .. Grid_Width){
+    foreach(y; 0 .. map.height){
+        foreach(x; 0 .. map.width){
             auto p = Vec2(x, y) + Vec2(0.5f, 0.5f);
-            auto occupant = map.cells[x + y * Grid_Width];
+            auto occupant = map.cells[x + y * map.width];
             if(occupant){
                 auto cell_index = occupant & Map_Cell_Index_Mask;
                 if(occupant & Map_Cell_Is_Tank){

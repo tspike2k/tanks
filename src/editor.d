@@ -109,10 +109,9 @@ void save_campaign_file(App_State* s, String file_name){
     header.asset_type   = Campaign_Meta.type;
 
     Campaign campaign;
-    auto info = &campaign.info;
     // TODO: Get info strings from editor state
-    info.name   = "WII Play Tanks";
-    info.author = "tspike";
+    campaign.name   = "WII Play Tanks";
+    campaign.author = "tspike";
     //info.next_map_id = 0;
     // TODO: Put date
     //info.missions_count = cast(uint)g_missions.count;

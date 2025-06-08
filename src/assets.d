@@ -109,7 +109,7 @@ struct Maps_Meta{
 // TODO: Convert Campaign files to using the Asset structure.
 
 enum Campaign_File_Magic = ('T' << 0 | 'a' << 8 | 'n' << 16 | 'k' << 24);
-enum Campaign_File_Version = 2;
+enum Campaign_File_Version = 3;
 
 struct Campaign_Meta{
     enum magic        = Campaign_File_Magic;
@@ -124,18 +124,6 @@ enum Campaign_Difficuly : uint{
     Hard,
     Extreme,
     Impossible,
-}
-
-struct Campaign_Info{
-    String             name;
-    String             author;
-    String             date;
-    String             description;
-    Campaign_Difficuly difficulty;
-    uint               players_count;
-    uint               missions_count;
-    uint               maps_count;
-    uint               reserved;
 }
 
 alias Map_Cell = ubyte;
@@ -212,16 +200,22 @@ struct Campaign_Mission{
 }
 
 struct Campaign_Variant{
-    uint players;
-    uint lives;
-    uint[4] reserved;
+    uint               players;
+    uint               lives;
+    Campaign_Difficuly difficulty;
+    uint[3]            reserved;
+    String             name;
     Campaign_Map[]     maps;
     Campaign_Mission[] missions;
     Tank_Params[]      tanks;
 }
 
 struct Campaign{
-    Campaign_Info      info;
+    String             name;
+    String             author;
+    String             date;
+    String             description;
+    uint[8]            reserved;
     Campaign_Variant[] variants;
 }
 
