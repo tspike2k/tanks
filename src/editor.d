@@ -146,20 +146,20 @@ void save_campaign_file(App_State* s, String file_name){
 bool is_cell_occupied(Campaign_Map* map, Vec2 cell){
     auto x = cast(int)cell.x;
     auto y = cast(int)cell.y;
-    assert(x >= 0 && x <= Grid_Width);
-    assert(y >= 0 && y <= Grid_Height);
+    assert(x >= 0 && x <= map.width);
+    assert(y >= 0 && y <= map.height);
 
-    bool result = map.cells[x + y * Grid_Width] != 0;
+    bool result = map.cells[x + y * map.width] != 0;
     return result;
 }
 
 void set_cell(Campaign_Map* map, Vec2 cell, Map_Cell value){
     auto x = cast(int)cell.x;
     auto y = cast(int)cell.y;
-    assert(x >= 0 && x <= Grid_Width);
-    assert(y >= 0 && y <= Grid_Width);
+    assert(x >= 0 && x <= map.width);
+    assert(y >= 0 && y <= map.height);
 
-    map.cells[x + y * Grid_Width] = value;
+    map.cells[x + y * map.width] = value;
 }
 
 bool editor_load_campaign(String name){
@@ -383,7 +383,7 @@ public void editor_simulate(App_State* s, float dt){
                 if(inside_grid(s.mouse_world) && is_cell_occupied(map, s.mouse_world)){
                     auto x = cast(int)s.mouse_world.x;
                     auto y = cast(int)s.mouse_world.y;
-                    g_selected_cell = &map.cells[x + y * Grid_Width];
+                    g_selected_cell = &map.cells[x + y * map.width];
                 }
                 else{
                     g_selected_cell = null;
@@ -522,9 +522,9 @@ public void editor_render(App_State* s, Render_Passes rp){
     );
 
     auto map = &g_current_map.map;
-    foreach(y; 0 .. Grid_Height){
-        foreach(x; 0 .. Grid_Width){
-            auto cell = &map.cells[x + y * Grid_Width];
+    foreach(y; 0 .. map.height){
+        foreach(x; 0 .. map.width){
+            auto cell = &map.cells[x + y * map.width];
             auto entity_type = *cell;
             if(entity_type){
                 auto p = Vec2(x, y) + Vec2(0.5f, 0.5f); // Center on the tile

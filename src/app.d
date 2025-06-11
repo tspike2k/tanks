@@ -95,8 +95,7 @@ enum Mine_Explosion_End_Time = Mine_Detonation_Time + 1.0f;
 // TODO: Support 4:3 campaigns.
 // TODO: Remove constants. The maps theselves specify the maps size.
 enum Grid_Width     = 22; // Should be 16 for 4:3 campaigns.
-enum Grid_Height    = 17;
-enum Max_Grid_Cells = Grid_Height*Grid_Width;
+//enum Grid_Height    = 17;
 
 // NOTE: Enemies are limited by the number of bytes that encode a map cell.
 enum Max_Enemies = 16;
