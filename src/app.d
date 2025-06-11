@@ -13,14 +13,20 @@ TODO:
     - Particles (Explosions, smoke, etc)
     - Enemy AI
     - Different enemy types (how many are there?)
-    - Multiplayer
+    - Better mouse to world conversion. Player turret currently doesn't follow mouse accurately.
+    - Campaign variant selection.
     - High score tracking
+    - Advancing levels
+    - Player lives
+    - Multiplayer
     - Temp saves
     - Tanks should be square (a little less than a meter in size)
     - Debug camera?
+    - Better camera for level editor (fully overhead view)
     - Debug collision volume display?
     - X mark over defeated enemy position
     - Treadmarks
+    - Correct ground size for 4x3 maps (and maps of arbitrary size)
 
     Interesting article on frequency of packet transmission in multiplayer games
     used in Source games.
@@ -92,7 +98,7 @@ enum Grid_Height    = 17;
 enum Max_Grid_Cells = Grid_Height*Grid_Width;
 
 // NOTE: Enemies are limited by the number of bytes that encode a map cell.
-enum Max_Enemies = 8;
+enum Max_Enemies = 16;
 enum Max_Players = 4;
 
 bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* allocator){
@@ -119,18 +125,23 @@ bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* al
     return success;
 }
 
-void load_campaign_level(App_State* s, Campaign* campaign, uint variant_index, uint mission_index){
+void load_campaign_level(App_State* s, Campaign* campaign, uint mission_index){
     auto world = &s.world;
     world.entities_count = 0;
 
-    auto variant = &campaign.variants[variant_index];
-    auto mission = &variant.missions[mission_index];
-    auto map_index_min = mission.map_index_min;
-    auto map_index_max = mission.map_index_max;
+    s.session_mission_index = mission_index;
+    auto variant = &campaign.variants[s.session_variant_index];
+    auto mission = &variant.missions[s.session_mission_index];
 
-    assert(map_index_min == map_index_max); // TODO: Support random maps. But pick a map that wasn't chosen last time!
-    auto chosen_map_index = map_index_min; // TODO: Clamp the mission index to variant.maps.length?
-    auto map = &variant.maps[chosen_map_index];
+    uint next_map_index = mission.map_index_min;
+    if(mission.map_index_min != mission.map_index_max){
+        // TODO: Support random maps. But pick a map that wasn't chosen last time!
+        assert(0);
+    }
+    s.session_prev_map_index = s.session_map_index;
+    s.session_map_index = next_map_index; // TODO: Clamp the mission index to variant.maps.length?
+
+    auto map = &variant.maps[s.session_map_index];
     foreach(y; 0 .. map.height){
         foreach(x; 0 .. map.width){
             auto p = Vec2(x, y) + Vec2(0.5f, 0.5f);
@@ -191,10 +202,15 @@ struct App_State{
     Vec2 mouse_pixel;
     Vec2 mouse_world;
 
+    // TODO: These could be moved to the editor now.
     Entity_ID highlight_entity_id;
     Material* highlight_material;
 
     Campaign campaign;
+    uint session_variant_index;
+    uint session_mission_index;
+    uint session_map_index;
+    uint session_prev_map_index;
 
     Gui_State gui;
     Font font_main;
@@ -550,7 +566,7 @@ void remove_destroyed_entities(World* world){
     uint entity_index;
     while(entity_index < world.entities_count){
         auto e = &world.entities[entity_index];
-        if(is_destroyed(e)){
+        if(is_destroyed(e) && e.type != Entity_Type.Tank){
             *e = world.entities[world.entities_count-1];
             world.entities_count--;
         }
@@ -1219,7 +1235,7 @@ extern(C) int main(int args_count, char** args){
     s.world.next_entity_id = Null_Entity_ID+1;
     version(all){
         if(load_campaign_from_file(&s.campaign, Campaign_File_Name, &s.main_memory)){
-            load_campaign_level(s, &s.campaign, 0, 0);
+            load_campaign_level(s, &s.campaign, s.session_mission_index);
         }
         else{
             generate_test_level(s);
@@ -1280,51 +1296,48 @@ extern(C) int main(int args_count, char** args){
             editor_simulate(s, target_dt);
         }
         else{
-            //import core.stdc.stdio;
-            //printf("cursor: %f, %f\n", s.mouse_world.x, s.mouse_world.y);
+            version(none){
+                sockets_update((&socket)[0 .. 1], &s.frame_memory);
 
-    version(none){
-            sockets_update((&socket)[0 .. 1], &s.frame_memory);
+                if(!is_host && send_broadcast){
+                    log("Sending broadcast now!\n");
+                    auto msg = "Hello.\n";
+                    assert(socket.flags & Socket_Broadcast);
+                    socket_write(&socket, msg.ptr, msg.length, &broadcast_address);
+                    send_broadcast = false;
+                }
 
-            if(!is_host && send_broadcast){
-                log("Sending broadcast now!\n");
-                auto msg = "Hello.\n";
-                assert(socket.flags & Socket_Broadcast);
-                socket_write(&socket, msg.ptr, msg.length, &broadcast_address);
-                send_broadcast = false;
-            }
-
-            if(socket.events & Socket_Event_Readable){
-                char[512] buffer;
-                Socket_Address src_address = void;
-                // TODO: Limit the number of reads we do on a socket at once. This would help
-                // prevent a rogue client from choking out the simulation.
-                while(true){
-                    auto msg = socket_read(&socket, buffer.ptr, buffer.length, &src_address);
-                    if(msg.length == 0){
-                        break;
+                if(socket.events & Socket_Event_Readable){
+                    char[512] buffer;
+                    Socket_Address src_address = void;
+                    // TODO: Limit the number of reads we do on a socket at once. This would help
+                    // prevent a rogue client from choking out the simulation.
+                    while(true){
+                        auto msg = socket_read(&socket, buffer.ptr, buffer.length, &src_address);
+                        if(msg.length == 0){
+                            break;
+                        }
+                        else if(is_host){
+                            log(cast(char[])msg);
+                            client_address = src_address;
+                        }
+                        else{
+                            auto cmd = cast(Entity_Message*)msg;
+                            player.angle = cmd.angle;
+                            s.player_pos = Vec3(cmd.pos.x, s.player_pos.y, cmd.pos.y);
+                        }
                     }
-                    else if(is_host){
-                        log(cast(char[])msg);
-                        client_address = src_address;
-                    }
-                    else{
-                        auto cmd = cast(Entity_Message*)msg;
-                        player.angle = cmd.angle;
-                        s.player_pos = Vec3(cmd.pos.x, s.player_pos.y, cmd.pos.y);
+                }
+
+                if(socket.events & Socket_Event_Writable){
+                    if(is_host && is_valid(&client_address)){
+                        Entity_Message msg = void;
+                        msg.angle = player.angle;
+                        msg.pos   = Vec2(s.player_pos.x, s.player_pos.z);
+                        socket_write(&socket, &msg, msg.sizeof, &client_address);
                     }
                 }
             }
-
-            if(socket.events & Socket_Event_Writable){
-                if(is_host && is_valid(&client_address)){
-                    Entity_Message msg = void;
-                    msg.angle = player.angle;
-                    msg.pos   = Vec2(s.player_pos.x, s.player_pos.z);
-                    socket_write(&socket, &msg, msg.sizeof, &client_address);
-                }
-            }
-    }
 
             Event evt;
             while(next_event(&evt)){
@@ -1333,7 +1346,7 @@ extern(C) int main(int args_count, char** args){
                         default: break;
 
                         case Event_Type.Window_Close:{
-                            // TODO: Save state before exit in a temp/suspend file.
+                            // TODO: Save state before exit in a temp/suspend file. Only in single player?
                             s.running = false;
                         } break;
 
