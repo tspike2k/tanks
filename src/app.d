@@ -27,6 +27,7 @@ TODO:
     - X mark over defeated enemy position
     - Treadmarks
     - Correct ground size for 4x3 maps (and maps of arbitrary size)
+    - Bullet can get lodged between two blocks, destroying it before the player sees it reflected.
 
     Interesting article on frequency of packet transmission in multiplayer games
     used in Source games.
@@ -123,6 +124,11 @@ bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* al
     }
 
     return success;
+}
+
+bool is_player(Entity* e){
+    bool result = (e.cell_info & Map_Cell_Is_Player) != 0;
+    return result;
 }
 
 void load_campaign_level(App_State* s, Campaign* campaign, uint mission_index){
@@ -1063,15 +1069,20 @@ void render_entity(App_State* s, Entity* e, Render_Passes rp, Material* material
         } break;
 
         case Entity_Type.Tank:{
-            auto mat_tran = mat4_translate(p + Vec3(0, 0.18f, 0));
-            render_mesh(
-                rp.world, &s.tank_base_mesh, material,
-                mat_tran*mat4_rot_y(e.angle)
-            );
-            render_mesh(
-                rp.world, &s.tank_top_mesh, material,
-                mat_tran*mat4_rot_y(e.turret_angle)
-            );
+            if(e.health > 0){
+                auto mat_tran = mat4_translate(p + Vec3(0, 0.18f, 0));
+                render_mesh(
+                    rp.world, &s.tank_base_mesh, material,
+                    mat_tran*mat4_rot_y(e.angle)
+                );
+                render_mesh(
+                    rp.world, &s.tank_top_mesh, material,
+                    mat_tran*mat4_rot_y(e.turret_angle)
+                );
+            }
+            else{
+                // TODO: Draw X at position.
+            }
         } break;
 
         case Entity_Type.Bullet:{
@@ -1425,6 +1436,7 @@ extern(C) int main(int args_count, char** args){
             s.t += dt;
 
             // Entity simulation
+            uint remaining_enemies_count;
             Vec2 hit_normal = void;
             float hit_depth = void;
             foreach(ref e; iterate_entities(&s.world)){
@@ -1455,6 +1467,12 @@ extern(C) int main(int args_count, char** args){
 
                     switch(e.type){
                         default: break;
+
+                        case Entity_Type.Tank:{
+                            if(!is_player(&e) && !is_destroyed(&e)){
+                                remaining_enemies_count++;
+                            }
+                        } break;
 
                         case Entity_Type.Mine:{
                             e.mine_timer += dt;
@@ -1494,9 +1512,15 @@ extern(C) int main(int args_count, char** args){
                     entity_vs_world_bounds(s, &e);
                 }
             }
-        }
 
-        remove_destroyed_entities(&s.world);
+            remove_destroyed_entities(&s.world);
+
+            if(remaining_enemies_count == 0){
+                // TODO: End the campaign if this is the last mission
+                s.session_mission_index++;
+                load_campaign_level(s, &s.campaign, s.session_mission_index);
+            }
+        }
 
         current_timestamp = ns_timestamp();
         ulong frame_time = cast(ulong)(dt*1000000000.0f);
