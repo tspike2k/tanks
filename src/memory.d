@@ -471,13 +471,13 @@ if(isIntegral!T && !isFloatingPoint!T){
                 continue;
             }
             else if(base >= 10 && c >= '0' && c <= '9'){
-                n = (c - '0');
+                n = cast(T)(c - '0');
             }
             else if(base == 16 && c >= 'a' && c <= 'f'){
-                n = 10 + (c - 'a');
+                n = cast(T)(10 + (c - 'a'));
             }
             else if(base == 16 && c >= 'A' && c <= 'F'){
-                n = 10 + (c - 'A');
+                n = cast(T)(10 + (c - 'A'));
             }
             else{
                 succeeded = false;

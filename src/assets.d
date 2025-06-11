@@ -118,8 +118,7 @@ enum Campaign_Difficuly : uint{
 alias Map_Cell = ubyte;
 enum Map_Cell Map_Cell_Is_Tank     = (1 << 7);
 enum Map_Cell Map_Cell_Is_Special  = (1 << 6);
-enum Map_Cell Map_Cell_Extra_Flag  = (1 << 3);
-enum Map_Cell Map_Cell_Index_Mask  = (0b00000111);
+enum Map_Cell Map_Cell_Index_Mask  = (0b00001111);
 enum Map_Cell Map_Cell_Facing_Mask = (0b00110000);
 
 alias Map_Cell_Is_Breakable = Map_Cell_Is_Special;
@@ -130,14 +129,14 @@ alias Map_Cell_Is_Player    = Map_Cell_Is_Special;
 // cell. If the value is zero, the cell is empty.
 //
 // Each cell value is a single byte. The bits in each byte are encoded like so:
-//      tsffeiii
+//      tsffuiii
 //
 // t    - If set, the entity is a tank. If not set, the entity is a block.
-// s    - Special flag. If set when entity is a block, the block is breakable.
+// s    - Special flag. If set when entity is a block, the block is unbreakable.
 //        If set when a tank, the tank is controlled by a player.
-// ff   - The facing direction of a tank. Unused for now, but might be worth adding.
-// e    - Extra flag. Must be set to 1 for blocks, otherwise a block with 0 height
-//        would be encoded as all zeroes.
+// ff   - The facing direction of a tank. Unused for tanks, but is set to non-zero for blocks
+//        to prevent a block with no height (a hole) from being encoded as zero (the empty cell).
+// u    - unused
 // iii  - The "index" value of the entity. When a block, determines height. When a player tank,
 //        determines the index of the player that controls the tank. Determines the enemy slot
 //        to use from the current campaign mission for enemy tanks.
@@ -147,7 +146,7 @@ Map_Cell encode_map_cell(bool is_tank, bool is_special, ubyte index){
     if(is_tank)
         result |= Map_Cell_Is_Tank;
     else
-        result |= Map_Cell_Extra_Flag; // Must always be set for blocks to ensure non-zero values.
+        result |= Map_Cell_Facing_Mask; // Must always be set for blocks to ensure non-zero values.;
 
     if(is_special)
         result |= Map_Cell_Is_Special;
@@ -164,14 +163,22 @@ struct Campaign_Map{
     Map_Cell[] cells;
 }
 
-struct Enemy_Entry{
-    uint index_min;
-    uint index_max;
-    uint[2] reserved;
+// type_min/type_max: Determines the entry in the Campaign.tank_types array from which this
+// tank should be spawned. If min and max are equal, then the value is the exact index into
+// the array. Otherwise, the index is a random number between type_min and type_max, inclusive.
+//
+// spawn_index: The index of the tank spawner to use encoded in the map cells.
+//
+// TODO: This could be easily encoded as a uint.
+struct Enemy_Tank{
+    uint type_min;
+    uint type_max;
+    uint spawn_index;
+    uint reserved;
 }
 
 // Tank params based on "Wii Tanks AI Parameter Sheet" by BigKitty1011
-struct Tank_Params{
+struct Tank_Type{
     // TODO: Finish copying over tank parameter data.
     Vec4 body_color;
     Vec4 turret_color;
@@ -185,7 +192,7 @@ struct Campaign_Mission{
     bool awards_tank_bonus;
     uint map_index_min;
     uint map_index_max;
-    Enemy_Entry[] enemies;
+    Enemy_Tank[] enemies;
 }
 
 struct Campaign_Variant{
@@ -196,7 +203,6 @@ struct Campaign_Variant{
     String             name;
     Campaign_Map[]     maps;
     Campaign_Mission[] missions;
-    Tank_Params[]      tanks;
 }
 
 struct Campaign{
@@ -204,8 +210,10 @@ struct Campaign{
     String             author;
     String             date;
     String             description;
-    uint[8]            reserved;
+    String             version_string;
+    uint[4]            reserved;
     Campaign_Variant[] variants;
+    Tank_Type[]        tank_types;
 }
 
 ////

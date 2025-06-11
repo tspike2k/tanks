@@ -124,32 +124,46 @@ void load_campaign_level(App_State* s, Campaign* campaign, uint variant_index, u
     world.entities_count = 0;
 
     auto variant = &campaign.variants[variant_index];
+    auto mission = &variant.missions[mission_index];
+    auto map_index_min = mission.map_index_min;
+    auto map_index_max = mission.map_index_max;
 
-    auto map = &variant.maps[0]; // TODO: Get the map based on the mission.
+    assert(map_index_min == map_index_max); // TODO: Support random maps. But pick a map that wasn't chosen last time!
+    auto chosen_map_index = map_index_min; // TODO: Clamp the mission index to variant.maps.length?
+    auto map = &variant.maps[chosen_map_index];
     foreach(y; 0 .. map.height){
         foreach(x; 0 .. map.width){
             auto p = Vec2(x, y) + Vec2(0.5f, 0.5f);
             auto occupant = map.cells[x + y * map.width];
-            if(occupant){
-                auto cell_index = occupant & Map_Cell_Index_Mask;
-                if(occupant & Map_Cell_Is_Tank){
-                    // TODO: Entity should face either left or right depending on distance from
-                    // center? How does this work in the original? Do we need facing info?
-                    auto e = add_entity(world, p, Entity_Type.Tank);
-                    e.cell_info = occupant;
-                    bool is_player = (occupant & Map_Cell_Is_Player) != 0;
-                    if(is_player){
-                        if(cell_index == 0){
-                            // TODO: We should use an array of of entity_ids that maps to player
-                            // indeces
-                            s.player_entity_id = e.id;
-                        }
+            if(occupant & Map_Cell_Is_Tank){
+                auto tank_index = occupant & Map_Cell_Index_Mask;
+                bool is_player = (occupant & Map_Cell_Is_Player) != 0;
+
+                // TODO: Entity should face either left or right depending on distance from
+                // center? How does this work in the original? Do we need facing info?
+                if(is_player){
+                    assert(tank_index >= 0 && tank_index <= 4);
+                    if(tank_index == 0){
+                        auto e = add_entity(world, p, Entity_Type.Tank);
+                        e.cell_info = occupant;
+                        // TODO: We should use an array of of entity_ids that maps to player indeces
+                        s.player_entity_id = e.id;
                     }
                 }
                 else{
-                    auto e = add_entity(world, p, Entity_Type.Block);
-                    e.cell_info = occupant;
+                    foreach(ref enemy_entry; mission.enemies){
+                        if(enemy_entry.spawn_index == tank_index){
+                            // TODO: Choose tank type based on enemy_entry.type_min/type_max.
+                            auto e = add_entity(world, p, Entity_Type.Tank);
+                            e.cell_info = occupant;
+                            break;
+                        }
+                    }
                 }
+            }
+            else if(occupant){
+                auto e = add_entity(world, p, Entity_Type.Block);
+                e.cell_info = occupant;
             }
         }
     }

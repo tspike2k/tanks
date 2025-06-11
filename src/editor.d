@@ -66,7 +66,7 @@ struct Tank_Entry{
     Tank_Entry* next;
     Tank_Entry* prev;
 
-    Tank_Params params;
+    Tank_Type params;
 }
 
 
