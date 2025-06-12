@@ -71,7 +71,7 @@ struct Mesh{
 struct Render_Pass{
     Render_Pass* next;
 
-    Camera_Data* camera_data;
+    Shader_Camera* camera_data;
     ulong flags;
 
     Render_Cmd* cmd_next;
@@ -85,7 +85,7 @@ struct Shader_Constants{
     float time;
 }
 
-struct Camera_Data{
+struct Shader_Camera{
     Mat4 mat;
     Vec3 pos;
     float pad_00;
@@ -130,10 +130,10 @@ Mat4_Pair orthographic_projection(Rect camera_bounds){
 
     Mat4_Pair proj = void;
     proj.mat = Mat4([
-        2.0f / (r-l), 0,            0,            -(r+l)/(r-l),
-        0,            2.0f / (t-b), 0,            -(t+b)/(t-b),
+        2.0f / (r-l), 0,            0,             -(r+l)/(r-l),
+        0,            2.0f / (t-b), 0,             -(t+b)/(t-b),
         0,            0,            -2.0f / (f-n), -(f+n)/(f-n),
-        0,            0,            0,            1,
+        0,            0,            0,             1,
     ]);
 
     proj.inv = Mat4([
@@ -145,7 +145,28 @@ Mat4_Pair orthographic_projection(Rect camera_bounds){
     return proj;
 }
 
+Mat4 make_lookat_matrix(Vec3 camera_pos, Vec3 look_pos, Vec3 up_pos){
+    Vec3 look_dir = normalize(look_pos - camera_pos);
+    Vec3 up_dir   = normalize(up_pos); // TODO: Do we really need to normalize the up direction?
+
+    Vec3 right_dir   = normalize(cross(look_dir, up_dir));
+    Vec3 perp_up_dir = cross(right_dir, look_dir);
+
+    auto result = Mat4([
+        right_dir.x, perp_up_dir.x, -look_dir.x, 0,
+        right_dir.y, perp_up_dir.y, -look_dir.y, 0,
+        right_dir.z, perp_up_dir.z, -look_dir.z, 0,
+        0,           0,             0,           1,
+    ]);
+
+    result = transpose(result)*mat4_translate(camera_pos*-1.0f);
+    return result;
+}
+
 Mat4 invert_view_matrix(Mat4 view){
+    // IMPORTANT: Inverting a view matrix this way only works if no non-uniform rotation has been
+    // applied.
+
     // Transpose 3x3 rotation portion of the view to invert it.
     auto rot = Mat4([
         view.m[0][0], view.m[1][0], view.m[2][0], 0,
@@ -162,32 +183,7 @@ Mat4 invert_view_matrix(Mat4 view){
     return result;
 }
 
-Mat4 mat4_orthographic(Rect camera_bounds){
-    // Orthographic adapted from here:
-    // https://songho.ca/opengl/gl_projectionmatrix.html#ortho
-    auto left   = left(camera_bounds);
-    auto right  = right(camera_bounds);
-    auto top    = top(camera_bounds);
-    auto bottom = bottom(camera_bounds);
-    auto near   = Z_Near;
-    auto far    = Z_Far;
-
-    float a = 2.0f / (right - left);
-    float b = 2.0f / (top - bottom);
-    float c = -2.0f / (far - near);
-    float d = -(right+left) / (right-left);
-    float e = -(top+bottom) / (top-bottom);
-    float f = -(far+near) / (far - near);
-
-    auto result = Mat4([
-        a, 0, 0, d,
-        0, b, 0, e,
-        0, 0, c, f,
-        0, 0, 0, 1,
-    ]);
-    return result;
-}
-
+/+
 Mat4 mat4_perspective(float fov_in_degrees, float aspect_ratio){
     float n        = 0.25;
     float f        = Z_Far;
@@ -228,8 +224,9 @@ Mat4 mat4_perspective(float fov_in_degrees, float aspect_ratio){
         return result;
     }
     return result;
-}
+}+/
 
+/+
 Mat4 make_2d_camera_matrix(Rect camera_bounds){
     float l = left(camera_bounds);
     float r = right(camera_bounds);
@@ -251,7 +248,7 @@ Mat4 make_2d_camera_matrix(Rect camera_bounds){
     ]);
 
     return result;
-}
+}+/
 
 Rect calc_scaling_viewport(float res_x, float res_y, float window_w, float window_h){
     // TODO(tspike) Investigate why there's a vertical stripe of non-rendered pixels on the right side of the screen when
@@ -667,7 +664,7 @@ version(opengl){
         init_uniform_buffer(&g_shader_constants_buffer, Constants_Uniform_Binding, Shader_Constants.sizeof);
         init_uniform_buffer(&g_shader_material_buffer, Material_Uniform_Binding, Material.sizeof);
         init_uniform_buffer(&g_shader_light_buffer, Light_Uniform_Binding, Shader_Light.sizeof);
-        init_uniform_buffer(&g_shader_camera_buffer, Camera_Uniform_Binding, Camera_Data.sizeof);
+        init_uniform_buffer(&g_shader_camera_buffer, Camera_Uniform_Binding, Shader_Camera.sizeof);
 
         /*
         if(!compile_shader("default", 0, Default_Vertex_Shader_Source, Default_Fragment_Shader_Source)){
@@ -700,17 +697,17 @@ version(opengl){
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         }
 
-        Camera_Data* current_camera = null;
+        Shader_Camera* current_camera = null;
         while(pass){
             set_viewport(g_base_viewport);
             if(pass.camera_data != current_camera){
                 current_camera = pass.camera_data;
-                auto dest = zero_type!Camera_Data;
+                auto dest = zero_type!Shader_Camera;
                 dest.mat = transpose(current_camera.mat);
                 dest.pos = current_camera.pos;
 
                 glBindBuffer(GL_UNIFORM_BUFFER, g_shader_camera_buffer);
-                glBufferSubData(GL_UNIFORM_BUFFER, 0, Camera_Data.sizeof, &dest);
+                glBufferSubData(GL_UNIFORM_BUFFER, 0, Shader_Camera.sizeof, &dest);
             }
 
             if(pass.flags & Render_Flag_Disable_Color){
@@ -899,7 +896,7 @@ version(opengl){
         shader.handle = 0;
     }
 
-    Render_Pass* add_render_pass(Camera_Data* camera){
+    Render_Pass* add_render_pass(Shader_Camera* camera){
         auto result = alloc_type!Render_Pass(g_allocator);
         result.camera_data = camera;
 

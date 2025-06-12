@@ -95,7 +95,7 @@ enum Mine_Explosion_End_Time = Mine_Detonation_Time + 1.0f;
 // TODO: Support 4:3 campaigns.
 // TODO: Remove constants. The maps theselves specify the maps size.
 enum Grid_Width     = 22; // Should be 16 for 4:3 campaigns.
-//enum Grid_Height    = 17;
+enum Grid_Height    = 17;
 
 // NOTE: Enemies are limited by the number of bytes that encode a map cell.
 enum Max_Enemies = 16;
@@ -515,6 +515,12 @@ bool is_dynamic_entity(Entity_Type type){
     return result;
 }
 
+Campaign_Map* get_current_map(App_State* s){
+    auto variant = &s.campaign.variants[s.session_variant_index];
+    auto map     = &variant.maps[s.session_map_index];
+    return map;
+}
+
 void entity_vs_world_bounds(App_State* s, Entity* e){
     Rect aabb = void;
     if(e.type == Entity_Type.Tank){
@@ -524,7 +530,8 @@ void entity_vs_world_bounds(App_State* s, Entity* e){
         aabb = Rect(e.pos, e.extents);
     }
 
-    Rect world_bounds = rect_from_min_max(Vec2(0, 0), Vec2(Grid_Width, Grid_Height));
+    auto map = get_current_map(s);
+    Rect world_bounds = rect_from_min_max(Vec2(0, 0), Vec2(map.width, map.height));
     world_bounds = shrink(world_bounds, aabb.extents);
     auto p = aabb.center;
 
@@ -1115,6 +1122,18 @@ void render_entity(App_State* s, Entity* e, Render_Passes rp, Material* material
     }
 }
 
+struct Camera{
+    Mat4_Pair proj;
+    Mat4_Pair view;
+    Vec3      center;
+    Vec3      lookat;
+}
+
+void set_projection_orthographic(Camera* camera, Vec2 camera_extents){
+    camera.proj = orthographic_projection(Rect(Vec2(0, 0), camera_extents));
+
+}
+
 extern(C) int main(int args_count, char** args){
     auto app_memory = os_alloc(Total_Memory_Size, 0);
     scope(exit) os_dealloc(app_memory);
@@ -1245,6 +1264,7 @@ extern(C) int main(int args_count, char** args){
     s.world.next_entity_id = Null_Entity_ID+1;
     version(all){
         if(load_campaign_from_file(&s.campaign, Campaign_File_Name, &s.main_memory)){
+            s.session_variant_index = 0;
             load_campaign_level(s, &s.campaign, s.session_mission_index);
         }
         else{
@@ -1256,9 +1276,6 @@ extern(C) int main(int args_count, char** args){
     }
 
     s.mouse_pixel = Vec2(0, 0);
-
-    auto grid_extents = Vec2(Grid_Width, Grid_Height)*0.5f;
-    auto grid_center  = Vec3(grid_extents.x, 0, -grid_extents.y);
 
     init_gui(&s.gui);
     s.gui.font = &s.font_editor_small;
@@ -1272,19 +1289,48 @@ extern(C) int main(int args_count, char** args){
         auto window = get_window_info();
         auto dt = target_dt;
 
-
-        Camera_Data hud_camera = void;
+        Shader_Camera hud_camera = void;
         {
             auto mat = make_hud_camera(window.width, window.height);
             hud_camera.mat = mat.mat;
             hud_camera.pos = Vec3(0, 0, 0); // TODO: Is this the center of the hud camera?
         }
 
-        Camera_Data world_camera = void;
+        auto map = get_current_map(s);
+
+        auto grid_extents = Vec2(map.width, map.height)*0.5f;
+        auto grid_center  = Vec3(grid_extents.x, 0, -grid_extents.y);
+
+        Camera test_camera = void;
+        Shader_Camera world_camera = void;
         {
-            float aspect_ratio = (cast(float)window.width) / (cast(float)window.height);
-            auto camera_extents = Vec2((Grid_Width+2), (aspect_ratio*0.5f)*cast(float)(Grid_Height+2))*0.5f;
-            auto camera_bounds = Rect(Vec2(0, 0), camera_extents);
+            // Aspect ratio correction for orthographic perspective adapted from the following:
+            // https://stackoverflow.com/questions/35810782/opengl-view-projections-and-orthographic-aspect-ratio
+            float target_width  = map.width+2;
+            float target_height = map.height+2;
+            float target_ratio  = target_width / target_height;
+            float current_ratio = cast(float)window.width / cast(float)window.height;
+            Rect camera_bounds = void;
+            if(current_ratio >= target_ratio){
+                auto size = Vec2((current_ratio/target_ratio)*target_width, target_height);
+                camera_bounds = Rect(Vec2(0, 0), size*0.5f);
+            }
+            else{
+                auto size = Vec2(target_width, (target_ratio/current_ratio)*target_height);
+                camera_bounds = Rect(Vec2(0, 0), size*0.5f);
+            }
+
+            /+
+            // TODO: This is more like what we want:
+            setup_orthographic(world_camera, map.width+2, map.height+2, aspect_ratio);
+            setup_lookat(&world_camera, Vec3(0, 16, 0), Vec3(0, 0, 0), Vec3(0, 1, 0));
+
+            auto p = unproject(&world_camera, screen_pos);
+            auto shader_world_camera = to_shader_data(&test_camera);
+
+            Camera hud_camera = void;
+            setup_hud(&hud_camera, window.width, window.height);
+            +/
 
             auto mat_proj = orthographic_projection(camera_bounds);
 
@@ -1551,6 +1597,8 @@ extern(C) int main(int args_count, char** args){
 
         auto ground_xform = mat4_translate(grid_center)*mat4_scale(Vec3(grid_extents.x, 1.0f, grid_extents.y));
         render_mesh(render_passes.world, &s.ground_mesh, &s.material_ground, ground_xform);
+
+        //render_mesh(render_passes.world)
 
         if(!editor_is_open){
             foreach(ref e; iterate_entities(&s.world)){
