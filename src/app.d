@@ -1304,21 +1304,20 @@ extern(C) int main(int args_count, char** args){
         Camera test_camera = void;
         Shader_Camera world_camera = void;
         {
+            float target_w = map.width+2;
+            float target_h = map.height+2;
+
             // Aspect ratio correction for orthographic perspective adapted from the following:
-            // https://stackoverflow.com/questions/35810782/opengl-view-projections-and-orthographic-aspect-ratio
-            float target_width  = map.width+2;
-            float target_height = map.height+2;
-            float target_ratio  = target_width / target_height;
-            float current_ratio = cast(float)window.width / cast(float)window.height;
-            Rect camera_bounds = void;
-            if(current_ratio >= target_ratio){
-                auto size = Vec2((current_ratio/target_ratio)*target_width, target_height);
-                camera_bounds = Rect(Vec2(0, 0), size*0.5f);
+            // http://www.david-amador.com/2013/04/opengl-2d-independent-resolution-rendering/
+            auto window_ratio = (cast(float)window.width)/(cast(float)window.height);
+            Vec2 camera_size = void;
+            if(window_ratio >= target_w/target_h){
+                camera_size = Vec2(target_h*window_ratio, target_h);
             }
             else{
-                auto size = Vec2(target_width, (target_ratio/current_ratio)*target_height);
-                camera_bounds = Rect(Vec2(0, 0), size*0.5f);
+                camera_size = Vec2(target_w, target_w/window_ratio);
             }
+            auto camera_bounds = Rect(Vec2(0, 0), camera_size*0.5f);
 
             /+
             // TODO: This is more like what we want:
@@ -1337,6 +1336,7 @@ extern(C) int main(int args_count, char** args){
             auto camera_pos = grid_center;
             Mat4_Pair mat_view = void;
             mat_view.mat = mat4_rot_x(45.0f*(PI/180.0f))*mat4_translate(-1.0f*camera_pos);
+            //mat_view.mat = mat4_rot_x(90.0f*(PI/180.0f))*mat4_translate(-1.0f*camera_pos);
             mat_view.inv = invert_view_matrix(mat_view.mat);
 
             world_camera.mat = mat_proj.mat*mat_view.mat;
