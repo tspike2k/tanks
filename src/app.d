@@ -16,7 +16,6 @@ TODO:
     - Better mouse to world conversion. Player turret currently doesn't follow mouse accurately.
     - Campaign variant selection.
     - High score tracking
-    - Advancing levels
     - Player lives
     - Multiplayer
     - Temp saves
@@ -26,44 +25,11 @@ TODO:
     - Debug collision volume display?
     - X mark over defeated enemy position
     - Treadmarks
-    - Correct ground size for 4x3 maps (and maps of arbitrary size)
     - Bullet can get lodged between two blocks, destroying it before the player sees it reflected.
 
     Interesting article on frequency of packet transmission in multiplayer games
     used in Source games.
     https://developer.valvesoftware.com/wiki/Source_Multiplayer_Networking
-
-
-----Additional data we need for campaigns----
-
-Campaign Info:
-    Starting lives
-    Tank stats table (include AI parameters)
-        Color info
-        Speed
-        etc
-    Missions
-        Award tank bonus
-        Min map index
-        Max map index
-        Tank ranges to spawn at pos.
-
-We want the designer to have the flexibility to decide which tanks spawn on which levels.
-But what would be the easiest way to handle that? We have spawn points 0-8. The most obvious
-thing to do is to have enemy info for each spawn point.
-
-We could make it simple. Each entry looks like this:
-    struct Enemy_Entry{
-        ubyte players_mask;
-        ubyte pad;
-        ubyte index_min;
-        ubyte index_max;
-    }
-
-The algorithm for selecting which enemy should spawn would be to find all the tank spawners,
-sort them by index, iterate over each of them and pick the next valid Enemy_Entry in the table.
-This sounds fine.
-
 +/
 
 import display;
@@ -91,6 +57,10 @@ enum Max_Mines_Per_Tank   = 3;
 
 enum Mine_Detonation_Time    = 8.0f;
 enum Mine_Explosion_End_Time = Mine_Detonation_Time + 1.0f;
+
+enum Mission_Intro_Max_Time = 3.0f;
+enum Mission_Start_Max_Time = 3.0f;
+enum Mission_End_Max_Time   = 3.0f;
 
 // TODO: Support 4:3 campaigns.
 // TODO: Remove constants. The maps theselves specify the maps size.
@@ -134,19 +104,19 @@ void load_campaign_level(App_State* s, Campaign* campaign, uint mission_index){
     auto world = &s.world;
     world.entities_count = 0;
 
-    s.session_mission_index = mission_index;
-    auto variant = &campaign.variants[s.session_variant_index];
-    auto mission = &variant.missions[s.session_mission_index];
+    s.session.mission_index = mission_index;
+    auto variant = &campaign.variants[s.session.variant_index];
+    auto mission = &variant.missions[s.session.mission_index];
 
     uint next_map_index = mission.map_index_min;
     if(mission.map_index_min != mission.map_index_max){
         // TODO: Support random maps. But pick a map that wasn't chosen last time!
         assert(0);
     }
-    s.session_prev_map_index = s.session_map_index;
-    s.session_map_index = next_map_index; // TODO: Clamp the mission index to variant.maps.length?
+    s.session.prev_map_index = s.session.map_index;
+    s.session.map_index = next_map_index; // TODO: Clamp the mission index to variant.maps.length?
 
-    auto map = &variant.maps[s.session_map_index];
+    auto map = &variant.maps[s.session.map_index];
     foreach(y; 0 .. map.height){
         foreach(x; 0 .. map.width){
             auto p = Vec2(x, y) + Vec2(0.5f, 0.5f);
@@ -192,6 +162,25 @@ struct Render_Passes{
     Render_Pass* hud_text;
 }
 
+enum Session_State : uint{
+    Inactive,
+    Mission_Intro,
+    Mission_Start,
+    Mission_End,
+    Playing_Mission,
+    Game_Over,
+}
+
+struct Session{
+    Session_State state;
+    uint  lives;
+    uint  variant_index;
+    uint  mission_index;
+    uint  map_index;
+    uint  prev_map_index;
+    float timer;
+}
+
 struct App_State{
     Allocator main_memory;
     Allocator frame_memory;
@@ -212,10 +201,7 @@ struct App_State{
     Material* highlight_material;
 
     Campaign campaign;
-    uint session_variant_index;
-    uint session_mission_index;
-    uint session_map_index;
-    uint session_prev_map_index;
+    Session session;
 
     Gui_State gui;
     Font font_main;
@@ -516,8 +502,8 @@ bool is_dynamic_entity(Entity_Type type){
 }
 
 Campaign_Map* get_current_map(App_State* s){
-    auto variant = &s.campaign.variants[s.session_variant_index];
-    auto map     = &variant.maps[s.session_map_index];
+    auto variant = &s.campaign.variants[s.session.variant_index];
+    auto map     = &variant.maps[s.session.map_index];
     return map;
 }
 
@@ -1134,6 +1120,110 @@ void set_projection_orthographic(Camera* camera, Vec2 camera_extents){
 
 }
 
+void start_play_session(App_State* s, uint variant_index){
+    auto variant = &s.campaign.variants[variant_index];
+
+    clear_to_zero(s.session);
+    s.session.state = Session_State.Mission_Intro;
+    s.session.lives = variant.lives;
+
+    load_campaign_level(s, &s.campaign, s.session.mission_index);
+}
+
+void simulate_world(App_State* s, Player_Input* input, float dt){
+    // Entity simulation
+    uint remaining_enemies_count;
+    Vec2 hit_normal = void;
+    float hit_depth = void;
+    foreach(ref e; iterate_entities(&s.world)){
+        if(is_dynamic_entity(e.type) && !is_destroyed(&e)){
+            if(e.id == s.player_entity_id){
+                e.vel = Vec2(0, 0);
+
+                float rot_speed = ((2.0f*PI)*0.5f);
+                if(input.turn_left){
+                    e.angle += rot_speed*dt;
+                }
+                if(input.turn_right){
+                    e.angle -= rot_speed*dt;
+                }
+
+                auto turret_dir = s.mouse_world - e.pos;
+                e.turret_angle = atan2(turret_dir.y, turret_dir.x);
+
+                auto dir = rotate(Vec2(1, 0), e.angle);
+                float speed = 4.0f;
+                if(input.move_forward){
+                    e.vel = dir*(speed);
+                }
+                else if(input.move_backward){
+                    e.vel = dir*-(speed);
+                }
+            }
+
+            switch(e.type){
+                default: break;
+
+                case Entity_Type.Tank:{
+                    if(!is_player(&e) && !is_destroyed(&e)){
+                        remaining_enemies_count++;
+                    }
+                } break;
+
+                case Entity_Type.Mine:{
+                    e.mine_timer += dt;
+                    if(e.mine_timer > Mine_Explosion_End_Time){
+                        destroy_entity(&e);
+                    }
+                    else if(e.mine_timer > Mine_Detonation_Time){
+                        auto t = normalized_range_clamp(e.mine_timer, Mine_Detonation_Time, Mine_Explosion_End_Time);
+                        auto radius = 3.0f * sin(t);
+                        e.extents = Vec2(radius, radius);
+                    }
+                } break;
+            }
+
+            // Since no object accelerate in this game, we can simplify integration.
+            e.pos += e.vel*dt;
+
+            // TODO: Broadphase, Spatial partitioning to limit the number of entitites
+            // we check here.
+            foreach(ref target; iterate_entities(&s.world)){
+                if(is_destroyed(&target) || &target == &e) continue;
+
+                if(detect_collision(&e, &target, &hit_normal, &hit_depth)){
+                    enum epsilon = 0.01f;
+                    // TODO: This probably works well enough, but gliding along blocks
+                    // at a steep enough angle will cause a tank to noticeably hitch.
+                    // What is the best way to solve that using intersection tests?
+                    //
+                    // Note this also happens with bullets. If a bullet hits two blocks
+                    // just right, it'll be regisered as two collisions in one frame.
+                    // This will destroy the bullet before it can be reflected properly.
+                    // This is a HUGE problem and must be fixed.
+                    resolve_collision(s, &e, &target, hit_normal, hit_depth + epsilon);
+                    resolve_collision(s, &target, &e, hit_normal*-1.0f, hit_depth + epsilon);
+                }
+            }
+            entity_vs_world_bounds(s, &e);
+        }
+    }
+
+    remove_destroyed_entities(&s.world);
+
+    if(remaining_enemies_count == 0){
+        // TODO: End the campaign if this is the last mission
+        s.session.state = Session_State.Mission_End;
+    }
+}
+
+struct Player_Input{
+    bool turn_right;
+    bool turn_left;
+    bool move_forward;
+    bool move_backward;
+}
+
 extern(C) int main(int args_count, char** args){
     auto app_memory = os_alloc(Total_Memory_Size, 0);
     scope(exit) os_dealloc(app_memory);
@@ -1233,10 +1323,7 @@ extern(C) int main(int args_count, char** args){
 
     s.running = true;
 
-    bool player_turn_left;
-    bool player_turn_right;
-    bool player_move_forward;
-    bool player_move_backward;
+    Player_Input player_input;
     bool send_broadcast;
 
     Socket socket;
@@ -1264,8 +1351,8 @@ extern(C) int main(int args_count, char** args){
     s.world.next_entity_id = Null_Entity_ID+1;
     version(all){
         if(load_campaign_from_file(&s.campaign, Campaign_File_Name, &s.main_memory)){
-            s.session_variant_index = 0;
-            load_campaign_level(s, &s.campaign, s.session_mission_index);
+            s.session.variant_index = 1;
+            start_play_session(s, 1);
         }
         else{
             generate_test_level(s);
@@ -1451,16 +1538,16 @@ extern(C) int main(int args_count, char** args){
                                     default: break;
 
                                     case Key_ID_A:
-                                        player_turn_left = key.pressed; break;
+                                        player_input.turn_left = key.pressed; break;
 
                                     case Key_ID_D:
-                                        player_turn_right = key.pressed; break;
+                                        player_input.turn_right = key.pressed; break;
 
                                     case Key_ID_W:
-                                        player_move_forward = key.pressed; break;
+                                        player_input.move_forward = key.pressed; break;
 
                                     case Key_ID_S:
-                                        player_move_backward = key.pressed; break;
+                                        player_input.move_backward = key.pressed; break;
 
                                     case Key_ID_F2:
                                         if(!key.is_repeat && key.pressed)
@@ -1480,90 +1567,40 @@ extern(C) int main(int args_count, char** args){
 
             s.t += dt;
 
-            // Entity simulation
-            uint remaining_enemies_count;
-            Vec2 hit_normal = void;
-            float hit_depth = void;
-            foreach(ref e; iterate_entities(&s.world)){
-                if(is_dynamic_entity(e.type) && !is_destroyed(&e)){
-                    if(e.id == s.player_entity_id){
-                        e.vel = Vec2(0, 0);
+            final switch(s.session.state){
+                case Session_State.Game_Over:
+                case Session_State.Inactive:
+                    break;
 
-                        float rot_speed = ((2.0f*PI)*0.5f);
-                        if(player_turn_left){
-                            e.angle += rot_speed*dt;
-                        }
-                        if(player_turn_right){
-                            e.angle -= rot_speed*dt;
-                        }
+                case Session_State.Playing_Mission:{
+                    simulate_world(s, &player_input, dt);
+                } break;
 
-                        auto turret_dir = s.mouse_world - e.pos;
-                        e.turret_angle = atan2(turret_dir.y, turret_dir.x);
-
-                        auto dir = rotate(Vec2(1, 0), e.angle);
-                        float speed = 4.0f;
-                        if(player_move_forward){
-                            e.vel = dir*(speed);
-                        }
-                        else if(player_move_backward){
-                            e.vel = dir*-(speed);
-                        }
+                case Session_State.Mission_Intro:{
+                    s.session.timer += dt;
+                    if(s.session.timer >= Mission_Intro_Max_Time){
+                        s.session.timer = 0.0f; // TODO: Accumulate overtime!
+                        s.session.state = Session_State.Mission_Start;
                     }
+                } break;
 
-                    switch(e.type){
-                        default: break;
-
-                        case Entity_Type.Tank:{
-                            if(!is_player(&e) && !is_destroyed(&e)){
-                                remaining_enemies_count++;
-                            }
-                        } break;
-
-                        case Entity_Type.Mine:{
-                            e.mine_timer += dt;
-                            if(e.mine_timer > Mine_Explosion_End_Time){
-                                destroy_entity(&e);
-                            }
-                            else if(e.mine_timer > Mine_Detonation_Time){
-                                auto t = normalized_range_clamp(e.mine_timer, Mine_Detonation_Time, Mine_Explosion_End_Time);
-                                auto radius = 3.0f * sin(t);
-                                e.extents = Vec2(radius, radius);
-                            }
-                        } break;
+                case Session_State.Mission_Start:{
+                    s.session.timer += dt;
+                    if(s.session.timer >= Mission_Start_Max_Time){
+                        s.session.timer = 0.0f; // TODO: Accumulate overtime!
+                        s.session.state = Session_State.Playing_Mission;
                     }
+                } break;
 
-                    // Since no object accelerate in this game, we can simplify integration.
-                    e.pos += e.vel*dt;
-
-                    // TODO: Broadphase, Spatial partitioning to limit the number of entitites
-                    // we check here.
-                    foreach(ref target; iterate_entities(&s.world)){
-                        if(is_destroyed(&target) || &target == &e) continue;
-
-                        if(detect_collision(&e, &target, &hit_normal, &hit_depth)){
-                            enum epsilon = 0.01f;
-                            // TODO: This probably works well enough, but gliding along blocks
-                            // at a steep enough angle will cause a tank to noticeably hitch.
-                            // What is the best way to solve that using intersection tests?
-                            //
-                            // Note this also happens with bullets. If a bullet hits two blocks
-                            // just right, it'll be regisered as two collisions in one frame.
-                            // This will destroy the bullet before it can be reflected properly.
-                            // This is a HUGE problem and must be fixed.
-                            resolve_collision(s, &e, &target, hit_normal, hit_depth + epsilon);
-                            resolve_collision(s, &target, &e, hit_normal*-1.0f, hit_depth + epsilon);
-                        }
+                case Session_State.Mission_End:{
+                    s.session.timer += dt;
+                    if(s.session.timer >= Mission_End_Max_Time){
+                        s.session.timer = 0.0f; // TODO: Accumulate overtime!
+                        s.session.state = Session_State.Mission_Intro;
+                        s.session.mission_index++;
+                        load_campaign_level(s, &s.campaign, s.session.mission_index);
                     }
-                    entity_vs_world_bounds(s, &e);
-                }
-            }
-
-            remove_destroyed_entities(&s.world);
-
-            if(remaining_enemies_count == 0){
-                // TODO: End the campaign if this is the last mission
-                s.session_mission_index++;
-                load_campaign_level(s, &s.campaign, s.session_mission_index);
+                } break;
             }
         }
 
