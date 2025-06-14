@@ -685,7 +685,7 @@ void update_gui(Gui_State* gui, float dt){
     gui.mouse_left_released = false;
 }
 
-void render_gui(Gui_State* gui, Shader_Camera* camera_data, Shader* shader_rects, Shader* shader_text){
+void render_gui(Gui_State* gui, Camera* camera_data, Shader* shader_rects, Shader* shader_text){
     foreach(window; gui.windows.iterate()){
         auto rp_rects = add_render_pass(camera_data);
         set_shader(rp_rects, shader_rects);

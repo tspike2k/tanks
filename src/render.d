@@ -71,7 +71,7 @@ struct Mesh{
 struct Render_Pass{
     Render_Pass* next;
 
-    Shader_Camera* camera_data;
+    Camera* camera;
     ulong flags;
 
     Render_Cmd* cmd_next;
@@ -83,12 +83,6 @@ enum Max_Quads_Per_Batch = 2048; // TODO: Isn't this a bit high? 512 would be a 
 // TODO: Ensure members are correctly aligned with both HLSL and GLSL requirements
 struct Shader_Constants{
     float time;
-}
-
-struct Shader_Camera{
-    Mat4 mat;
-    Vec3 pos;
-    float pad_00;
 }
 
 struct Material{
@@ -183,73 +177,6 @@ Mat4 invert_view_matrix(Mat4 view){
     return result;
 }
 
-/+
-Mat4 mat4_perspective(float fov_in_degrees, float aspect_ratio){
-    float n        = 0.25;
-    float f        = Z_Far;
-
-    // TODO: Where did we get this matrix from? Was this from Learning Modern Graphics Programming?
-    // Aspect ration correction taken from:
-    // https://gamedev.stackexchange.com/questions/120338/what-does-a-perspective-projection-matrix-look-like-in-opengl
-    version(all){
-        float e = tanf((fov_in_degrees * (PI/180.0f)) / 2.0f);
-        auto result = Mat4([
-            1.0f / (aspect_ratio*e), 0.0f, 0.0f, 0.0f,
-            0.0f, 1.0f / e, 0.0f, 0.0f,
-            0.0f, 0.0f, -((n + f) / (f - n)), -((2.0f*f*n) / (f-n)),
-            0.0f, 0.0f, -1.0f, 0.0f
-        ]);
-    }
-    else{
-        // Adapted from here:
-        // https://perry.cz/articles/ProjectionMatrix.xhtml
-        //
-        // We are appearently using a right-handed coordinate system. This means z-grows positively
-        // as it approaches the camera. I'm sure this is fine, but I wonder what the pros have to
-        // say about this.
-        float fov = fov_in_degrees * (PI/180.0f);
-        float x = tanf(fov*0.5f);
-        float a = aspect_ratio * (1.0f / x);
-        float b = 1.0f / x;
-        float c = -(f+n)/(f-n);
-        float d = -1;
-        float e = -(2.0f*f*n)/(f-n);
-
-        auto result = Mat4([
-            a, 0, 0, 0,
-            0, b, 0, 0,
-            0, 0, c, e,
-            0, 0, d, 0
-        ]);
-        return result;
-    }
-    return result;
-}+/
-
-/+
-Mat4 make_2d_camera_matrix(Rect camera_bounds){
-    float l = left(camera_bounds);
-    float r = right(camera_bounds);
-    float t = top(camera_bounds);
-    float b = bottom(camera_bounds);
-
-    // Odd near-far values taken from Allegro-5.
-    // TODO: Are there better values to use?
-    float n = -1.0f;
-    float f =  1.0f;
-
-    // Orhtographic projection matrix calculation code retrieved from Wikipedia:
-    // https://en.wikipedia.org/wiki/Orthographic_projection
-    auto result = Mat4([
-        2.0f / (r - l),  0, 0, 0,
-        0, 2.0f / (t-b),    0, 0,
-        0, 0, -2.0f/(f-n), 0,
-        -((r+l)/(r-l)), -((t+b)/(t-b)), -((f+n)/(f-n)), 1.0f
-    ]);
-
-    return result;
-}+/
-
 Rect calc_scaling_viewport(float res_x, float res_y, float window_w, float window_h){
     // TODO(tspike) Investigate why there's a vertical stripe of non-rendered pixels on the right side of the screen when
     // in fullcreen mode in X11 (on my laptop). Floating point precision issues? Do we need to clamp?
@@ -271,6 +198,83 @@ Rect calc_scaling_viewport(float res_x, float res_y, float window_w, float windo
     float min_y = (window_h - target_h)*0.5f;
 
     Rect result = rect_from_min_max(Vec2(min_x, min_y), Vec2(min_x + target_w, min_y + target_h));
+    return result;
+}
+
+struct Camera{
+    Mat4_Pair proj;
+    Mat4_Pair view;
+    Vec3      center;
+    Vec3      facing;
+}
+
+void set_world_projection(Camera* camera, float target_w, float target_h, float window_aspect_ratio){
+    // Aspect ratio correction for orthographic perspective adapted from the following:
+    // http://www.david-amador.com/2013/04/opengl-2d-independent-resolution-rendering/
+    Vec2 camera_size = void;
+    if(window_aspect_ratio >= target_w/target_h){
+        camera_size = Vec2(target_h*window_aspect_ratio, target_h);
+    }
+    else{
+        camera_size = Vec2(target_w, target_w/window_aspect_ratio);
+    }
+    auto camera_bounds = Rect(Vec2(0, 0), camera_size*0.5f);
+    auto mat_proj = orthographic_projection(camera_bounds);
+}
+
+void set_world_view(Camera* camera, Vec3 camera_center, float camera_x_rot){
+    camera.view.mat = mat4_rot_x(camera_x_rot*(PI/180.0f))*mat4_translate(-1.0f*camera_center);
+    camera.view.inv = invert_view_matrix(camera.view.mat);
+    camera.center   = camera_center;
+}
+
+void set_hud_camera(Camera* camera, float camera_w, float camera_h){
+    auto camera_extents = Vec2(camera_w, camera_h)*0.5f;
+    auto camera_bounds = Rect(camera_extents, camera_extents);
+    camera.proj = orthographic_projection(camera_bounds);
+    camera.view.mat = Mat4_Identity;
+    camera.view.inv = invert_view_matrix(Mat4_Identity);
+    camera.center = Vec3(0, 0, 0); // TODO: Is this the correct center for the HUD?
+}
+
+Vec3 get_camera_facing(Camera* camera){
+    auto result = Vec3(
+        camera.view.mat.m[2][0],
+        camera.view.mat.m[2][1],
+        camera.view.mat.m[2][2]
+    );
+    return result;
+}
+
+Vec3 unproject(Camera* camera, Vec2 screen_p, float screen_w, float screen_h){
+    // Based on the following sources:
+    // https://antongerdelan.net/opengl/raycasting.html
+    // https://stackoverflow.com/questions/45882951/mouse-picking-miss/45883624#45883624
+    // https://stackoverflow.com/questions/46749675/opengl-mouse-coordinates-to-space-coordinates/46752492#46752492
+    //
+    // Other sources on this topic that were helpful in figuring out how to do this:
+    // https://guide.handmadehero.org/code/day373/#2978
+    // https://www.opengl-tutorial.org/miscellaneous/clicking-on-objects/picking-with-a-physics-library/
+    // https://www.reddit.com/r/gamemaker/comments/c6684w/3d_converting_a_screenspace_mouse_position_into_a/
+    auto ndc = Vec2(
+        2.0f*(screen_p.x / screen_w) - 1.0f,
+        2.0f*(screen_p.y / screen_h) - 1.0f
+    );
+
+    // TODO: Account for perspective in case of a perspective view matrix?
+    auto eye_p = camera.proj.inv*Vec4(ndc.x, -ndc.y, -1, 0);
+    eye_p.z = -1.0f;
+    eye_p.w =  0.0f;
+
+    /+
+    auto origin     = camera.view.inv*Vec4(0, 0, 0, 1);
+    auto world_dir  = camera.view.inv*eye_p;
+    auto camera_dir = normalize(get_camera_facing(camera));
+
+    auto result = Ray(world_dir.xyz() + origin.xyz(), camera_dir);
++/
+    auto world_p = camera.view.inv*eye_p;
+    auto result = world_p.xyz();
     return result;
 }
 
@@ -450,6 +454,12 @@ struct Render_Rect{
 
     Rect bounds;
     Vec4 color;
+}
+
+struct Shader_Camera{
+    Mat4 mat;
+    Vec3 pos;
+    float pad_00;
 }
 
 Render_Cmd* push_command(Render_Pass* pass, Command type, size_t size){
@@ -700,14 +710,14 @@ version(opengl){
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         }
 
-        Shader_Camera* current_camera = null;
+        Camera* current_camera = null;
         while(pass){
             set_viewport(g_base_viewport);
-            if(pass.camera_data != current_camera){
-                current_camera = pass.camera_data;
+            if(pass.camera != current_camera){
+                current_camera = pass.camera;
                 auto dest = zero_type!Shader_Camera;
-                dest.mat = transpose(current_camera.mat);
-                dest.pos = current_camera.pos;
+                dest.mat = transpose(current_camera.proj.mat*current_camera.view.mat);
+                dest.pos = current_camera.center;
 
                 glBindBuffer(GL_UNIFORM_BUFFER, g_shader_camera_buffer);
                 glBufferSubData(GL_UNIFORM_BUFFER, 0, Shader_Camera.sizeof, &dest);
@@ -911,9 +921,9 @@ version(opengl){
         shader.handle = 0;
     }
 
-    Render_Pass* add_render_pass(Shader_Camera* camera){
+    Render_Pass* add_render_pass(Camera* camera){
         auto result = alloc_type!Render_Pass(g_allocator);
-        result.camera_data = camera;
+        result.camera = camera;
 
         if(!g_render_pass_first)
             g_render_pass_first = result;

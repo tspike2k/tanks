@@ -592,38 +592,11 @@ struct Ray{
     Vec3 dir;
 }
 
-// Based on the following sources:
-// https://antongerdelan.net/opengl/raycasting.html
-// https://stackoverflow.com/questions/45882951/mouse-picking-miss/45883624#45883624
-// https://stackoverflow.com/questions/46749675/opengl-mouse-coordinates-to-space-coordinates/46752492#46752492
-//
-// Other sources on this topic that were helpful in figuring out how to do this:
-// https://guide.handmadehero.org/code/day373/#2978
-// https://www.opengl-tutorial.org/miscellaneous/clicking-on-objects/picking-with-a-physics-library/
-// https://www.reddit.com/r/gamemaker/comments/c6684w/3d_converting_a_screenspace_mouse_position_into_a/
-Ray screen_to_ray(Vec2 screen_p, float screen_w, float screen_h, Mat4_Pair* proj, Mat4_Pair* view){
-    auto ndc = Vec2(
-        2.0f*(screen_p.x / screen_w) - 1.0f,
-        2.0f*(screen_p.y / screen_h) - 1.0f
-    );
-
-    // TODO: Account for perspective in case of a perspective view matrix?
-    auto eye_p = proj.inv*Vec4(ndc.x, -ndc.y, -1, 0);
-    eye_p.z = -1.0f;
-    eye_p.w =  0.0f;
-
-    auto origin     = view.inv*Vec4(0, 0, 0, 1);
-    auto world_dir  = view.inv*eye_p;
-    auto camera_dir = normalize(Vec3(view.mat.m[2][0], view.mat.m[2][1], view.mat.m[2][2]));
-
-    auto result = Ray(world_dir.xyz() + origin.xyz(), camera_dir);
-    return result;
-}
-
+/+
 Vec3 project_onto_plane(Vec3 p, Vec3 plane_p, Vec3 plane_n){
     auto result = p - dot(p - plane_p, plane_n)*plane_n;
     return result;
-}
+}+/
 
 bool ray_vs_plane(Ray ray, Vec3 plane_p, Vec3 plane_n, Vec3* hit_p){
     // Ray vs plane formula thanks to:
@@ -1102,18 +1075,6 @@ void render_entity(App_State* s, Entity* e, Render_Passes rp, Material* material
     }
 }
 
-struct Camera{
-    Mat4_Pair proj;
-    Mat4_Pair view;
-    Vec3      center;
-    Vec3      lookat;
-}
-
-void set_projection_orthographic(Camera* camera, Vec2 camera_extents){
-    camera.proj = orthographic_projection(Rect(Vec2(0, 0), camera_extents));
-
-}
-
 void start_play_session(App_State* s, uint variant_index){
     auto variant = &s.campaign.variants[variant_index];
 
@@ -1370,64 +1331,27 @@ extern(C) int main(int args_count, char** args){
         auto window = get_window_info();
         auto dt = target_dt;
 
-        Shader_Camera hud_camera = void;
-        {
-            auto mat = make_hud_camera(window.width, window.height);
-            hud_camera.mat = mat.mat;
-            hud_camera.pos = Vec3(0, 0, 0); // TODO: Is this the center of the hud camera?
-        }
+        Camera hud_camera = void;
+        set_hud_camera(&hud_camera, window.width, window.height);
 
         auto map = get_current_map(s);
-
         auto grid_extents = Vec2(map.width, map.height)*0.5f;
         auto grid_center  = world_to_render_pos(grid_extents);
+        auto window_aspect_ratio = (cast(float)window.width)/(cast(float)window.height);
 
-        Camera test_camera = void;
-        Shader_Camera world_camera = void;
+        Camera world_camera = void;
+        set_world_projection(&world_camera, map.width+2, map.height+2, window_aspect_ratio);
+        set_world_view(&world_camera, grid_center, 45.0f);
+
+        auto mouse_picker_p = unproject(&world_camera, s.mouse_pixel, window.width, window.height);
+
+        /+
         {
-            float target_w = map.width+2;
-            float target_h = map.height+2;
-
-            // Aspect ratio correction for orthographic perspective adapted from the following:
-            // http://www.david-amador.com/2013/04/opengl-2d-independent-resolution-rendering/
-            auto window_ratio = (cast(float)window.width)/(cast(float)window.height);
-            Vec2 camera_size = void;
-            if(window_ratio >= target_w/target_h){
-                camera_size = Vec2(target_h*window_ratio, target_h);
-            }
-            else{
-                camera_size = Vec2(target_w, target_w/window_ratio);
-            }
-            auto camera_bounds = Rect(Vec2(0, 0), camera_size*0.5f);
-
-            /+
-            // TODO: This is more like what we want:
-            setup_orthographic(world_camera, map.width+2, map.height+2, aspect_ratio);
-            setup_lookat(&world_camera, Vec3(0, 16, 0), Vec3(0, 0, 0), Vec3(0, 1, 0));
-
-            auto p = unproject(&world_camera, screen_pos);
-            auto shader_world_camera = to_shader_data(&test_camera);
-
-            Camera hud_camera = void;
-            setup_hud(&hud_camera, window.width, window.height);
-            +/
-
-            auto mat_proj = orthographic_projection(camera_bounds);
-
-            auto camera_pos = grid_center;
-            Mat4_Pair mat_view = void;
-            mat_view.mat = mat4_rot_x(45.0f*(PI/180.0f))*mat4_translate(-1.0f*camera_pos);
-            //mat_view.mat = mat4_rot_x(90.0f*(PI/180.0f))*mat4_translate(-1.0f*camera_pos);
-            mat_view.inv = invert_view_matrix(mat_view.mat);
-
-            world_camera.mat = mat_proj.mat*mat_view.mat;
-            world_camera.pos = camera_pos;
-
             auto mouse_picker_ray = screen_to_ray(s.mouse_pixel, window.width, window.height, &mat_proj, &mat_view);
             Vec3 cursor_3d = Vec3(0, 0, 0);
             ray_vs_plane(mouse_picker_ray, Vec3(0, 0, 0), Vec3(0, 1, 0), &cursor_3d);
             s.mouse_world = Vec2(cursor_3d.x, -cursor_3d.z);
-        }
+        }+/
 
         if(editor_is_open){
             editor_simulate(s, target_dt);
