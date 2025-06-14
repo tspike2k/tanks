@@ -16,7 +16,7 @@ TODO:
     - Better mouse to world conversion. Player turret currently doesn't follow mouse accurately.
     - Campaign variant selection.
     - High score tracking
-    - Player lives
+    - Better scoring
     - Multiplayer
     - Temp saves
     - Tanks should be square (a little less than a meter in size)
@@ -176,6 +176,9 @@ struct Session{
     uint  map_index;
     uint  prev_map_index;
     float timer;
+
+    uint[Max_Players] enemies_defeated;
+    uint[Max_Players] total_enemies_defeated;
 }
 
 struct App_State{
@@ -187,7 +190,6 @@ struct App_State{
     bool      running;
     float     t;
     Entity_ID player_entity_id;
-    uint      player_destroyed_tanks;
 
     World world;
     Vec2 mouse_pixel;
@@ -872,7 +874,8 @@ void add_to_score_if_killed_by_player(App_State* s, Entity* tank, Entity_ID atta
         // the attacker that shot or placed the mine that defeated the
         // tank
         if(attacker_id == s.player_entity_id){
-            s.player_destroyed_tanks++;
+            auto player_index = 0;
+            s.session.enemies_defeated[player_index]++;
         }
     }
 }
@@ -1377,7 +1380,7 @@ extern(C) int main(int args_count, char** args){
         auto map = get_current_map(s);
 
         auto grid_extents = Vec2(map.width, map.height)*0.5f;
-        auto grid_center  = Vec3(grid_extents.x, 0, -grid_extents.y);
+        auto grid_center  = world_to_render_pos(grid_extents);
 
         Camera test_camera = void;
         Shader_Camera world_camera = void;
@@ -1589,6 +1592,12 @@ extern(C) int main(int args_count, char** args){
                         s.session.timer = 0.0f; // TODO: Accumulate overtime!
                         s.session.state = Session_State.Mission_Intro;
                         s.session.mission_index++;
+
+                        foreach(i; 0 .. Max_Players){
+                            s.session.total_enemies_defeated[i] += s.session.enemies_defeated[i];
+                        }
+                        clear_to_zero(s.session.enemies_defeated);
+
                         load_campaign_level(s, &s.campaign, s.session.mission_index);
                     }
                 } break;
@@ -1623,9 +1632,6 @@ extern(C) int main(int args_count, char** args){
         set_shader(render_passes.hud_text, &text_shader);
         render_passes.hud_text.flags = Render_Flag_Disable_Depth_Test;
 
-        auto ground_xform = mat4_translate(grid_center)*mat4_scale(Vec3(grid_extents.x, 1.0f, grid_extents.y));
-        render_mesh(render_passes.world, &s.ground_mesh, &s.material_ground, ground_xform);
-
         //render_mesh(render_passes.world)
 
         if(editor_is_open){
@@ -1633,6 +1639,9 @@ extern(C) int main(int args_count, char** args){
         }
         else{
             if(s.session.state != Session_State.Mission_Intro){
+                auto ground_xform = mat4_translate(grid_center)*mat4_scale(Vec3(grid_extents.x, 1.0f, grid_extents.y));
+                render_mesh(render_passes.world, &s.ground_mesh, &s.material_ground, ground_xform);
+
                 foreach(ref e; iterate_entities(&s.world)){
                     render_entity(s, &e, render_passes);
                 }
@@ -1659,13 +1668,42 @@ extern(C) int main(int args_count, char** args){
                     pen.y -= cast(float)font_small.metrics.line_gap;
                     render_text(
                         p_text, font_small, pen,
-                        gen_string("Enemy tanks: {0}", mission.enemies.length+1, &s.frame_memory),
+                        gen_string("Enemy tanks: {0}", mission.enemies.length, &s.frame_memory),
                         Text_White, Text_Align.Center_X
                     );
                 } break;
 
-                case Session_State.Mission_End:{
+                case Session_State.Mission_Start:{
+                    // TODO: Draw player indicator
 
+                } break;
+
+                case Session_State.Mission_End:{
+                    auto font_large = &s.font_main; // TODO: Actually have a large font
+                    auto font_small = &s.font_editor_small; // TODO: Actually have a small font
+                    auto p_text = render_passes.hud_text;
+
+                    auto pen = Vec2(window.width, window.height)*0.5f;
+                    render_text(
+                        p_text, font_large, pen,
+                        "Mission Cleared!",
+                        Text_White, Text_Align.Center_X
+                    );
+
+                    pen.y -= cast(float)font_large.metrics.line_gap;
+                    render_text(
+                        p_text, font_large, pen,
+                        "Destroyed",
+                        Text_White, Text_Align.Center_X
+                    );
+
+                    // TODO: Show who destroyed how many tanks
+                    pen.y -= cast(float)font_small.metrics.line_gap;
+                    render_text(
+                        p_text, font_small, pen,
+                        gen_string("P1 {0}", s.session.enemies_defeated[0], &s.frame_memory),
+                        Text_White, Text_Align.Center_X
+                    );
                 } break;
             }
         }

@@ -153,14 +153,9 @@ bool is_cell_occupied(Campaign_Map* map, Vec2 cell){
     return result;
 }
 
-// TODO: Support 4:3 campaigns.
-// TODO: Remove constants. The maps theselves specify the maps size.
-enum Grid_Width     = 22; // Should be 16 for 4:3 campaigns.
-enum Grid_Height    = 17;
-
-bool inside_grid(Vec2 p){
-    bool result = p.x >= 0.0f && p.x < cast(float)Grid_Width
-                  && p.y >= 0.0f && p.y < cast(float)Grid_Height;
+bool inside_grid(Campaign_Map* map, Vec2 p){
+    bool result = p.x >= 0.0f && p.x < cast(float)map.width
+                  && p.y >= 0.0f && p.y < cast(float)map.height;
     return result;
 }
 
@@ -378,7 +373,7 @@ public void editor_simulate(App_State* s, float dt){
 
         case Cursor_Mode.Place:{
             auto map = &g_current_map.map;
-            if(inside_grid(s.mouse_world) && !is_cell_occupied(map, s.mouse_world)){
+            if(inside_grid(map, s.mouse_world) && !is_cell_occupied(map, s.mouse_world)){
                 bool is_tank = g_place_type == Place_Type.Tank;
                 if((is_tank && mouse_left_pressed) || (!is_tank && g_mouse_left_is_down)){
                     ubyte default_index = is_tank ? 0 : 1;
@@ -391,7 +386,7 @@ public void editor_simulate(App_State* s, float dt){
         case Cursor_Mode.Select:{
             auto map = &g_current_map.map;
             if(mouse_left_pressed){
-                if(inside_grid(s.mouse_world) && is_cell_occupied(map, s.mouse_world)){
+                if(inside_grid(map, s.mouse_world) && is_cell_occupied(map, s.mouse_world)){
                     auto x = cast(int)s.mouse_world.x;
                     auto y = cast(int)s.mouse_world.y;
                     g_selected_cell = &map.cells[x + y * map.width];
@@ -533,6 +528,12 @@ public void editor_render(App_State* s, Render_Passes rp){
     );
 
     auto map = &g_current_map.map;
+
+    auto grid_extents = Vec2(map.width, map.height)*0.5f;
+    auto grid_center  = world_to_render_pos(grid_extents);
+
+    auto ground_xform = mat4_translate(grid_center)*mat4_scale(Vec3(grid_extents.x, 1.0f, grid_extents.y));
+    render_mesh(rp.world, &s.ground_mesh, &s.material_ground, ground_xform);
     foreach(y; 0 .. map.height){
         foreach(x; 0 .. map.width){
             auto cell = &map.cells[x + y * map.width];
@@ -551,7 +552,7 @@ public void editor_render(App_State* s, Render_Passes rp){
         }
     }
 
-    if(g_cursor_mode == Cursor_Mode.Place && inside_grid(s.mouse_world)){
+    if(g_cursor_mode == Cursor_Mode.Place && inside_grid(map, s.mouse_world)){
         auto entity_type = encode_map_cell(g_place_type == Place_Type.Tank, false, 1);
         auto tile_center = floor(s.mouse_world) + Vec2(0.5f, 0.5f);
         auto e = make_entity_from_cell(entity_type, tile_center);
