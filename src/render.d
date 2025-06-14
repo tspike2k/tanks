@@ -219,7 +219,7 @@ void set_world_projection(Camera* camera, float target_w, float target_h, float 
         camera_size = Vec2(target_w, target_w/window_aspect_ratio);
     }
     auto camera_bounds = Rect(Vec2(0, 0), camera_size*0.5f);
-    auto mat_proj = orthographic_projection(camera_bounds);
+    camera.proj = orthographic_projection(camera_bounds);
 }
 
 void set_world_view(Camera* camera, Vec3 camera_center, float camera_x_rot){
