@@ -714,7 +714,7 @@ void render_gui(Gui_State* gui, Shader_Camera* camera_data, Shader* shader_rects
 
         auto font = gui.font;
         auto title_baseline = center_text(font, window.name, title_bounds);
-        render_text(rp_text, gui.font, title_baseline, window.name, Vec4(1, 1, 1, 1)); // TODO: Center on X
+        render_text(rp_text, gui.font, title_baseline, window.name, Vec4(1, 1, 1, 1));
 
         // Account for work area outline.
         // TODO: Make it so render_rect_outline draws an outline *inside* the given

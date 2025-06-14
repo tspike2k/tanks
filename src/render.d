@@ -300,24 +300,26 @@ void pop_scissor(Render_Pass* pass){
     push_command(pass, Command.Pop_Scissor, Render_Cmd.sizeof);
 }
 
-Vec2 center_text(Font* font, String text, Rect bounds){
-    auto text_width = get_text_width(font, text);
-    auto result = floor(bounds.center - 0.5f*Vec2(text_width, font.metrics.cap_height));
-    return result;
-}
-
 Vec2 center_text_left(Font* font, String text, Rect bounds){
     auto h = cast(float)font.metrics.cap_height;
     auto result = floor(Vec2(left(bounds), bounds.center.y - 0.5f*h));
     return result;
 }
 
-void render_text(Render_Pass* pass, Font* font, Vec2 pos, String text, Vec4 color = Vec4(1, 1, 1, 1)){
-    auto cmd      = push_command!Render_Text(pass);
-    cmd.text      = text;
-    cmd.font      = font;
-    cmd.pos       = pos;
-    cmd.color     = color;
+Vec2 center_text(Font* font, String text, Rect bounds){
+    auto text_width = get_text_width(font, text);
+    auto result = floor(bounds.center - 0.5f*Vec2(text_width, font.metrics.cap_height));
+    return result;
+}
+
+void render_text(Render_Pass* pass, Font* font, Vec2 pos, String text,
+Vec4 color = Vec4(1, 1, 1, 1), Text_Align text_align = Text_Align.Left){
+    auto cmd       = push_command!Render_Text(pass);
+    cmd.text       = text;
+    cmd.font       = font;
+    cmd.pos        = pos;
+    cmd.color      = color;
+    cmd.text_align = text_align;
 }
 
 void render_rect(Render_Pass* pass, Rect bounds, Vec4 color){
@@ -422,6 +424,7 @@ struct Render_Text{
     String     text;
     Vec2       pos;
     Vec4       color;
+    Text_Align text_align;
 }
 
 struct Set_Light{
@@ -783,7 +786,19 @@ version(opengl){
 
                     case Command.Render_Text:{
                         auto cmd = cast(Render_Text*)cmd_node;
-                        render_text(cmd.font, cmd.text, cmd.pos, cmd.color);
+                        auto p = cmd.pos;
+                        switch(cmd.text_align){
+                            default: break;
+
+                            case Text_Align.Center_X:{
+                                auto text_width = get_text_width(cmd.font, cmd.text);
+                                p = p - 0.5f*Vec2(text_width, 0);
+                            } break;
+
+                            case Text_Align.Right: assert(0);
+                        }
+
+                        render_text(cmd.font, cmd.text, floor(p), cmd.color);
                     } break;
 
                     case Command.Set_Light:{
@@ -961,11 +976,6 @@ version(opengl){
             glBindTexture(GL_TEXTURE_2D, cast(GLuint)texture);
             g_current_texture = texture;
         }
-    }
-
-    void render_text_centered_x(Font* font, String text, Vec2 baseline, Vec4 color){
-        auto width = get_text_width(font, text);
-        render_text(font, text, baseline - Vec2(width, 0)*0.5f, color);
     }
 
     void render_text(Font* font, String text, Vec2 baseline, Vec4 color){

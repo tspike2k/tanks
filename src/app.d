@@ -62,10 +62,7 @@ enum Mission_Intro_Max_Time = 3.0f;
 enum Mission_Start_Max_Time = 3.0f;
 enum Mission_End_Max_Time   = 3.0f;
 
-// TODO: Support 4:3 campaigns.
-// TODO: Remove constants. The maps theselves specify the maps size.
-enum Grid_Width     = 22; // Should be 16 for 4:3 campaigns.
-enum Grid_Height    = 17;
+enum Text_White = Vec4(1, 1, 1, 1);
 
 // NOTE: Enemies are limited by the number of bytes that encode a map cell.
 enum Max_Enemies = 16;
@@ -465,12 +462,6 @@ Entity* get_entity_by_id(World* world, Entity_ID id){
 
 Entity[] iterate_entities(World* world, size_t starting_index = 0){
     auto result = world.entities[starting_index .. world.entities_count];
-    return result;
-}
-
-bool inside_grid(Vec2 p){
-    bool result = p.x >= 0.0f && p.x < cast(float)Grid_Width
-                  && p.y >= 0.0f && p.y < cast(float)Grid_Height;
     return result;
 }
 
@@ -1637,13 +1628,46 @@ extern(C) int main(int args_count, char** args){
 
         //render_mesh(render_passes.world)
 
-        if(!editor_is_open){
-            foreach(ref e; iterate_entities(&s.world)){
-                render_entity(s, &e, render_passes);
-            }
+        if(editor_is_open){
+            editor_render(s, render_passes);
         }
         else{
-            editor_render(s, render_passes);
+            if(s.session.state != Session_State.Mission_Intro){
+                foreach(ref e; iterate_entities(&s.world)){
+                    render_entity(s, &e, render_passes);
+                }
+            }
+
+            switch(s.session.state){
+                default: break;
+
+                case Session_State.Mission_Intro:{
+                    auto variant = &s.campaign.variants[s.session.variant_index];
+                    auto mission = &variant.missions[s.session.mission_index];
+
+                    auto font_large = &s.font_main; // TODO: Actually have a large font
+                    auto font_small = &s.font_editor_small; // TODO: Actually have a small font
+                    auto p_text = render_passes.hud_text;
+
+                    auto pen = Vec2(window.width, window.height)*0.5f;
+                    render_text(
+                        p_text, font_large, pen,
+                        gen_string("Mission {0}", s.session.mission_index+1, &s.frame_memory),
+                        Text_White, Text_Align.Center_X
+                    );
+
+                    pen.y -= cast(float)font_small.metrics.line_gap;
+                    render_text(
+                        p_text, font_small, pen,
+                        gen_string("Enemy tanks: {0}", mission.enemies.length+1, &s.frame_memory),
+                        Text_White, Text_Align.Center_X
+                    );
+                } break;
+
+                case Session_State.Mission_End:{
+
+                } break;
+            }
         }
 
         render_gui(&s.gui, &hud_camera, &rect_shader, &text_shader);

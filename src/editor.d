@@ -153,6 +153,17 @@ bool is_cell_occupied(Campaign_Map* map, Vec2 cell){
     return result;
 }
 
+// TODO: Support 4:3 campaigns.
+// TODO: Remove constants. The maps theselves specify the maps size.
+enum Grid_Width     = 22; // Should be 16 for 4:3 campaigns.
+enum Grid_Height    = 17;
+
+bool inside_grid(Vec2 p){
+    bool result = p.x >= 0.0f && p.x < cast(float)Grid_Width
+                  && p.y >= 0.0f && p.y < cast(float)Grid_Height;
+    return result;
+}
+
 void set_cell(Campaign_Map* map, Vec2 cell, Map_Cell value){
     auto x = cast(int)cell.x;
     auto y = cast(int)cell.y;
