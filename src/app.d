@@ -1299,6 +1299,13 @@ extern(C) int main(int args_count, char** args){
     Socket socket;
     String net_port_number = "1654";
 
+    {
+        Mat4 mat = Mat4_Identity;
+        auto v0 = Vec4(1, 2, 3, 1);
+        auto v1 = mat*v0;
+        assert(v0 == v1);
+    }
+
     /+
         When programming a netplay lobby, clients can send broadcast messages to look for hosts on the network.
     +/
@@ -1641,8 +1648,11 @@ extern(C) int main(int args_count, char** args){
 
         render_gui(&s.gui, &hud_camera, &rect_shader, &text_shader);
 
-        auto test_p = project(&world_camera, Vec3(s.mouse_world.x, 0, s.mouse_world.y));
-        render_rect(render_passes.hud_text, Rect(test_p, Vec2(10, 10)), Vec4(1, 1, 1, 1));
+        auto test_p = project(&world_camera, Vec3(s.mouse_world.x, 0, -s.mouse_world.y), window.width, window.height);
+        render_text(
+            render_passes.hud_text, &s.font_editor_small, test_p,
+            "Test text"
+        );
 
         // Draw cursor
         auto p = world_to_render_pos(s.mouse_world);

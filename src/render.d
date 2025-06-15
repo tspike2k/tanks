@@ -246,10 +246,12 @@ Vec3 get_camera_facing(Camera* camera){
     return result;
 }
 
-Vec2 project(Camera* camera, Vec3 screen_p){
-    auto p = Vec4(screen_p.x, screen_p.y, screen_p.z, 1.0f);
-    auto projected = camera.proj.mat*p;
-    auto result = Vec2(projected.x, projected.y);
+Vec2 project(Camera* camera, Vec3 world_p, float screen_w, float screen_h){
+    auto mat = camera.proj.mat*camera.view.mat; // TODO: Precompute this?
+    auto p = mat*Vec4(world_p.x, world_p.y, world_p.z, 1);
+    auto ndc = Vec2(p.x/p.w, p.y/p.w);
+    auto n = Vec2((ndc.x + 1.0f)/2.0f, (ndc.y + 1.0f)/2.0f);
+    auto result = Vec2(n.x * screen_w, n.y*screen_h);
     return result;
 }
 
