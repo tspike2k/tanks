@@ -1641,6 +1641,9 @@ extern(C) int main(int args_count, char** args){
 
         render_gui(&s.gui, &hud_camera, &rect_shader, &text_shader);
 
+        auto test_p = project(&world_camera, Vec3(s.mouse_world.x, 0, s.mouse_world.y));
+        render_rect(render_passes.hud_text, Rect(test_p, Vec2(10, 10)), Vec4(1, 1, 1, 1));
+
         // Draw cursor
         auto p = world_to_render_pos(s.mouse_world);
         auto material = &s.material_block;

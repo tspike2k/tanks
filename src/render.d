@@ -246,6 +246,13 @@ Vec3 get_camera_facing(Camera* camera){
     return result;
 }
 
+Vec2 project(Camera* camera, Vec3 screen_p){
+    auto p = Vec4(screen_p.x, screen_p.y, screen_p.z, 1.0f);
+    auto projected = camera.proj.mat*p;
+    auto result = Vec2(projected.x, projected.y);
+    return result;
+}
+
 Vec3 unproject(Camera* camera, Vec2 screen_p, float screen_w, float screen_h){
     // Based on the following sources:
     // https://antongerdelan.net/opengl/raycasting.html
