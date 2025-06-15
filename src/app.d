@@ -598,14 +598,14 @@ Vec3 project_onto_plane(Vec3 p, Vec3 plane_p, Vec3 plane_n){
     return result;
 }+/
 
-bool ray_vs_plane(Ray ray, Vec3 plane_p, Vec3 plane_n, Vec3* hit_p){
+bool ray_vs_plane(Vec3 ray_start, Vec3 ray_dir, Vec3 plane_p, Vec3 plane_n, Vec3* hit_p){
     // Ray vs plane formula thanks to:
     // https://lousodrome.net/blog/light/2020/07/03/intersection-of-a-ray-and-a-plane/
-    auto denom = dot(ray.dir, plane_n);
+    auto denom = dot(ray_dir, plane_n);
     bool result = false;
     if(denom != 0.0f){
-        auto t = dot(plane_p - ray.pos, plane_n) / denom;
-        *hit_p = ray.pos + ray.dir*t;
+        auto t = dot(plane_p - ray_start, plane_n) / denom;
+        *hit_p = ray_start + ray_dir*t;
         result = true;
     }
     return result;
@@ -1179,6 +1179,21 @@ struct Player_Input{
     bool move_backward;
 }
 
+Vec3 camera_ray_vs_plane(Camera* camera, Vec2 screen_p, float window_w, float window_h){
+    auto mouse_picker_p = unproject(camera, screen_p, window_w, window_h);
+    auto result = mouse_picker_p;
+
+    Vec3 plane_p;
+    if(ray_vs_plane(
+        mouse_picker_p, get_camera_facing(camera),
+        Vec3(0, 0, 0), Vec3(0, 1, 0), &plane_p
+    )){
+        result = plane_p;
+    }
+
+    return result;
+}
+
 extern(C) int main(int args_count, char** args){
     auto app_memory = os_alloc(Total_Memory_Size, 0);
     scope(exit) os_dealloc(app_memory);
@@ -1342,16 +1357,8 @@ extern(C) int main(int args_count, char** args){
         Camera world_camera = void;
         set_world_projection(&world_camera, map.width+2, map.height+2, window_aspect_ratio);
         set_world_view(&world_camera, grid_center, 45.0f);
-
-        auto mouse_picker_p = unproject(&world_camera, s.mouse_pixel, window.width, window.height);
-
-        /+
-        {
-            auto mouse_picker_ray = screen_to_ray(s.mouse_pixel, window.width, window.height, &mat_proj, &mat_view);
-            Vec3 cursor_3d = Vec3(0, 0, 0);
-            ray_vs_plane(mouse_picker_ray, Vec3(0, 0, 0), Vec3(0, 1, 0), &cursor_3d);
-            s.mouse_world = Vec2(cursor_3d.x, -cursor_3d.z);
-        }+/
+        auto mouse_world_3d = camera_ray_vs_plane(&world_camera, s.mouse_pixel, window.width, window.height);
+        s.mouse_world = Vec2(mouse_world_3d.x, -mouse_world_3d.z);
 
         if(editor_is_open){
             editor_simulate(s, target_dt);
@@ -1633,6 +1640,14 @@ extern(C) int main(int args_count, char** args){
         }
 
         render_gui(&s.gui, &hud_camera, &rect_shader, &text_shader);
+
+        // Draw cursor
+        auto p = world_to_render_pos(s.mouse_world);
+        auto material = &s.material_block;
+        render_mesh(
+            render_passes.world, &s.cube_mesh, material,
+            mat4_translate(p)*mat4_scale(Vec3(0.25f, 0.25f, 0.25f))
+        );
 
         render_end_frame();
         end_frame();

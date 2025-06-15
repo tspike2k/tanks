@@ -266,15 +266,9 @@ Vec3 unproject(Camera* camera, Vec2 screen_p, float screen_w, float screen_h){
     eye_p.z = -1.0f;
     eye_p.w =  0.0f;
 
-    /+
-    auto origin     = camera.view.inv*Vec4(0, 0, 0, 1);
-    auto world_dir  = camera.view.inv*eye_p;
-    auto camera_dir = normalize(get_camera_facing(camera));
-
-    auto result = Ray(world_dir.xyz() + origin.xyz(), camera_dir);
-+/
-    auto world_p = camera.view.inv*eye_p;
-    auto result = world_p.xyz();
+    auto origin   = camera.view.inv*Vec4(0, 0, 0, 1);
+    auto world_p  = camera.view.inv*eye_p;
+    auto result   = world_p.xyz() + origin.xyz();
     return result;
 }
 

@@ -636,6 +636,14 @@ public void editor_render(App_State* s, Render_Passes rp){
     foreach(ref entry; g_current_level.entities.iterate()){
         render_entity(s, &entry.entity, rp);
     }+/
+
+    // Draw cursor
+    auto p = world_to_render_pos(s.mouse_world);
+    auto material = &s.material_block;
+    render_mesh(
+        rp.world, &s.cube_mesh, material,
+        mat4_translate(p)*mat4_scale(Vec3(0.25f, 0.25f, 0.25f))
+    );
 }
 
 Variant* editor_add_variant(){
