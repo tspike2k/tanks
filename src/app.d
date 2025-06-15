@@ -12,6 +12,8 @@ Credits:
 TODO:
     - Particles (Explosions, smoke, etc)
     - Enemy AI
+    - Audio
+    - Textures
     - Different enemy types (how many are there?)
     - Campaign variant selection.
     - High score tracking
@@ -42,6 +44,7 @@ import os;
 import net;
 import editor;
 import gui;
+import audio;
 
 enum Main_Memory_Size    =  4*1024*1024;
 enum Frame_Memory_Size   =  8*1024*1024;
@@ -1628,6 +1631,7 @@ extern(C) int main(int args_count, char** args){
 
                 case Session_State.Playing_Mission:{
                     if(s.session.timer < 2.0f){
+                        // TODO: Fade the text in/out over time
                         auto pen = Vec2(window.width, window.height)*0.5f;
                         render_text(
                             render_passes.hud_text, &s.font_main, pen,
