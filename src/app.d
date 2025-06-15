@@ -13,7 +13,6 @@ TODO:
     - Particles (Explosions, smoke, etc)
     - Enemy AI
     - Different enemy types (how many are there?)
-    - Better mouse to world conversion. Player turret currently doesn't follow mouse accurately.
     - Campaign variant selection.
     - High score tracking
     - Better scoring
@@ -1169,6 +1168,7 @@ void simulate_world(App_State* s, Player_Input* input, float dt){
     if(remaining_enemies_count == 0){
         // TODO: End the campaign if this is the last mission
         s.session.state = Session_State.Mission_End;
+        s.session.timer = 0.0f;
     }
 }
 
@@ -1192,6 +1192,11 @@ Vec3 camera_ray_vs_plane(Camera* camera, Vec2 screen_p, float window_w, float wi
     }
 
     return result;
+}
+
+void reset_timer(float* timer, float threshold){
+    assert(*timer >= threshold);
+    *timer = *timer - threshold;
 }
 
 extern(C) int main(int args_count, char** args){
@@ -1499,6 +1504,7 @@ extern(C) int main(int args_count, char** args){
 
             s.t += dt;
 
+            s.session.timer += dt;
             final switch(s.session.state){
                 case Session_State.Game_Over:
                 case Session_State.Inactive:
@@ -1509,25 +1515,22 @@ extern(C) int main(int args_count, char** args){
                 } break;
 
                 case Session_State.Mission_Intro:{
-                    s.session.timer += dt;
                     if(s.session.timer >= Mission_Intro_Max_Time){
-                        s.session.timer = 0.0f; // TODO: Accumulate overtime!
+                        reset_timer(&s.session.timer, Mission_Intro_Max_Time);
                         s.session.state = Session_State.Mission_Start;
                     }
                 } break;
 
                 case Session_State.Mission_Start:{
-                    s.session.timer += dt;
                     if(s.session.timer >= Mission_Start_Max_Time){
-                        s.session.timer = 0.0f; // TODO: Accumulate overtime!
+                        reset_timer(&s.session.timer, Mission_Start_Max_Time);
                         s.session.state = Session_State.Playing_Mission;
                     }
                 } break;
 
                 case Session_State.Mission_End:{
-                    s.session.timer += dt;
                     if(s.session.timer >= Mission_End_Max_Time){
-                        s.session.timer = 0.0f; // TODO: Accumulate overtime!
+                        reset_timer(&s.session.timer, Mission_End_Max_Time);
                         s.session.state = Session_State.Mission_Intro;
                         s.session.mission_index++;
 
@@ -1612,8 +1615,25 @@ extern(C) int main(int args_count, char** args){
                 } break;
 
                 case Session_State.Mission_Start:{
-                    // TODO: Draw player indicator
+                    // TODO: Do this for all players in the game
+                    auto player = get_entity_by_id(&s.world, s.player_entity_id);
 
+                    float offset_y = 1.2f; // TODO: Beter offset value.
+                    auto screen_p = project(&world_camera, Vec3(player.pos.x, 0, -player.pos.y - offset_y), window.width, window.height);
+                    render_text(
+                        render_passes.hud_text, &s.font_editor_small, screen_p, "P1",
+                        Text_White, Text_Align.Center_X
+                    );
+                } break;
+
+                case Session_State.Playing_Mission:{
+                    if(s.session.timer < 2.0f){
+                        auto pen = Vec2(window.width, window.height)*0.5f;
+                        render_text(
+                            render_passes.hud_text, &s.font_main, pen,
+                            "Start!", Text_White, Text_Align.Center_X
+                        );
+                    }
                 } break;
 
                 case Session_State.Mission_End:{
@@ -1647,20 +1667,6 @@ extern(C) int main(int args_count, char** args){
         }
 
         render_gui(&s.gui, &hud_camera, &rect_shader, &text_shader);
-
-        auto test_p = project(&world_camera, Vec3(s.mouse_world.x, 0, -s.mouse_world.y), window.width, window.height);
-        render_text(
-            render_passes.hud_text, &s.font_editor_small, test_p,
-            "Test text"
-        );
-
-        // Draw cursor
-        auto p = world_to_render_pos(s.mouse_world);
-        auto material = &s.material_block;
-        render_mesh(
-            render_passes.world, &s.cube_mesh, material,
-            mat4_translate(p)*mat4_scale(Vec3(0.25f, 0.25f, 0.25f))
-        );
 
         render_end_frame();
         end_frame();
