@@ -210,6 +210,8 @@ struct App_State{
     Font font_main;
     Font font_editor_small;
 
+    Sound sfx_fire_bullet;
+
     Mesh cube_mesh;
     Mesh tank_base_mesh;
     Mesh tank_top_mesh;
@@ -1283,7 +1285,7 @@ extern(C) int main(int args_count, char** args){
     Shader rect_shader;
     load_shader(&rect_shader, "rect", shaders_dir, &s.frame_memory);
 
-    Sound test_sound = load_wave_file("./build/shot_test.wav", 44100, &s.main_memory);
+    s.sfx_fire_bullet = load_wave_file("./build/fire_bullet.wav", Audio_Frames_Per_Sec, &s.main_memory);
 
     float target_dt = 1.0f/60.0f;
 
@@ -1465,6 +1467,8 @@ extern(C) int main(int args_count, char** args){
                                                 auto p      = player.pos + dir*1.0f;
                                                 auto bullet = spawn_bullet(&s.world, player.id, p, angle);
                                                 bullet.vel  = dir*4.0f;
+                                                auto sfx = &s.sfx_fire_bullet;
+                                                audio_play(sfx.samples, sfx.channels, 0);
                                             }
                                         }
                                     } break;
@@ -1494,11 +1498,6 @@ extern(C) int main(int args_count, char** args){
 
                                     case Key_ID_S:
                                         player_input.move_backward = key.pressed; break;
-
-                                    case Key_ID_Enter:
-                                        if(key.pressed)
-                                            audio_play(test_sound.samples, test_sound.channels, 0);
-                                            break;
 
                                     case Key_ID_F2:
                                         if(!key.is_repeat && key.pressed)
