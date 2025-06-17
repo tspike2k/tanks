@@ -52,6 +52,8 @@ enum Editor_Memory_Size  =  4*1024*1024;
 enum Scratch_Memory_Size = 16*1024*1024;
 enum Total_Memory_Size   = Main_Memory_Size + Frame_Memory_Size + Editor_Memory_Size + Scratch_Memory_Size;
 
+enum Audio_Frames_Per_Sec = 44100;
+
 enum Campaign_File_Name = "./build/main.camp"; // TODO: Use a specific folder for campaigns?
 
 enum Max_Bullets_Per_Tank = 5;
@@ -1281,6 +1283,8 @@ extern(C) int main(int args_count, char** args){
     Shader rect_shader;
     load_shader(&rect_shader, "rect", shaders_dir, &s.frame_memory);
 
+    Sound test_sound = load_wave_file("./build/shot_test.wav", 44100, &s.main_memory);
+
     float target_dt = 1.0f/60.0f;
 
     ulong current_timestamp = ns_timestamp();
@@ -1351,6 +1355,8 @@ extern(C) int main(int args_count, char** args){
 
     init_gui(&s.gui);
     s.gui.font = &s.font_editor_small;
+
+    audio_init(Audio_Frames_Per_Sec, 2, &s.main_memory);
 
     while(s.running){
         begin_frame();
@@ -1489,6 +1495,11 @@ extern(C) int main(int args_count, char** args){
                                     case Key_ID_S:
                                         player_input.move_backward = key.pressed; break;
 
+                                    case Key_ID_Enter:
+                                        if(key.pressed)
+                                            audio_play(test_sound.samples, test_sound.channels, 0);
+                                            break;
+
                                     case Key_ID_F2:
                                         if(!key.is_repeat && key.pressed)
                                             editor_toggle(s);
@@ -1547,6 +1558,8 @@ extern(C) int main(int args_count, char** args){
                 } break;
             }
         }
+
+        audio_update();
 
         current_timestamp = ns_timestamp();
         ulong frame_time = cast(ulong)(dt*1000000000.0f);

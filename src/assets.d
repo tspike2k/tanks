@@ -637,6 +637,99 @@ void save_to_tga(String file_name, uint *pixels, uint width, uint height, Alloca
 
 ////
 //
+// WAVE Files
+//
+////
+
+struct Sound{
+    uint    channels;
+    short[] samples;
+};
+
+private{
+    struct Wave_Header{
+        align(1):
+
+        char[4] chunk_id; // Must be "RIFF"
+        int     chunk_size;
+        char[4] wave_id;  // Must be "WAVE"
+    };
+
+    struct Wave_Chunk_Header{
+        align(1):
+
+        char[4] chunk_id;
+        int     size;
+    };
+
+    struct Wave_PCM_Format_Chunk{
+        align(1):
+
+        short format_type;
+        short channels;
+        int   samples_per_sec;
+        int   avg_bytes_per_sec;
+        short block_align;
+        short bits_per_sample;
+    };
+}
+
+Sound load_wave_file(String file_name, uint frames_per_sec, Allocator* allocator){
+    push_frame(allocator.scratch);
+    scope(exit) pop_frame(allocator.scratch);
+
+    Sound result;
+    auto source = read_file_into_memory(file_name, allocator.scratch);
+    if(source.length){
+        auto reader = Serializer(source);
+        auto header = eat_type!Wave_Header(&reader);
+        if(header && header.chunk_id[] == "RIFF" && header.wave_id[] == "WAVE"){
+            Wave_PCM_Format_Chunk* format_chunk;
+            void[] samples;
+
+            while(auto chunk_header = eat_type!Wave_Chunk_Header(&reader)){
+                void[] chunk_data = eat_bytes(&reader, chunk_header.size);
+
+                if(chunk_header.chunk_id[] == "fmt " && chunk_header.size == Wave_PCM_Format_Chunk.sizeof){
+                    format_chunk = cast(Wave_PCM_Format_Chunk*)chunk_data;
+                }
+                else if(chunk_header.chunk_id[] == "data"){
+                    samples = chunk_data;
+                }
+            }
+
+            if(format_chunk){
+                if(samples.length > 0){
+                    // TODO: Verify the other aspects of the format chunk are as we expect.
+                    // TODO: Handle the block align!
+                    if(format_chunk.samples_per_sec == frames_per_sec){
+                        result.channels = format_chunk.channels;
+                        result.samples  = dup_array(cast(short[])samples, allocator);
+                    }
+                    else{
+                        log_error("File {0} uses unsupported sample rate. Expected {1} got {2} instead.\n", file_name, frames_per_sec, format_chunk.samples_per_sec);
+                    }
+                }
+                else{
+                   log_error("File {0} missing RIFF/WAVE data chunk.\n", file_name);
+                }
+
+            }
+            else{
+                log_error("WAVE file {0} doesn't contain format chunk.\n");
+            }
+        }
+        else{
+            log_error("File {0} has an invalid RIFF/WAVE header.\n", file_name);
+        }
+    }
+
+    return result;
+}
+
+
+////
+//
 // Atlas Packer
 //
 ////

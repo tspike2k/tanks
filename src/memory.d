@@ -129,15 +129,18 @@ if(isListNode!T){
             }
 
             T* front(){
-                return node;
-            }
-
-            void popFront(){
+                auto result = node;
+                // NOTE: Advancing the node here rather than in popFront allow the caller to remove
+                // nodes without fear of invalidating the iterator.
                 static if(Dir == 1)
                     node = node.next;
                 else
                     node = node.prev;
+
+                return result;
             }
+
+            void popFront(){}
         }
 
         static if(Dir == 1)
