@@ -532,75 +532,64 @@ struct TGA_Header{
 }
 static assert(TGA_Header.sizeof == 18);
 
-/+
-Pixels load_pixels_from_tga(void[] file_contents, String file_name, Memory_Block *block){
+Pixels load_tga_file(String file_name, Allocator *allocator){
+    push_frame(allocator.scratch);
+    scope(exit) pop_frame(allocator.scratch);
+
+    auto file_contents = read_file_into_memory(file_name, allocator.scratch);
+    auto reader = Serializer(file_contents);
+
+    auto header = zero_type!TGA_Header;
+    read(&reader, header);
+
     Pixels result;
-    if(file_contents.length < TGA_Header_Size){
-        log(Cyu_Err "File {0} is too small to contain a valid TGA header.\n", file_name);
-        return result;
-    }
-
-    assert(sizeof(TGA_Header) == TGA_Header_Size);
-    TGA_Header *header = (TGA_Header*)file_contents.data;
-
     // TODO: Handle 24-bit pixel data
     if(header.data_type != TGA_Data_Type_Uncompressed_RGB){
-        log(Cyu_Err "Unsupported TGA file for {0}. File must be an uncompressed RGB image.\n", file_name);
+        log_error("Unsupported TGA file for {0}. File must be an uncompressed RGB image.\n", file_name);
         return result;
     }
 
     if(header.bits_per_pixel != 32){
-        log(Cyu_Err "Unsupported TGA file for {0}. File must be a 32-bit image (got {1}-bit).\n", file_name), fmt_u(header.bits_per_pixel));
+        log_error("Unsupported TGA file for {0}. File must be a 32-bit image (got {1}-bit).\n", file_name, header.bits_per_pixel);
         return result;
     }
 
     if(!(header.image_desc & TGA_Desc_Upper_Left_Origin)){
-        log(Cyu_Err "Unsupported TGA file for {0}. Origin must be at the upper-left.\n", file_name);
+        log_error("Unsupported TGA file for {0}. Origin must be at the upper-left.\n", file_name);
         return result;
     }
 
-    if(!is_non_interleaved(header.image_desc)){
-        log(Cyu_Err "Unsupported TGA file for {0}. Pixel data must be non-interleaved.\n", file_name);
+    if(!is_non_interleaved(&header)){
+        log_error("Unsupported TGA file for {0}. Pixel data must be non-interleaved.\n", file_name);
         return result;
     }
 
-    u32 w = header.width;
-    u32 h = header.height;
-    char* pixels_start = file_contents.data + TGA_Header_Size + header.id_length;
-
-    if(file_contents.length < w*h*sizeof(u32) + (pixels_start - file_contents.data)){
-        log(Cyu_Err "Invalid TGA file for {0}. File is too small to contain {1}x{2} pixel data.\n", fmt_cstr(file_name), fmt_u(w), fmt_u(h));
+    uint width  = header.width;
+    uint height = header.height;
+    auto pixels = eat_array!uint(&reader, width*height);
+    if(!pixels.length){
+        log_error("Unable to read pixel data from TGA file {0}\n", file_name);
         return result;
     }
 
-    u32* source = (u32*)(pixels_start);
-    u32 pixel_count = w*h;
-    u32 *dest = (u32*)memory_alloc(block, pixel_count*sizeof(u32), 0, Default_Align);
-    if(!dest){
-        log(Cyu_Err "Unable to allocate memory for pixels for file {0}.\n", fmt_cstr(file_name));
-        return result;
+    foreach(ref pixel; pixels){
+        ubyte a = (pixel >> 24) & 0xff;
+        ubyte r = (pixel >> 16) & 0xff;
+        ubyte g = (pixel >> 8)  & 0xff;
+        ubyte b = (pixel)       & 0xff;
+
+        pixel = (cast(uint)r)       | (cast(uint)g) << 8
+              | (cast(uint)b) << 16 | (cast(uint)a) << 24;
     }
 
-    for(u32 pixel_index = 0; pixel_index < pixel_count; pixel_index++){
-        u32 *pixel = &source[pixel_index];
-
-        u8 a = (*pixel >> 24) & 0xff;
-        u8 r = (*pixel >> 16) & 0xff;
-        u8 g = (*pixel >> 8)  & 0xff;
-        u8 b = (*pixel)       & 0xff;
-
-        dest[pixel_index] = ((u32)r) | ((u32)g) << 8
-            | ((u32)b) << 16 | ((u32)a) << 24;
-    }
-
-    result.width  = w;
-    result.height = h;
-    result.data   = dest;
+    result.width  = width;
+    result.height = height;
+    result.data   = dup_array(pixels, allocator);
 
     return result;
-}+/
+}
 
-void save_to_tga(String file_name, uint *pixels, uint width, uint height, Allocator *allocator){
+void save_tga_file(String file_name, uint *pixels, uint width, uint height, Allocator *allocator){
     auto scratch = allocator.scratch;
     push_frame(scratch);
     scope(exit) pop_frame(scratch);

@@ -59,7 +59,6 @@ void audio_update(){
 
         float master_volume = 0.25f; // TODO: Using this as the max volume prevents the audio from glitching. Is there a better way to handle that?
         auto channels = g_channels_count;
-        assert(channels == 2); // TODO: Handle mono and surround
 
         foreach(ref sound; g_playing_sounds.iterate()){
             if(!sound.just_added){
@@ -88,7 +87,6 @@ void audio_update(){
                     }
 
                     samples_cursor = 0;
-
                     if(!(sound.flags & Sound_Flag_Looped))
                         break;
                 }

@@ -12,7 +12,6 @@ Credits:
 TODO:
     - Particles (Explosions, smoke, etc)
     - Enemy AI
-    - Audio
     - Textures
     - Different enemy types (how many are there?)
     - Campaign variant selection.
@@ -27,6 +26,18 @@ TODO:
     - X mark over defeated enemy position
     - Treadmarks
     - Bullet can get lodged between two blocks, destroying it before the player sees it reflected.
+
+Sound effects:
+    - Firing missile
+    - Dropping mine
+    - Mine activating
+    - Mine exploding
+    - Block being destroyed
+    - Blowing up tank
+    - Bullets colliding with each other
+    - Bullets colliding with wall
+    - Tanks moving
+
 
     Interesting article on frequency of packet transmission in multiplayer games
     used in Source games.
@@ -227,6 +238,8 @@ struct App_State{
     Material material_eraser;
     Material material_mine;
     Material material_breakable_block;
+
+    Texture img_x_mark;
 }
 
 alias Entity_ID = ulong;
@@ -1120,6 +1133,26 @@ void simulate_world(App_State* s, Player_Input* input, float dt){
                 else if(input.move_backward){
                     e.vel = dir*-(speed);
                 }
+
+                if(input.place_mine){
+                    auto count = get_child_entity_count(&s.world, e.id, Entity_Type.Mine);
+                    if(count < Max_Mines_Per_Tank){
+                        spawn_mine(&s.world, e.pos, e.id);
+                    }
+                }
+
+                if(input.fire_bullet){
+                    auto count = get_child_entity_count(&s.world, e.id, Entity_Type.Bullet);
+                    if(count < Max_Bullets_Per_Tank){
+                        auto angle      = e.turret_angle;
+                        auto bullet_dir = rotate(Vec2(1, 0), angle);
+                        auto p          = e.pos + bullet_dir*1.0f;
+                        auto bullet     = spawn_bullet(&s.world, e.id, p, angle);
+                        bullet.vel      = bullet_dir*4.0f;
+                        auto sfx = &s.sfx_fire_bullet;
+                        audio_play(sfx.samples, sfx.channels, 0);
+                    }
+                }
             }
 
             switch(e.type){
@@ -1184,6 +1217,8 @@ struct Player_Input{
     bool turn_left;
     bool move_forward;
     bool move_backward;
+    bool fire_bullet;
+    bool place_mine;
 }
 
 Vec3 camera_ray_vs_plane(Camera* camera, Vec2 screen_p, float window_w, float window_h){
@@ -1239,17 +1274,6 @@ extern(C) int main(int args_count, char** args){
         s.editor_memory.scratch = &scratch_memory;
     }
 
-    /+
-    {
-        auto allocator = &s.frame_memory;
-        foreach(entry; recurse_directory("./build", allocator)){
-            push_frame(allocator);
-            auto path = get_full_path(&entry, &s.frame_memory);
-            log("Name: {0} type: {1}\n", path, entry.type);
-            pop_frame(allocator);
-        }
-    }+/
-
     if(!open_display("Tanks", 1920, 1080, 0)){
         log_error("Unable to open display.\n");
         return 1;
@@ -1287,10 +1311,9 @@ extern(C) int main(int args_count, char** args){
 
     s.sfx_fire_bullet = load_wave_file("./build/fire_bullet.wav", Audio_Frames_Per_Sec, &s.main_memory);
 
-    float target_dt = 1.0f/60.0f;
-
-    ulong current_timestamp = ns_timestamp();
-    ulong prev_timestamp    = current_timestamp;
+    auto pixels = load_tga_file("./build/x_mark.tga", &s.frame_memory);
+    premultiply_alpha(pixels.data);
+    s.img_x_mark = create_texture(pixels.data, pixels.width, pixels.height, 0);
 
     Shader_Light light = void;
     Vec3 light_color = Vec3(1, 1, 1);
@@ -1312,13 +1335,6 @@ extern(C) int main(int args_count, char** args){
 
     Socket socket;
     String net_port_number = "1654";
-
-    {
-        Mat4 mat = Mat4_Identity;
-        auto v0 = Vec4(1, 2, 3, 1);
-        auto v1 = mat*v0;
-        assert(v0 == v1);
-    }
 
     /+
         When programming a netplay lobby, clients can send broadcast messages to look for hosts on the network.
@@ -1359,6 +1375,10 @@ extern(C) int main(int args_count, char** args){
     s.gui.font = &s.font_editor_small;
 
     audio_init(Audio_Frames_Per_Sec, 2, &s.main_memory);
+
+    float target_dt = 1.0f/60.0f;
+    ulong current_timestamp = ns_timestamp();
+    ulong prev_timestamp    = current_timestamp;
 
     while(s.running){
         begin_frame();
@@ -1447,30 +1467,13 @@ extern(C) int main(int args_count, char** args){
                                 switch(btn.id){
                                     default: break;
 
+                                    // TODO: Buffer player inputs (other than movement)?
                                     case Button_ID.Mouse_Right:{
-                                        auto player = get_entity_by_id(&s.world, s.player_entity_id);
-                                        if(player){
-                                            auto count = get_child_entity_count(&s.world, player.id, Entity_Type.Mine);
-                                            if(player && count < Max_Mines_Per_Tank){
-                                                spawn_mine(&s.world, player.pos, player.id);
-                                            }
-                                        }
+                                        player_input.place_mine = true;
                                     } break;
 
                                     case Button_ID.Mouse_Left:{
-                                        auto player = get_entity_by_id(&s.world, s.player_entity_id);
-                                        if(player){
-                                            auto count = get_child_entity_count(&s.world, player.id, Entity_Type.Bullet);
-                                            if(player && count < Max_Bullets_Per_Tank){
-                                                auto angle  = player.turret_angle;
-                                                auto dir    = rotate(Vec2(1, 0), angle);
-                                                auto p      = player.pos + dir*1.0f;
-                                                auto bullet = spawn_bullet(&s.world, player.id, p, angle);
-                                                bullet.vel  = dir*4.0f;
-                                                auto sfx = &s.sfx_fire_bullet;
-                                                audio_play(sfx.samples, sfx.channels, 0);
-                                            }
-                                        }
+                                        player_input.fire_bullet = true;
                                     } break;
                                 }
                             }
@@ -1557,6 +1560,9 @@ extern(C) int main(int args_count, char** args){
                 } break;
             }
         }
+
+        player_input.fire_bullet = false;
+        player_input.place_mine  = false;
 
         audio_update();
 
@@ -1681,6 +1687,10 @@ extern(C) int main(int args_count, char** args){
                 } break;
             }
         }
+
+        auto test_decal = Rect(Vec2(0.5f, 0.5f), Vec2(0.5f, 0.5f));
+        set_shader(render_passes.world, &text_shader);
+        render_ground_decal(render_passes.world, test_decal, Vec4(1, 1, 1, 1), s.img_x_mark);
 
         render_gui(&s.gui, &hud_camera, &rect_shader, &text_shader);
 

@@ -40,6 +40,8 @@ private{
     Texture    g_current_texture;
 }
 
+enum Vec3_Up = Vec3(0, 1, 0); // TODO: Is this correct? If it is, in the future we would prefer it if z positive was up instead.
+
 enum Z_Far  =  1000.0f;
 enum Z_Near = -Z_Far;
 
@@ -335,6 +337,21 @@ void render_rect(Render_Pass* pass, Rect bounds, Vec4 color){
     cmd.color  = color;
 }
 
+void render_particle(Render_Pass* pass, Vec3 pos, Vec2 extents, Vec3 normal, Vec4 color, Texture texture){
+    auto cmd    = push_command!Render_Particle(pass);
+    cmd.pos     = pos;
+    cmd.extents = extents;
+    cmd.normal  = normal;
+    cmd.texture = texture;
+}
+
+void render_ground_decal(Render_Pass* pass, Rect bounds, Vec4 color, Texture texture){
+    auto cmd    = push_command!Render_Ground_Decal(pass);
+    cmd.bounds  = bounds;
+    cmd.color   = color;
+    cmd.texture = texture;
+}
+
 void render_rect_outline(Render_Pass* pass, Rect r, Vec4 color, float thickness){
     auto b = thickness * 0.5f;
     auto top    = Rect(r.center + Vec2(0, r.extents.y - b), Vec2(r.extents.x, b));
@@ -389,6 +406,8 @@ enum Command : uint{
     Render_Rect,
     Push_Scissor,
     Pop_Scissor,
+    Render_Particle,
+    Render_Ground_Decal,
 }
 
 struct Render_Cmd{
@@ -457,6 +476,28 @@ struct Render_Rect{
 
     Rect bounds;
     Vec4 color;
+}
+
+struct Render_Particle{
+    enum Type = Command.Render_Particle;
+    Render_Cmd header;
+    alias header this;
+
+    Vec3 pos;
+    Vec2 extents;
+    Vec3 normal;
+    Vec4 color;
+    Texture texture;
+}
+
+struct Render_Ground_Decal{
+    enum Type = Command.Render_Ground_Decal;
+    Render_Cmd header;
+    alias header this;
+
+    Rect bounds;
+    Vec4 color;
+    Texture texture;
 }
 
 struct Shader_Camera{
@@ -772,15 +813,84 @@ version(opengl){
                     case Command.Render_Rect:{
                         auto cmd = cast(Render_Rect*)cmd_node;
 
-                        // TODO: Push data into a quad vertex buffer. Flush on state change.
+                        // TODO: Push quads into a vertex buffer. Flush on state change.
                         Vertex[4] v = void;
                         auto uvs = rect_from_min_max(Vec2(0, 0), Vec2(1, 1));
                         set_quad(v[], cmd.bounds, uvs, cmd.color);
+                        draw_quads(v[]);
+                    } break;
 
-                        glBindBuffer(GL_ARRAY_BUFFER, g_quad_vbo);
-                        glBufferData(GL_ARRAY_BUFFER, cast(GLsizeiptr)(v.length * Vertex.sizeof), v.ptr, GL_DYNAMIC_DRAW);
-                        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_quad_index_buffer);
-                        glDrawElements(GL_TRIANGLES, cast(GLsizei)(v.length * Vertex_Indeces_Per_Quad), GL_UNSIGNED_INT, cast(GLvoid*)0);
+                    case Command.Render_Particle:{
+                        auto cmd = cast(Render_Particle*)cmd_node;
+
+                        assert(0);
+
+                        // TODO: Push quads into a vertex buffer. Flush on state change.
+                        Vertex[4] v = void;
+                        auto uvs = rect_from_min_max(Vec2(0, 0), Vec2(1, 1));
+                        /+
+                            auto perp = cross(cmd.normal, Vec3(0, -1, 0));
+                            auto a = perp*Vec3(2, 2, 2);
+                            auto x = normalize(a - cmd.pos);
+                            auto y = cross(x, cmd.normal);
+
+
+                            auto p0 = cmd.pos + x;
+                            auto p1 = cmd.pos + y;
+                            auto p2 = cmd.pos - x;
+                            auto p3 = cmd.pos - y;
++/
+                        /+
+                            auto p0 = Vec2(right(r), top(r));
+                            auto p1 = Vec2(left(r),  top(r));
+                            auto p2 = Vec2(left(r),  bottom(r));
+                            auto p3 = Vec2(right(r), bottom(r));
+
+                            v[0].pos = v2_to_v3(p0, 0);
+                            v[0].uv = Vec2(right(uvs), bottom(uvs));
+
+                            v[1].pos = v2_to_v3(p1, 0);
+                            v[1].uv = Vec2(left(uvs), bottom(uvs));
+
+                            v[2].pos = v2_to_v3(p2, 0);
+                            v[2].uv = Vec2(left(uvs), top(uvs));
+
+                            v[3].pos = v2_to_v3(p3, 0);
+                            v[3].uv = Vec2(right(uvs), top(uvs));
+
+                        +/
+                        //set_texture(cmd.texture);
+                        //draw_quads(v[]);
+                    } break;
+
+                    case Command.Render_Ground_Decal:{
+                        auto cmd = cast(Render_Ground_Decal*)cmd_node;
+
+                        // TODO: Decal rendering that doesn't have z-fighting!
+
+                        auto r = cmd.bounds;
+                        auto p0  = Vec3(right(r), 0.1f, -top(r));
+                        auto p1  = Vec3(left(r),  0.1f, -top(r));
+                        auto p2  = Vec3(left(r),  0.1f, -bottom(r));
+                        auto p3  = Vec3(right(r), 0.1f, -bottom(r));
+
+                        auto uvs = rect_from_min_max(Vec2(0, 0), Vec2(1, 1));
+
+                        Vertex[4] v = void;
+                        v[0].pos = p0;
+                        v[0].uv = Vec2(right(uvs), bottom(uvs));
+
+                        v[1].pos = p1;
+                        v[1].uv = Vec2(left(uvs), bottom(uvs));
+
+                        v[2].pos = p2;
+                        v[2].uv = Vec2(left(uvs), top(uvs));
+
+                        v[3].pos = p3;
+                        v[3].uv = Vec2(right(uvs), top(uvs));
+
+                        set_texture(cmd.texture);
+                        draw_quads(v[]);
                     } break;
 
                     case Command.Render_Mesh:{
