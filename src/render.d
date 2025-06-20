@@ -879,15 +879,19 @@ version(opengl){
                         Vertex[4] v = void;
                         v[0].pos = p0;
                         v[0].uv = Vec2(right(uvs), bottom(uvs));
+                        v[0].color = cmd.color;
 
                         v[1].pos = p1;
                         v[1].uv = Vec2(left(uvs), bottom(uvs));
+                        v[1].color = cmd.color;
 
                         v[2].pos = p2;
                         v[2].uv = Vec2(left(uvs), top(uvs));
+                        v[2].color = cmd.color;
 
                         v[3].pos = p3;
                         v[3].uv = Vec2(right(uvs), top(uvs));
+                        v[3].color = cmd.color;
 
                         set_texture(cmd.texture);
                         draw_quads(v[]);

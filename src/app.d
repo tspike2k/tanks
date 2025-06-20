@@ -223,6 +223,10 @@ struct App_State{
 
     Sound sfx_fire_bullet;
 
+    Shader shader;
+    Shader text_shader;
+    Shader rect_shader;
+
     Mesh cube_mesh;
     Mesh tank_base_mesh;
     Mesh tank_top_mesh;
@@ -1059,7 +1063,10 @@ void render_entity(App_State* s, Entity* e, Render_Passes rp, Material* material
                 );
             }
             else{
-                // TODO: Draw X at position.
+                auto bounds = Rect(e.pos, Vec2(0.5f, 0.5f));
+                set_shader(rp.world, &s.text_shader); // TODO: Have a decal shader?
+                render_ground_decal(rp.world, bounds, Vec4(1, 1, 1, 1), s.img_x_mark);
+                set_shader(rp.world, &s.shader);
             }
         } break;
 
@@ -1300,14 +1307,9 @@ extern(C) int main(int args_count, char** args){
     s.half_sphere_mesh = load_mesh_from_obj("./build/half_sphere.obj", &s.main_memory);
 
     auto shaders_dir = "./build/shaders";
-    Shader shader;
-    load_shader(&shader, "default", shaders_dir, &s.frame_memory);
-
-    Shader text_shader;
-    load_shader(&text_shader, "text", shaders_dir, &s.frame_memory);
-
-    Shader rect_shader;
-    load_shader(&rect_shader, "rect", shaders_dir, &s.frame_memory);
+    load_shader(&s.shader, "default", shaders_dir, &s.frame_memory);
+    load_shader(&s.text_shader, "text", shaders_dir, &s.frame_memory);
+    load_shader(&s.rect_shader, "rect", shaders_dir, &s.frame_memory);
 
     s.sfx_fire_bullet = load_wave_file("./build/fire_bullet.wav", Audio_Frames_Per_Sec, &s.main_memory);
 
@@ -1580,18 +1582,18 @@ extern(C) int main(int args_count, char** args){
 
         Render_Passes render_passes;
         render_passes.holes = add_render_pass(&world_camera);
-        set_shader(render_passes.holes, &shader);
+        set_shader(render_passes.holes, &s.shader);
 
         render_passes.hole_cutouts = add_render_pass(&world_camera);
-        set_shader(render_passes.hole_cutouts, &shader); // TODO: We should use a more stripped-down shader for this. We don't need lighting!
+        set_shader(render_passes.hole_cutouts, &s.shader); // TODO: We should use a more stripped-down shader for this. We don't need lighting!
         render_passes.hole_cutouts.flags = Render_Flag_Disable_Culling|Render_Flag_Disable_Color;
 
         render_passes.world = add_render_pass(&world_camera);
-        set_shader(render_passes.world, &shader);
+        set_shader(render_passes.world, &s.shader);
         set_light(render_passes.world, &light);
 
         render_passes.hud_text  = add_render_pass(&hud_camera);
-        set_shader(render_passes.hud_text, &text_shader);
+        set_shader(render_passes.hud_text, &s.text_shader);
         render_passes.hud_text.flags = Render_Flag_Disable_Depth_Test;
 
         //render_mesh(render_passes.world)
@@ -1688,11 +1690,7 @@ extern(C) int main(int args_count, char** args){
             }
         }
 
-        auto test_decal = Rect(Vec2(0.5f, 0.5f), Vec2(0.5f, 0.5f));
-        set_shader(render_passes.world, &text_shader);
-        render_ground_decal(render_passes.world, test_decal, Vec4(1, 1, 1, 1), s.img_x_mark);
-
-        render_gui(&s.gui, &hud_camera, &rect_shader, &text_shader);
+        render_gui(&s.gui, &hud_camera, &s.rect_shader, &s.text_shader);
 
         render_end_frame();
         end_frame();
