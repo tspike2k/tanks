@@ -498,6 +498,11 @@ void premultiply_alpha(uint[] rgba_pixels){
     }
 }
 
+float deg_to_rad(float degrees){
+    float result = degrees*(PI/180.0f);
+    return result;
+}
+
 uint rgba_to_uint(Vec4 c){
     // NOTE: We have to use x, y, z, w instead of r, g, b, a because D doesn't like the
     // use of "overlapping initializers" in CTFE.

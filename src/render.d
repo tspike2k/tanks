@@ -283,6 +283,11 @@ Vec3 unproject(Camera* camera, Vec2 screen_p, float screen_w, float screen_h){
     return result;
 }
 
+Vec3 world_to_render_pos(Vec2 p){
+    auto result = Vec3(p.x, 0, -p.y);
+    return result;
+}
+
 void clear_target_to_color(Render_Pass* pass, Vec4 color){
     auto cmd = push_command!Clear_Target(pass);
     cmd.color = color;
@@ -345,11 +350,12 @@ void render_particle(Render_Pass* pass, Vec3 pos, Vec2 extents, Vec3 normal, Vec
     cmd.texture = texture;
 }
 
-void render_ground_decal(Render_Pass* pass, Rect bounds, Vec4 color, Texture texture){
+void render_ground_decal(Render_Pass* pass, Rect bounds, Vec4 color, float angle, Texture texture){
     auto cmd    = push_command!Render_Ground_Decal(pass);
     cmd.bounds  = bounds;
     cmd.color   = color;
     cmd.texture = texture;
+    cmd.angle   = angle;
 }
 
 void render_rect_outline(Render_Pass* pass, Rect r, Vec4 color, float thickness){
@@ -498,6 +504,7 @@ struct Render_Ground_Decal{
     Rect bounds;
     Vec4 color;
     Texture texture;
+    float angle;
 }
 
 struct Shader_Camera{
@@ -864,32 +871,41 @@ version(opengl){
                     } break;
 
                     case Command.Render_Ground_Decal:{
+                        // TODO: Decal rendering that doesn't have z-fighting!
                         auto cmd = cast(Render_Ground_Decal*)cmd_node;
 
-                        // TODO: Decal rendering that doesn't have z-fighting!
+                        // Drawing rotated rects adapted from this answer:
+                        // https://gamedev.stackexchange.com/a/121313
+                        auto c = cos(cmd.angle);
+                        auto s = sin(cmd.angle);
 
-                        auto r = cmd.bounds;
-                        auto p0  = Vec3(right(r), 0.1f, -top(r));
-                        auto p1  = Vec3(left(r),  0.1f, -top(r));
-                        auto p2  = Vec3(left(r),  0.1f, -bottom(r));
-                        auto p3  = Vec3(right(r), 0.1f, -bottom(r));
+                        auto extents = cmd.bounds.extents;
+                        auto p_up    = Vec2(-extents.y*s, extents.y*c);
+                        auto p_right = Vec2(extents.x*c, extents.x*s);
+
+                        auto center = cmd.bounds.center;
+                        auto p0 = center + p_up + p_right;
+                        auto p1 = center + p_up - p_right;
+                        auto p2 = center - p_up - p_right;
+                        auto p3 = center - p_up + p_right;
 
                         auto uvs = rect_from_min_max(Vec2(0, 0), Vec2(1, 1));
 
+                        auto offset = Vec3(0, 0.1f, 0);
                         Vertex[4] v = void;
-                        v[0].pos = p0;
+                        v[0].pos = world_to_render_pos(p0) + offset;
                         v[0].uv = Vec2(right(uvs), bottom(uvs));
                         v[0].color = cmd.color;
 
-                        v[1].pos = p1;
+                        v[1].pos = world_to_render_pos(p1) + offset;
                         v[1].uv = Vec2(left(uvs), bottom(uvs));
                         v[1].color = cmd.color;
 
-                        v[2].pos = p2;
+                        v[2].pos = world_to_render_pos(p2) + offset;
                         v[2].uv = Vec2(left(uvs), top(uvs));
                         v[2].color = cmd.color;
 
-                        v[3].pos = p3;
+                        v[3].pos = world_to_render_pos(p3) + offset;
                         v[3].uv = Vec2(right(uvs), top(uvs));
                         v[3].color = cmd.color;
 

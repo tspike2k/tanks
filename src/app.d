@@ -23,7 +23,7 @@ TODO:
     - Debug camera?
     - Better camera for level editor (fully overhead view)
     - Debug collision volume display?
-    - X mark over defeated enemy position
+    - Better looking X mark over defeated enemy position
     - Treadmarks
     - Bullet can get lodged between two blocks, destroying it before the player sees it reflected.
 
@@ -641,11 +641,6 @@ void setup_basic_material(Material* m, Vec3 color, float shininess){
     m.shininess = 256.0f;
 }
 
-Vec3 world_to_render_pos(Vec2 p){
-    auto result = Vec3(p.x, 0, -p.y);
-    return result;
-}
-
 ubyte get_player_index(Entity* e){
     assert(e.type == Entity_Type.Tank);
     assert(e.cell_info & Map_Cell_Is_Player);
@@ -1065,7 +1060,7 @@ void render_entity(App_State* s, Entity* e, Render_Passes rp, Material* material
             else{
                 auto bounds = Rect(e.pos, Vec2(0.5f, 0.5f));
                 set_shader(rp.world, &s.text_shader); // TODO: Have a decal shader?
-                render_ground_decal(rp.world, bounds, Vec4(1, 1, 1, 1), s.img_x_mark);
+                render_ground_decal(rp.world, bounds, Vec4(1, 1, 1, 1), deg_to_rad(45.0f), s.img_x_mark);
                 set_shader(rp.world, &s.shader);
             }
         } break;
@@ -1578,8 +1573,6 @@ extern(C) int main(int args_count, char** args){
 
         render_begin_frame(window.width, window.height, Vec4(0, 0.05f, 0.12f, 1), &s.frame_memory);
 
-        //light.pos = Vec3(cos(s.t)*18.0f, 2, sin(s.t)*18.0f);
-
         Render_Passes render_passes;
         render_passes.holes = add_render_pass(&world_camera);
         set_shader(render_passes.holes, &s.shader);
@@ -1595,8 +1588,6 @@ extern(C) int main(int args_count, char** args){
         render_passes.hud_text  = add_render_pass(&hud_camera);
         set_shader(render_passes.hud_text, &s.text_shader);
         render_passes.hud_text.flags = Render_Flag_Disable_Depth_Test;
-
-        //render_mesh(render_passes.world)
 
         if(editor_is_open){
             editor_render(s, render_passes);
@@ -1689,6 +1680,12 @@ extern(C) int main(int args_count, char** args){
                 } break;
             }
         }
+
+        set_shader(render_passes.world, &s.text_shader);
+        render_ground_decal(
+            render_passes.world, Rect(Vec2(0.5f, 0.5f), Vec2(0.5f, 0.5f)), Vec4(1, 1, 1, 1),
+            s.t, s.img_x_mark
+        );
 
         render_gui(&s.gui, &hud_camera, &s.rect_shader, &s.text_shader);
 
