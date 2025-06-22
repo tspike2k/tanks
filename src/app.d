@@ -244,6 +244,7 @@ struct App_State{
     Material material_breakable_block;
 
     Texture img_x_mark;
+    Texture img_tread_marks;
 }
 
 alias Entity_ID = ulong;
@@ -1312,6 +1313,10 @@ extern(C) int main(int args_count, char** args){
     premultiply_alpha(pixels.data);
     s.img_x_mark = create_texture(pixels.data, pixels.width, pixels.height, 0);
 
+    pixels = load_tga_file("./build/tread_marks.tga", &s.frame_memory);
+    premultiply_alpha(pixels.data);
+    s.img_tread_marks = create_texture(pixels.data, pixels.width, pixels.height, 0);
+
     Shader_Light light = void;
     Vec3 light_color = Vec3(1, 1, 1);
     light.ambient  = light_color*0.75f;
@@ -1376,6 +1381,9 @@ extern(C) int main(int args_count, char** args){
     float target_dt = 1.0f/60.0f;
     ulong current_timestamp = ns_timestamp();
     ulong prev_timestamp    = current_timestamp;
+
+    Vec2 tread_pos = Vec2(0, 0);
+    float tread_angle = 0;
 
     while(s.running){
         begin_frame();
@@ -1467,6 +1475,10 @@ extern(C) int main(int args_count, char** args){
                                     // TODO: Buffer player inputs (other than movement)?
                                     case Button_ID.Mouse_Right:{
                                         player_input.place_mine = true;
+
+                                        auto player = get_entity_by_id(&s.world, s.player_entity_id);
+                                        tread_pos   = player.pos;
+                                        tread_angle = player.angle;
                                     } break;
 
                                     case Button_ID.Mouse_Left:{
@@ -1683,8 +1695,8 @@ extern(C) int main(int args_count, char** args){
 
         set_shader(render_passes.world, &s.text_shader);
         render_ground_decal(
-            render_passes.world, Rect(Vec2(0.5f, 0.5f), Vec2(0.5f, 0.5f)), Vec4(1, 1, 1, 1),
-            s.t, s.img_x_mark
+            render_passes.world, Rect(tread_pos, Vec2(0.25f, 0.10f)), Vec4(1, 1, 1, 1),
+            tread_angle + deg_to_rad(90), s.img_tread_marks
         );
 
         render_gui(&s.gui, &hud_camera, &s.rect_shader, &s.text_shader);
