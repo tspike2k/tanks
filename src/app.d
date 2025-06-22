@@ -83,6 +83,8 @@ enum Text_White = Vec4(1, 1, 1, 1);
 enum Max_Enemies = 16;
 enum Max_Players = 4;
 
+enum Meters_Per_Treadmark = 0.25f;
+
 bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* allocator){
     auto scratch = allocator.scratch;
     push_frame(scratch);
@@ -196,6 +198,11 @@ struct Session{
     uint[Max_Players] total_enemies_defeated;
 }
 
+struct Tread_Particle{
+    Vec2  pos;
+    float angle;
+}
+
 struct App_State{
     Allocator main_memory;
     Allocator frame_memory;
@@ -245,6 +252,10 @@ struct App_State{
 
     Texture img_x_mark;
     Texture img_tread_marks;
+
+    bool tread_particles_full;
+    uint tread_particles_cursor;
+    Tread_Particle[2048] tread_particles;
 }
 
 alias Entity_ID = ulong;
@@ -270,7 +281,8 @@ struct Entity{
     float    turret_angle;
     uint     health;
     Map_Cell cell_info;
-    float mine_timer;
+    float    mine_timer;
+    float    total_meters_moved;
 }
 
 void destroy_entity(Entity* e){
@@ -1097,6 +1109,13 @@ void render_entity(App_State* s, Entity* e, Render_Passes rp, Material* material
     }
 }
 
+bool passed_range(float a, float b, float range){
+    auto v0 = floor(a / range);
+    auto v1 = floor(b / range);
+    bool result = v0 < v1;
+    return result;
+}
+
 void start_play_session(App_State* s, uint variant_index){
     auto variant = &s.campaign.variants[variant_index];
 
@@ -1113,16 +1132,21 @@ void simulate_world(App_State* s, Player_Input* input, float dt){
     Vec2 hit_normal = void;
     float hit_depth = void;
     foreach(ref e; iterate_entities(&s.world)){
+        float meters_moved = 0.0f;
         if(is_dynamic_entity(e.type) && !is_destroyed(&e)){
             if(e.id == s.player_entity_id){
                 e.vel = Vec2(0, 0);
 
                 float rot_speed = ((2.0f*PI)*0.5f);
                 if(input.turn_left){
-                    e.angle += rot_speed*dt;
+                    auto amount = rot_speed*dt;
+                    e.angle += amount;
+                    meters_moved += amount; // TODO: Better angle to meters?
                 }
                 if(input.turn_right){
-                    e.angle -= rot_speed*dt;
+                    auto amount = rot_speed*dt;
+                    e.angle -= amount;
+                    meters_moved += amount; // TODO: Better angle to meters?
                 }
 
                 auto turret_dir = s.mouse_world - e.pos;
@@ -1132,9 +1156,11 @@ void simulate_world(App_State* s, Player_Input* input, float dt){
                 float speed = 4.0f;
                 if(input.move_forward){
                     e.vel = dir*(speed);
+                    meters_moved += speed*dt;
                 }
                 else if(input.move_backward){
                     e.vel = dir*-(speed);
+                    meters_moved += speed*dt;
                 }
 
                 if(input.place_mine){
@@ -1165,6 +1191,24 @@ void simulate_world(App_State* s, Player_Input* input, float dt){
                     if(!is_player(&e) && !is_destroyed(&e)){
                         remaining_enemies_count++;
                     }
+
+                    auto r_min = e.total_meters_moved;
+                    auto r_max = e.total_meters_moved + meters_moved;
+                    if(passed_range(r_min, r_max, Meters_Per_Treadmark)){
+                        if(is_player(&e)){
+                            log("r_min: {0} r_max: {1}\n", r_min, r_max);
+                        }
+
+                        auto p = &s.tread_particles[s.tread_particles_cursor];
+                        p.pos = e.pos;
+                        p.angle = e.angle + deg_to_rad(90);
+
+                        s.tread_particles_cursor++;
+                        if(s.tread_particles_cursor > s.tread_particles.length){
+                            s.tread_particles_cursor = 0;
+                            s.tread_particles_full   = true;
+                        }
+                    }
                 } break;
 
                 case Entity_Type.Mine:{
@@ -1180,7 +1224,9 @@ void simulate_world(App_State* s, Player_Input* input, float dt){
                 } break;
             }
 
-            // Since no object accelerate in this game, we can simplify integration.
+            e.total_meters_moved += meters_moved;
+
+            // Since no objects accelerate in this game, we can simplify integration.
             e.pos += e.vel*dt;
 
             // TODO: Broadphase, Spatial partitioning to limit the number of entitites
@@ -1242,6 +1288,20 @@ Vec3 camera_ray_vs_plane(Camera* camera, Vec2 screen_p, float window_w, float wi
 void reset_timer(float* timer, float threshold){
     assert(*timer >= threshold);
     *timer = *timer - threshold;
+}
+
+Tread_Particle[] get_visible_tread_particles(App_State* s){
+    Tread_Particle[] result;
+
+    if(!s.tread_particles_full){
+        result = s.tread_particles[0 .. s.tread_particles_cursor];
+    }
+    else{
+        result = s.tread_particles[0 .. $];
+    }
+
+    return result;
+
 }
 
 extern(C) int main(int args_count, char** args){
@@ -1559,6 +1619,9 @@ extern(C) int main(int args_count, char** args){
                         s.session.state = Session_State.Mission_Intro;
                         s.session.mission_index++;
 
+                        s.tread_particles_cursor = 0;
+                        s.tread_particles_full   = false;
+
                         foreach(i; 0 .. Max_Players){
                             s.session.total_enemies_defeated[i] += s.session.enemies_defeated[i];
                         }
@@ -1694,10 +1757,12 @@ extern(C) int main(int args_count, char** args){
         }
 
         set_shader(render_passes.world, &s.text_shader);
-        render_ground_decal(
-            render_passes.world, Rect(tread_pos, Vec2(0.25f, 0.10f)), Vec4(1, 1, 1, 1),
-            tread_angle + deg_to_rad(90), s.img_tread_marks
-        );
+        foreach(ref p; get_visible_tread_particles(s)){
+            render_ground_decal(
+                render_passes.world, Rect(p.pos, Vec2(0.25f, 0.10f)), Vec4(1, 1, 1, 1),
+                p.angle, s.img_tread_marks
+            );
+        }
 
         render_gui(&s.gui, &hud_camera, &s.rect_shader, &s.text_shader);
 
