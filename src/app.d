@@ -19,12 +19,9 @@ TODO:
     - Better scoring
     - Multiplayer
     - Temp saves
-    - Tanks should be square (a little less than a meter in size)
     - Debug camera?
     - Better camera for level editor (fully overhead view)
     - Debug collision volume display?
-    - Better looking X mark over defeated enemy position
-    - Treadmarks
     - Bullet can get lodged between two blocks, destroying it before the player sees it reflected.
 
 Sound effects:
@@ -1060,7 +1057,7 @@ void render_entity(App_State* s, Entity* e, Render_Passes rp, Material* material
 
         case Entity_Type.Tank:{
             if(e.health > 0){
-                auto mat_tran = mat4_translate(p + Vec3(0, 0.18f, 0));
+                auto mat_tran = mat4_translate(p + Vec3(0, 0.18f, 0))*mat4_scale(Vec3(0.5f, 0.5f, 0.5f));
                 render_mesh(
                     rp.world, &s.tank_base_mesh, material,
                     mat_tran*mat4_rot_y(e.angle)
@@ -1195,10 +1192,6 @@ void simulate_world(App_State* s, Player_Input* input, float dt){
                     auto r_min = e.total_meters_moved;
                     auto r_max = e.total_meters_moved + meters_moved;
                     if(passed_range(r_min, r_max, Meters_Per_Treadmark)){
-                        if(is_player(&e)){
-                            log("r_min: {0} r_max: {1}\n", r_min, r_max);
-                        }
-
                         auto p = &s.tread_particles[s.tread_particles_cursor];
                         p.pos = e.pos;
                         p.angle = e.angle + deg_to_rad(90);
