@@ -82,6 +82,13 @@ enum Max_Players = 4;
 
 enum Meters_Per_Treadmark = 0.25f;
 
+enum Game_Mode : uint{
+    None,
+    Menu,
+    Editor,
+    Campaign,
+}
+
 bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* allocator){
     auto scratch = allocator.scratch;
     push_frame(scratch);
@@ -218,8 +225,9 @@ struct App_State{
     Entity_ID highlight_entity_id;
     Material* highlight_material;
 
-    Campaign campaign;
-    Session session;
+    Game_Mode mode;
+    Campaign  campaign;
+    Session   session;
 
     Gui_State gui;
     Font font_main;
@@ -1297,6 +1305,168 @@ Tread_Particle[] get_visible_tread_particles(App_State* s){
 
 }
 
+void simulate_main_menu(App_State* s){
+
+}
+
+void campaign_simulate(App_State* s, Player_Input* player_input, float dt){
+    version(none){
+        sockets_update((&socket)[0 .. 1], &s.frame_memory);
+
+        if(!is_host && send_broadcast){
+            log("Sending broadcast now!\n");
+            auto msg = "Hello.\n";
+            assert(socket.flags & Socket_Broadcast);
+            socket_write(&socket, msg.ptr, msg.length, &broadcast_address);
+            send_broadcast = false;
+        }
+
+        if(socket.events & Socket_Event_Readable){
+            char[512] buffer;
+            Socket_Address src_address = void;
+            // TODO: Limit the number of reads we do on a socket at once. This would help
+            // prevent a rogue client from choking out the simulation.
+            while(true){
+                auto msg = socket_read(&socket, buffer.ptr, buffer.length, &src_address);
+                if(msg.length == 0){
+                    break;
+                }
+                else if(is_host){
+                    log(cast(char[])msg);
+                    client_address = src_address;
+                }
+                else{
+                    auto cmd = cast(Entity_Message*)msg;
+                    player.angle = cmd.angle;
+                    s.player_pos = Vec3(cmd.pos.x, s.player_pos.y, cmd.pos.y);
+                }
+            }
+        }
+
+        if(socket.events & Socket_Event_Writable){
+            if(is_host && is_valid(&client_address)){
+                Entity_Message msg = void;
+                msg.angle = player.angle;
+                msg.pos   = Vec2(s.player_pos.x, s.player_pos.z);
+                socket_write(&socket, &msg, msg.sizeof, &client_address);
+            }
+        }
+    }
+
+    Event evt;
+    while(next_event(&evt)){
+        if(!handle_event(&s.gui, &evt)){
+            switch(evt.type){
+                default: break;
+
+                case Event_Type.Window_Close:{
+                    // TODO: Save state before exit in a temp/suspend file. Only in single player?
+                    s.running = false;
+                } break;
+
+                case Event_Type.Button:{
+                    auto btn = &evt.button;
+                    if(btn.pressed){
+                        switch(btn.id){
+                            default: break;
+
+                            // TODO: Buffer player inputs (other than movement)?
+                            case Button_ID.Mouse_Right:{
+                                player_input.place_mine = true;
+                            } break;
+
+                            case Button_ID.Mouse_Left:{
+                                player_input.fire_bullet = true;
+                            } break;
+                        }
+                    }
+                } break;
+
+                case Event_Type.Mouse_Motion:{
+                    auto motion = &evt.mouse_motion;
+                    s.mouse_pixel = Vec2(motion.pixel_x, motion.pixel_y);
+                } break;
+
+                case Event_Type.Key:{
+                    auto key = &evt.key;
+                    switch(key.id){
+                        default: break;
+
+                        case Key_ID_A:
+                            player_input.turn_left = key.pressed; break;
+
+                        case Key_ID_D:
+                            player_input.turn_right = key.pressed; break;
+
+                        case Key_ID_W:
+                            player_input.move_forward = key.pressed; break;
+
+                        case Key_ID_S:
+                            player_input.move_backward = key.pressed; break;
+
+                        case Key_ID_F2:
+                            if(!key.is_repeat && key.pressed){
+                                editor_toggle(s);
+                                s.mode = Game_Mode.Editor;
+                            }
+                            break;
+                    }
+                } break;
+            }
+        }
+    }
+    update_gui(&s.gui, dt);
+
+    s.t += dt;
+
+    s.session.timer += dt;
+    final switch(s.session.state){
+        case Session_State.Game_Over:
+        case Session_State.Inactive:
+            break;
+
+        case Session_State.Playing_Mission:{
+            simulate_world(s, player_input, dt);
+        } break;
+
+        case Session_State.Mission_Intro:{
+            if(s.session.timer >= Mission_Intro_Max_Time){
+                reset_timer(&s.session.timer, Mission_Intro_Max_Time);
+                s.session.state = Session_State.Mission_Start;
+            }
+        } break;
+
+        case Session_State.Mission_Start:{
+            if(s.session.timer >= Mission_Start_Max_Time){
+                reset_timer(&s.session.timer, Mission_Start_Max_Time);
+                s.session.state = Session_State.Playing_Mission;
+            }
+        } break;
+
+        case Session_State.Mission_End:{
+            if(s.session.timer >= Mission_End_Max_Time){
+                reset_timer(&s.session.timer, Mission_End_Max_Time);
+                s.session.state = Session_State.Mission_Intro;
+                s.session.mission_index++;
+
+                s.tread_particles_cursor = 0;
+                s.tread_particles_full   = false;
+
+                foreach(i; 0 .. Max_Players){
+                    s.session.total_enemies_defeated[i] += s.session.enemies_defeated[i];
+                }
+                clear_to_zero(s.session.enemies_defeated);
+
+                load_campaign_level(s, &s.campaign, s.session.mission_index);
+            }
+        } break;
+    }
+
+    player_input.fire_bullet = false;
+    player_input.place_mine  = false;
+
+}
+
 extern(C) int main(int args_count, char** args){
     auto app_memory = os_alloc(Total_Memory_Size, 0);
     scope(exit) os_dealloc(app_memory);
@@ -1431,12 +1601,11 @@ extern(C) int main(int args_count, char** args){
 
     audio_init(Audio_Frames_Per_Sec, 2, &s.main_memory);
 
+    s.mode = Game_Mode.Campaign;
+
     float target_dt = 1.0f/60.0f;
     ulong current_timestamp = ns_timestamp();
     ulong prev_timestamp    = current_timestamp;
-
-    Vec2 tread_pos = Vec2(0, 0);
-    float tread_angle = 0;
 
     while(s.running){
         begin_frame();
@@ -1461,173 +1630,26 @@ extern(C) int main(int args_count, char** args){
         auto mouse_world_3d = camera_ray_vs_plane(&world_camera, s.mouse_pixel, window.width, window.height);
         s.mouse_world = Vec2(mouse_world_3d.x, -mouse_world_3d.z);
 
-        if(editor_is_open){
-            editor_simulate(s, target_dt);
+        final switch(s.mode){
+            case Game_Mode.None:
+                assert(0); break;
+
+            case Game_Mode.Editor:{
+                assert(editor_is_open);
+                editor_simulate(s, target_dt);
+                if(!editor_is_open){
+                    s.mode = Game_Mode.Campaign;
+                }
+            } break;
+
+            case Game_Mode.Menu:{
+
+            } break;
+
+            case Game_Mode.Campaign:{
+                campaign_simulate(s, &player_input, target_dt);
+            } break;
         }
-        else{
-            version(none){
-                sockets_update((&socket)[0 .. 1], &s.frame_memory);
-
-                if(!is_host && send_broadcast){
-                    log("Sending broadcast now!\n");
-                    auto msg = "Hello.\n";
-                    assert(socket.flags & Socket_Broadcast);
-                    socket_write(&socket, msg.ptr, msg.length, &broadcast_address);
-                    send_broadcast = false;
-                }
-
-                if(socket.events & Socket_Event_Readable){
-                    char[512] buffer;
-                    Socket_Address src_address = void;
-                    // TODO: Limit the number of reads we do on a socket at once. This would help
-                    // prevent a rogue client from choking out the simulation.
-                    while(true){
-                        auto msg = socket_read(&socket, buffer.ptr, buffer.length, &src_address);
-                        if(msg.length == 0){
-                            break;
-                        }
-                        else if(is_host){
-                            log(cast(char[])msg);
-                            client_address = src_address;
-                        }
-                        else{
-                            auto cmd = cast(Entity_Message*)msg;
-                            player.angle = cmd.angle;
-                            s.player_pos = Vec3(cmd.pos.x, s.player_pos.y, cmd.pos.y);
-                        }
-                    }
-                }
-
-                if(socket.events & Socket_Event_Writable){
-                    if(is_host && is_valid(&client_address)){
-                        Entity_Message msg = void;
-                        msg.angle = player.angle;
-                        msg.pos   = Vec2(s.player_pos.x, s.player_pos.z);
-                        socket_write(&socket, &msg, msg.sizeof, &client_address);
-                    }
-                }
-            }
-
-            Event evt;
-            while(next_event(&evt)){
-                if(!handle_event(&s.gui, &evt)){
-                    switch(evt.type){
-                        default: break;
-
-                        case Event_Type.Window_Close:{
-                            // TODO: Save state before exit in a temp/suspend file. Only in single player?
-                            s.running = false;
-                        } break;
-
-                        case Event_Type.Button:{
-                            auto btn = &evt.button;
-                            if(btn.pressed){
-                                switch(btn.id){
-                                    default: break;
-
-                                    // TODO: Buffer player inputs (other than movement)?
-                                    case Button_ID.Mouse_Right:{
-                                        player_input.place_mine = true;
-
-                                        auto player = get_entity_by_id(&s.world, s.player_entity_id);
-                                        tread_pos   = player.pos;
-                                        tread_angle = player.angle;
-                                    } break;
-
-                                    case Button_ID.Mouse_Left:{
-                                        player_input.fire_bullet = true;
-                                    } break;
-                                }
-                            }
-                        } break;
-
-                        case Event_Type.Mouse_Motion:{
-                            auto motion = &evt.mouse_motion;
-                            s.mouse_pixel = Vec2(motion.pixel_x, motion.pixel_y);
-                        } break;
-
-                        case Event_Type.Key:{
-                            auto key = &evt.key;
-                            if(is_host){
-                                switch(key.id){
-                                    default: break;
-
-                                    case Key_ID_A:
-                                        player_input.turn_left = key.pressed; break;
-
-                                    case Key_ID_D:
-                                        player_input.turn_right = key.pressed; break;
-
-                                    case Key_ID_W:
-                                        player_input.move_forward = key.pressed; break;
-
-                                    case Key_ID_S:
-                                        player_input.move_backward = key.pressed; break;
-
-                                    case Key_ID_F2:
-                                        if(!key.is_repeat && key.pressed)
-                                            editor_toggle(s);
-                                        break;
-                                }
-                            }
-                            else{
-                                if(key.id == Key_ID_Enter)
-                                    send_broadcast = key.pressed && !key.is_repeat;
-                            }
-                        } break;
-                    }
-                }
-            }
-            update_gui(&s.gui, dt);
-
-            s.t += dt;
-
-            s.session.timer += dt;
-            final switch(s.session.state){
-                case Session_State.Game_Over:
-                case Session_State.Inactive:
-                    break;
-
-                case Session_State.Playing_Mission:{
-                    simulate_world(s, &player_input, dt);
-                } break;
-
-                case Session_State.Mission_Intro:{
-                    if(s.session.timer >= Mission_Intro_Max_Time){
-                        reset_timer(&s.session.timer, Mission_Intro_Max_Time);
-                        s.session.state = Session_State.Mission_Start;
-                    }
-                } break;
-
-                case Session_State.Mission_Start:{
-                    if(s.session.timer >= Mission_Start_Max_Time){
-                        reset_timer(&s.session.timer, Mission_Start_Max_Time);
-                        s.session.state = Session_State.Playing_Mission;
-                    }
-                } break;
-
-                case Session_State.Mission_End:{
-                    if(s.session.timer >= Mission_End_Max_Time){
-                        reset_timer(&s.session.timer, Mission_End_Max_Time);
-                        s.session.state = Session_State.Mission_Intro;
-                        s.session.mission_index++;
-
-                        s.tread_particles_cursor = 0;
-                        s.tread_particles_full   = false;
-
-                        foreach(i; 0 .. Max_Players){
-                            s.session.total_enemies_defeated[i] += s.session.enemies_defeated[i];
-                        }
-                        clear_to_zero(s.session.enemies_defeated);
-
-                        load_campaign_level(s, &s.campaign, s.session.mission_index);
-                    }
-                } break;
-            }
-        }
-
-        player_input.fire_bullet = false;
-        player_input.place_mine  = false;
 
         audio_update();
 
@@ -1657,104 +1679,113 @@ extern(C) int main(int args_count, char** args){
         set_shader(render_passes.hud_text, &s.text_shader);
         render_passes.hud_text.flags = Render_Flag_Disable_Depth_Test;
 
-        if(editor_is_open){
-            editor_render(s, render_passes);
-        }
-        else{
-            if(s.session.state != Session_State.Mission_Intro){
-                auto ground_xform = mat4_translate(grid_center)*mat4_scale(Vec3(grid_extents.x, 1.0f, grid_extents.y));
-                render_mesh(render_passes.world, &s.ground_mesh, &s.material_ground, ground_xform);
+        final switch(s.mode){
+            case Game_Mode.None: assert(0);
 
-                foreach(ref e; iterate_entities(&s.world)){
-                    render_entity(s, &e, render_passes);
+            case Game_Mode.Editor:{
+                editor_render(s, render_passes);
+            } break;
+
+            case Game_Mode.Menu:{
+
+            } break;
+
+            case Game_Mode.Campaign:{
+                if(s.session.state != Session_State.Mission_Intro){
+                    auto ground_xform = mat4_translate(grid_center)*mat4_scale(Vec3(grid_extents.x, 1.0f, grid_extents.y));
+                    render_mesh(render_passes.world, &s.ground_mesh, &s.material_ground, ground_xform);
+
+                    foreach(ref e; iterate_entities(&s.world)){
+                        render_entity(s, &e, render_passes);
+                    }
                 }
-            }
 
-            switch(s.session.state){
-                default: break;
+                switch(s.session.state){
+                    default: break;
 
-                case Session_State.Mission_Intro:{
-                    auto variant = &s.campaign.variants[s.session.variant_index];
-                    auto mission = &variant.missions[s.session.mission_index];
+                    case Session_State.Mission_Intro:{
+                        auto variant = &s.campaign.variants[s.session.variant_index];
+                        auto mission = &variant.missions[s.session.mission_index];
 
-                    auto font_large = &s.font_main; // TODO: Actually have a large font
-                    auto font_small = &s.font_editor_small; // TODO: Actually have a small font
-                    auto p_text = render_passes.hud_text;
+                        auto font_large = &s.font_main; // TODO: Actually have a large font
+                        auto font_small = &s.font_editor_small; // TODO: Actually have a small font
+                        auto p_text = render_passes.hud_text;
 
-                    auto pen = Vec2(window.width, window.height)*0.5f;
-                    render_text(
-                        p_text, font_large, pen,
-                        gen_string("Mission {0}", s.session.mission_index+1, &s.frame_memory),
-                        Text_White, Text_Align.Center_X
-                    );
-
-                    pen.y -= cast(float)font_small.metrics.line_gap;
-                    render_text(
-                        p_text, font_small, pen,
-                        gen_string("Enemy tanks: {0}", mission.enemies.length, &s.frame_memory),
-                        Text_White, Text_Align.Center_X
-                    );
-                } break;
-
-                case Session_State.Mission_Start:{
-                    // TODO: Do this for all players in the game
-                    auto player = get_entity_by_id(&s.world, s.player_entity_id);
-
-                    float offset_y = 1.2f; // TODO: Beter offset value.
-                    auto screen_p = project(&world_camera, Vec3(player.pos.x, 0, -player.pos.y - offset_y), window.width, window.height);
-                    render_text(
-                        render_passes.hud_text, &s.font_editor_small, screen_p, "P1",
-                        Text_White, Text_Align.Center_X
-                    );
-                } break;
-
-                case Session_State.Playing_Mission:{
-                    if(s.session.timer < 2.0f){
-                        // TODO: Fade the text in/out over time
                         auto pen = Vec2(window.width, window.height)*0.5f;
                         render_text(
-                            render_passes.hud_text, &s.font_main, pen,
-                            "Start!", Text_White, Text_Align.Center_X
+                            p_text, font_large, pen,
+                            gen_string("Mission {0}", s.session.mission_index+1, &s.frame_memory),
+                            Text_White, Text_Align.Center_X
                         );
-                    }
-                } break;
 
-                case Session_State.Mission_End:{
-                    auto font_large = &s.font_main; // TODO: Actually have a large font
-                    auto font_small = &s.font_editor_small; // TODO: Actually have a small font
-                    auto p_text = render_passes.hud_text;
+                        pen.y -= cast(float)font_small.metrics.line_gap;
+                        render_text(
+                            p_text, font_small, pen,
+                            gen_string("Enemy tanks: {0}", mission.enemies.length, &s.frame_memory),
+                            Text_White, Text_Align.Center_X
+                        );
+                    } break;
 
-                    auto pen = Vec2(window.width, window.height)*0.5f;
-                    render_text(
-                        p_text, font_large, pen,
-                        "Mission Cleared!",
-                        Text_White, Text_Align.Center_X
+                    case Session_State.Mission_Start:{
+                        // TODO: Do this for all players in the game
+                        auto player = get_entity_by_id(&s.world, s.player_entity_id);
+
+                        float offset_y = 1.2f; // TODO: Beter offset value.
+                        auto screen_p = project(&world_camera, Vec3(player.pos.x, 0, -player.pos.y - offset_y), window.width, window.height);
+                        render_text(
+                            render_passes.hud_text, &s.font_editor_small, screen_p, "P1",
+                            Text_White, Text_Align.Center_X
+                        );
+                    } break;
+
+                    case Session_State.Playing_Mission:{
+                        if(s.session.timer < 2.0f){
+                            // TODO: Fade the text in/out over time
+                            auto pen = Vec2(window.width, window.height)*0.5f;
+                            render_text(
+                                render_passes.hud_text, &s.font_main, pen,
+                                "Start!", Text_White, Text_Align.Center_X
+                            );
+                        }
+                    } break;
+
+                    case Session_State.Mission_End:{
+                        auto font_large = &s.font_main; // TODO: Actually have a large font
+                        auto font_small = &s.font_editor_small; // TODO: Actually have a small font
+                        auto p_text = render_passes.hud_text;
+
+                        auto pen = Vec2(window.width, window.height)*0.5f;
+                        render_text(
+                            p_text, font_large, pen,
+                            "Mission Cleared!",
+                            Text_White, Text_Align.Center_X
+                        );
+
+                        pen.y -= cast(float)font_large.metrics.line_gap;
+                        render_text(
+                            p_text, font_large, pen,
+                            "Destroyed",
+                            Text_White, Text_Align.Center_X
+                        );
+
+                        // TODO: Show who destroyed how many tanks
+                        pen.y -= cast(float)font_small.metrics.line_gap;
+                        render_text(
+                            p_text, font_small, pen,
+                            gen_string("P1 {0}", s.session.enemies_defeated[0], &s.frame_memory),
+                            Text_White, Text_Align.Center_X
+                        );
+                    } break;
+                }
+
+                set_shader(render_passes.world, &s.text_shader);
+                foreach(ref p; get_visible_tread_particles(s)){
+                    render_ground_decal(
+                        render_passes.world, Rect(p.pos, Vec2(0.25f, 0.10f)), Vec4(1, 1, 1, 1),
+                        p.angle, s.img_tread_marks
                     );
-
-                    pen.y -= cast(float)font_large.metrics.line_gap;
-                    render_text(
-                        p_text, font_large, pen,
-                        "Destroyed",
-                        Text_White, Text_Align.Center_X
-                    );
-
-                    // TODO: Show who destroyed how many tanks
-                    pen.y -= cast(float)font_small.metrics.line_gap;
-                    render_text(
-                        p_text, font_small, pen,
-                        gen_string("P1 {0}", s.session.enemies_defeated[0], &s.frame_memory),
-                        Text_White, Text_Align.Center_X
-                    );
-                } break;
-            }
-        }
-
-        set_shader(render_passes.world, &s.text_shader);
-        foreach(ref p; get_visible_tread_particles(s)){
-            render_ground_decal(
-                render_passes.world, Rect(p.pos, Vec2(0.25f, 0.10f)), Vec4(1, 1, 1, 1),
-                p.angle, s.img_tread_marks
-            );
+                }
+            } break;
         }
 
         render_gui(&s.gui, &hud_camera, &s.rect_shader, &s.text_shader);
