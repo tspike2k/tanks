@@ -648,6 +648,8 @@ enum GL_CLIENT_VERTEX_ARRAY_BIT = 0x00000002;
 enum GL_ALL_CLIENT_ATTRIB_BITS = 0xFFFFFFFF;
 enum GL_CLIENT_ALL_ATTRIB_BITS = 0xFFFFFFFF;
 
+enum GL_TEXTURE0 = 0x84C0;
+
 // From glext.h
 enum GL_BLEND_EQUATION_RGB = 0x8009;
 enum GL_VERTEX_ATTRIB_ARRAY_ENABLED = 0x8622;
@@ -837,10 +839,12 @@ extern(C){
     alias glClearFunc = void function(GLbitfield mask);
     alias glGetUniformLocationFunc = GLint function(GLuint program, const GLchar *name);
     alias glUniformMatrix4fvFunc = void function(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value);
+    alias glUniform1iFunc = void function(GLint location, GLint v0);
     alias glUniform1fFunc = void function(GLint location, GLfloat v0);
     alias glUniform2fFunc = void function(GLint location, GLfloat v0, GLfloat v1);
     alias glUniform3fFunc = void function(GLint location, GLfloat v0, GLfloat v1, GLfloat v2);
     alias glDrawElementsFunc = void function(GLenum mode, GLsizei count, GLenum type, const GLvoid *indices);
+    alias glActiveTextureFunc = void function(GLenum texture);
     alias glBindTextureFunc = void function(GLenum target, GLuint texture);
     alias glGenTexturesFunc = void function(GLsizei n, GLuint *textures);
     alias glDeleteTexturesFunc = void function(GLsizei n, const GLuint *textures);
@@ -894,10 +898,12 @@ __gshared glScissorFunc glScissor;
 __gshared glClearFunc glClear;
 __gshared glGetUniformLocationFunc glGetUniformLocation;
 __gshared glUniformMatrix4fvFunc glUniformMatrix4fv;
+__gshared glUniform1iFunc glUniform1i;
 __gshared glUniform1fFunc glUniform1f;
 __gshared glUniform2fFunc glUniform2f;
 __gshared glUniform3fFunc glUniform3f;
 __gshared glDrawElementsFunc glDrawElements;
+__gshared glActiveTextureFunc glActiveTexture;
 __gshared glBindTextureFunc glBindTexture;
 __gshared glGenTexturesFunc glGenTextures;
 __gshared glDeleteTexturesFunc glDeleteTextures;
@@ -953,10 +959,12 @@ void load_opengl_functions(OpenGL_Load_Sym_Func load){
     glClear = cast(glClearFunc)load("glClear");
     glGetUniformLocation = cast(glGetUniformLocationFunc)load("glGetUniformLocation");
     glUniformMatrix4fv = cast(glUniformMatrix4fvFunc)load("glUniformMatrix4fv");
+    glUniform1i = cast(glUniform1iFunc)load("glUniform1i");
     glUniform1f = cast(glUniform1fFunc)load("glUniform1f");
     glUniform2f = cast(glUniform2fFunc)load("glUniform2f");
     glUniform3f = cast(glUniform3fFunc)load("glUniform3f");
     glDrawElements = cast(glDrawElementsFunc)load("glDrawElements");
+    glActiveTexture = cast(glActiveTextureFunc)load("glActiveTexture");
     glBindTexture = cast(glBindTextureFunc)load("glBindTexture");
     glGenTextures = cast(glGenTexturesFunc)load("glGenTextures");
     glDeleteTextures = cast(glDeleteTexturesFunc)load("glDeleteTextures");

@@ -35,7 +35,6 @@ Sound effects:
     - Bullets colliding with wall
     - Tanks moving
 
-
     Interesting article on frequency of packet transmission in multiplayer games
     used in Source games.
     https://developer.valvesoftware.com/wiki/Source_Multiplayer_Networking
@@ -257,6 +256,7 @@ struct App_State{
 
     Texture img_x_mark;
     Texture img_tread_marks;
+    Texture img_wood;
 
     bool tread_particles_full;
     uint tread_particles_cursor;
@@ -652,12 +652,19 @@ bool ray_vs_plane(Vec3 ray_start, Vec3 ray_dir, Vec3 plane_p, Vec3 plane_n, Vec3
     return result;
 }
 
+void setup_basic_material(Material* m, Texture texture, Vec3 color, float shininess){
+    m.diffuse_texture = texture;
+    m.specular        = color;
+    m.shininess       = shininess;
+}
+
+/+
 void setup_basic_material(Material* m, Vec3 color, float shininess){
     m.ambient   = color*0.75f;
     m.diffuse   = color;
     m.specular  = color;
     m.shininess = 256.0f;
-}
+}+/
 
 ubyte get_player_index(Entity* e){
     assert(e.type == Entity_Type.Tank);
@@ -1078,7 +1085,7 @@ void render_entity(App_State* s, Entity* e, Render_Passes rp, Material* material
             else{
                 auto bounds = Rect(e.pos, Vec2(0.5f, 0.5f));
                 set_shader(rp.world, &s.text_shader); // TODO: Have a decal shader?
-                render_ground_decal(rp.world, bounds, Vec4(1, 1, 1, 1), deg_to_rad(45.0f), s.img_x_mark);
+                render_ground_decal(rp.world, bounds, Vec4(1, 1, 1, 1), 0, s.img_x_mark);
                 set_shader(rp.world, &s.shader);
             }
         } break;
@@ -1467,6 +1474,16 @@ void campaign_simulate(App_State* s, Player_Input* player_input, float dt){
 
 }
 
+Texture load_texture_from_file(String file_name, uint flags, Allocator* allocator){
+    push_frame(allocator);
+    scope(exit) pop_frame(allocator);
+
+    auto pixels = load_tga_file(file_name, allocator);
+    premultiply_alpha(pixels.data);
+    auto result = create_texture(pixels.data, pixels.width, pixels.height, flags);
+    return result;
+}
+
 extern(C) int main(int args_count, char** args){
     auto app_memory = os_alloc(Total_Memory_Size, 0);
     scope(exit) os_dealloc(app_memory);
@@ -1532,13 +1549,9 @@ extern(C) int main(int args_count, char** args){
 
     s.sfx_fire_bullet = load_wave_file("./build/fire_bullet.wav", Audio_Frames_Per_Sec, &s.main_memory);
 
-    auto pixels = load_tga_file("./build/x_mark.tga", &s.frame_memory);
-    premultiply_alpha(pixels.data);
-    s.img_x_mark = create_texture(pixels.data, pixels.width, pixels.height, 0);
-
-    pixels = load_tga_file("./build/tread_marks.tga", &s.frame_memory);
-    premultiply_alpha(pixels.data);
-    s.img_tread_marks = create_texture(pixels.data, pixels.width, pixels.height, 0);
+    s.img_x_mark = load_texture_from_file("./build/x_mark.tga", 0, &s.frame_memory);
+    s.img_tread_marks = load_texture_from_file("./build/tread_marks.tga", 0, &s.frame_memory);
+    s.img_wood = load_texture_from_file("./build/wood.tga", 0, &s.frame_memory);
 
     Shader_Light light = void;
     Vec3 light_color = Vec3(1, 1, 1);
@@ -1546,13 +1559,16 @@ extern(C) int main(int args_count, char** args){
     light.diffuse  = light_color;
     light.specular = light_color;
 
+    setup_basic_material(&s.material_ground, s.img_wood, Vec3(0.50f, 0.42f, 0.30f), 2);
+
+    /+
     setup_basic_material(&s.material_enemy_tank, Vec3(0.2f, 0.2f, 0.4f), 256);
     setup_basic_material(&s.material_player_tank, Vec3(0.2f, 0.2f, 0.8f), 256);
     setup_basic_material(&s.material_ground, Vec3(0.50f, 0.42f, 0.30f), 2);
     setup_basic_material(&s.material_block, Vec3(0.30f, 0.42f, 0.30f), 2);
     setup_basic_material(&s.material_eraser, Vec3(0.8f, 0.2f, 0.2f), 128);
     setup_basic_material(&s.material_breakable_block, Vec3(0.7f, 0.3f, 0.15f), 2);
-
++/
     s.running = true;
 
     Player_Input player_input;
@@ -1695,9 +1711,10 @@ extern(C) int main(int args_count, char** args){
                     auto ground_xform = mat4_translate(grid_center)*mat4_scale(Vec3(grid_extents.x, 1.0f, grid_extents.y));
                     render_mesh(render_passes.world, &s.ground_mesh, &s.material_ground, ground_xform);
 
+                    /+
                     foreach(ref e; iterate_entities(&s.world)){
                         render_entity(s, &e, render_passes);
-                    }
+                    }+/
                 }
 
                 switch(s.session.state){

@@ -31,6 +31,8 @@ layout(std140) uniform Light{
     vec3  light_specular;
 };
 
+uniform sampler2D texture_diffuse;
+
 void main(){
     vec3 view_dir  = normalize(camera_pos - f_world_pos);
     //vec3 light_dir = normalize(f_world_pos - light_pos);

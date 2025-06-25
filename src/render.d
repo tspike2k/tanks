@@ -88,12 +88,9 @@ struct Shader_Constants{
 }
 
 struct Material{
-    Vec3  ambient;
-    float pad0;
-    Vec3  diffuse;
-    float pad1;
-    Vec3  specular;
-    float shininess;
+    Texture diffuse_texture;
+    Vec3    specular;
+    float   shininess;
 }
 
 struct Shader_Light{
@@ -112,6 +109,8 @@ enum Text_Align : uint{
     Right,
     Center_X,
 }
+
+enum Texture_Index_Diffuse = 0;
 
 Mat4_Pair orthographic_projection(Rect camera_bounds){
     // Orthographic adapted from here:
@@ -611,6 +610,7 @@ version(opengl){
 
         GLuint handle;
         GLint  uniform_loc_model;
+        GLint  uniform_loc_texture_diffuse;
     }
 
     Texture create_texture(uint[] pixels, uint width, uint height, uint flags = 0){
@@ -726,7 +726,7 @@ version(opengl){
         }
 
         init_uniform_buffer(&g_shader_constants_buffer, Constants_Uniform_Binding, Shader_Constants.sizeof);
-        init_uniform_buffer(&g_shader_material_buffer, Material_Uniform_Binding, Material.sizeof);
+        init_uniform_buffer(&g_shader_material_buffer, Material_Uniform_Binding, Shader_Material.sizeof);
         init_uniform_buffer(&g_shader_light_buffer, Light_Uniform_Binding, Shader_Light.sizeof);
         init_uniform_buffer(&g_shader_camera_buffer, Camera_Uniform_Binding, Shader_Camera.sizeof);
 
@@ -786,6 +786,7 @@ version(opengl){
                 glDisable(GL_DEPTH_TEST);
             }
 
+            Material* material;
             Shader* shader;
             Shader_Light* light;
             bool scissor_enabled = false;
@@ -918,7 +919,11 @@ version(opengl){
                         auto cmd = cast(Render_Mesh*)cmd_node;
                         assert(shader.uniform_loc_model != -1);
                         set_uniform(shader.uniform_loc_model, &cmd.transform);
-                        set_material(cmd.material);
+
+                        if(material != cmd.material){
+                            set_material(cmd.material);
+                            material = cmd.material;
+                        }
 
                         auto mesh = cmd.mesh;
 
@@ -1039,12 +1044,21 @@ version(opengl){
                 *loc = glGetUniformLocation(program, name.ptr);
             }
 
+            void set_texture_index(String name, uint index){
+                auto loc = glGetUniformLocation(program, name.ptr);
+                if(loc != -1){
+                    glUniform1i(loc, index);
+                }
+            }
+
             make_uniform_binding(program_name, program, "Constants", Constants_Uniform_Binding);
             make_uniform_binding(program_name, program, "Material", Material_Uniform_Binding);
             make_uniform_binding(program_name, program, "Light", Light_Uniform_Binding);
             make_uniform_binding(program_name, program, "Camera", Camera_Uniform_Binding);
 
             get_uniform_loc(&shader.uniform_loc_model, "mat_model");
+
+            set_texture_index("texture_diffuse", Texture_Index_Diffuse);
         }
         return success;
     }
@@ -1070,9 +1084,28 @@ version(opengl){
 
     private:
 
+    struct Shader_Material{
+        Vec3  ambient;
+        float pad0;
+        Vec3  diffuse;
+        float pad1;
+        Vec3  specular;
+        float shininess;
+    }
+
     void set_material(Material* material){
+        Shader_Material material_uniform;
+        material_uniform.ambient   = Vec3(1, 1, 1);
+        material_uniform.diffuse   = Vec3(1, 1, 1);
+        material_uniform.specular  = material.specular;
+        material_uniform.shininess = material.shininess;
+
         glBindBuffer(GL_UNIFORM_BUFFER, g_shader_material_buffer);
-        glBufferSubData(GL_UNIFORM_BUFFER, 0, Material.sizeof, material);
+        glBufferSubData(GL_UNIFORM_BUFFER, 0, Shader_Material.sizeof, &material_uniform);
+
+        //glActiveTexture(GL_TEXTURE0 + Texture_Index_Diffuse);
+        g_current_texture = material.diffuse_texture;
+        glBindTexture(GL_TEXTURE_2D, cast(GLuint)material.diffuse_texture);
     }
 
     void shader_light_source(Shader_Light* light){
