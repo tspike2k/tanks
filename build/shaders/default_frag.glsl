@@ -44,10 +44,12 @@ void main(){
     // https://en.wikipedia.org/wiki/Blinn%E2%80%93Phong_reflection_model
     // https://learnopengl.com/Advanced-Lighting/Advanced-Lighting
 
-    vec3 ambient = light_ambient * material_ambient;
+    //vec3 ambient = light_ambient * material_ambient;
+    vec3 ambient = light_ambient * vec3(texture(texture_diffuse, f_uv));
 
     float diffuse_intensity = max(dot(normal, -light_dir), 0.0);
-    vec3 diffuse = light_diffuse * (diffuse_intensity * material_diffuse);
+    //vec3 diffuse = light_diffuse * (diffuse_intensity * material_diffuse);
+    vec3 diffuse = light_diffuse * (diffuse_intensity * vec3(texture(texture_diffuse, f_uv)));
 
     // Fixed issue with specular passing through objects by multiplying the diffuse and
     // specular intensities together. Thanks to the comment by bjorke on this answer:

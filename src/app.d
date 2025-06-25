@@ -392,6 +392,16 @@ Mesh obj_to_mesh(Obj_Data* obj, Allocator* allocator){
             v1.normal = obj.normals[i1];
             v2.normal = obj.normals[i2];
         }
+
+        if(obj.uvs.length > 0){
+            auto i0 = face.points[0].uv-1;
+            auto i1 = face.points[1].uv-1;
+            auto i2 = face.points[2].uv-1;
+
+            v0.uv = obj.uvs[i0];
+            v1.uv = obj.uvs[i1];
+            v2.uv = obj.uvs[i2];
+        }
     }
 
     if(obj.normals.length == 0){
@@ -1554,12 +1564,12 @@ extern(C) int main(int args_count, char** args){
     s.img_wood = load_texture_from_file("./build/wood.tga", 0, &s.frame_memory);
 
     Shader_Light light = void;
-    Vec3 light_color = Vec3(1, 1, 1);
+    Vec3 light_color = Vec3(0.6f, 0.6f, 0.6f);
     light.ambient  = light_color*0.75f;
     light.diffuse  = light_color;
     light.specular = light_color;
 
-    setup_basic_material(&s.material_ground, s.img_wood, Vec3(0.50f, 0.42f, 0.30f), 2);
+    setup_basic_material(&s.material_ground, s.img_wood, Vec3(1.0f, 1.0f, 1.0f), 2);
 
     /+
     setup_basic_material(&s.material_enemy_tank, Vec3(0.2f, 0.2f, 0.4f), 256);

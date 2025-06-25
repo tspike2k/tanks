@@ -292,10 +292,11 @@ Obj_Data parse_obj_file(String source, Allocator* allocator){
 
         result.vertices = alloc_array!Vec3(allocator, vertex_count);
         result.faces    = alloc_array!Obj_Face(allocator, faces_count);
-        result.normals =  alloc_array!Vec3(allocator, normals_count);
+        result.normals  = alloc_array!Vec3(allocator, normals_count);
+        result.uvs      = alloc_array!Vec2(allocator, uvs_count);
     }
 
-    uint v_index, f_index, n_index;
+    uint v_index, f_index, n_index, vt_index;
 
     auto reader = source;
     while(reader.length){
@@ -320,7 +321,9 @@ Obj_Data parse_obj_file(String source, Allocator* allocator){
             } break;
 
             case "vt":{
-
+                auto n = &result.uvs[vt_index++];
+                to_float(&n.x, eat_between_whitespace(line));
+                to_float(&n.y, eat_between_whitespace(line));
             } break;
 
             case "f":{
