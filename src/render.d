@@ -1103,7 +1103,7 @@ version(opengl){
         glBindBuffer(GL_UNIFORM_BUFFER, g_shader_material_buffer);
         glBufferSubData(GL_UNIFORM_BUFFER, 0, Shader_Material.sizeof, &material_uniform);
 
-        //glActiveTexture(GL_TEXTURE0 + Texture_Index_Diffuse);
+        glActiveTexture(GL_TEXTURE0 + Texture_Index_Diffuse);
         g_current_texture = material.diffuse_texture;
         glBindTexture(GL_TEXTURE_2D, cast(GLuint)material.diffuse_texture);
     }
