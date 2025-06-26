@@ -1089,7 +1089,7 @@ void render_entity(App_State* s, Entity* e, Render_Passes rp, Material* material
                 auto bounds = Rect(e.pos, Vec2(0.5f, 0.5f));
                 set_shader(rp.world, &s.text_shader); // TODO: Have a decal shader?
                 render_ground_decal(rp.world, bounds, Vec4(1, 1, 1, 1), 0, s.img_x_mark);
-                set_shader(rp.world, &s.shader);
+                set_shader(rp.world, &s.shader); // TODO: Use a push/pop shader interface?
             }
         } break;
 

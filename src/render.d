@@ -821,6 +821,7 @@ version(opengl){
 
                     case Command.Render_Rect:{
                         auto cmd = cast(Render_Rect*)cmd_node;
+                        material = null;
 
                         // TODO: Push quads into a vertex buffer. Flush on state change.
                         Vertex[4] v = void;
@@ -831,6 +832,7 @@ version(opengl){
 
                     case Command.Render_Particle:{
                         auto cmd = cast(Render_Particle*)cmd_node;
+                        material = null;
 
                         assert(0);
 
@@ -873,6 +875,7 @@ version(opengl){
                     } break;
 
                     case Command.Render_Ground_Decal:{
+                        material = null;
                         // TODO: Decal rendering that doesn't have z-fighting!
                         auto cmd = cast(Render_Ground_Decal*)cmd_node;
 
@@ -935,6 +938,8 @@ version(opengl){
 
                     case Command.Render_Text:{
                         auto cmd = cast(Render_Text*)cmd_node;
+                        material = null;
+
                         auto p = cmd.pos;
                         switch(cmd.text_align){
                             default: break;
@@ -1059,7 +1064,9 @@ version(opengl){
 
             get_uniform_loc(&shader.uniform_loc_model, "mat_model");
 
+            glUseProgram(program);
             set_texture_index("texture_diffuse", Texture_Index_Diffuse);
+            glUseProgram(0);
         }
         return success;
     }
