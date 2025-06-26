@@ -18,8 +18,7 @@ layout(std140) uniform Camera{
 };
 
 layout(std140) uniform Material{
-    vec3  material_ambient;
-    vec3  material_diffuse;
+    vec3  material_tint;
     vec3  material_specular;
     float material_shininess;
 };
@@ -32,6 +31,11 @@ layout(std140) uniform Light{
 };
 
 uniform sampler2D texture_diffuse;
+
+vec3 blend_additive(vec3 src, vec3 dest){
+    // Adapted from  github.com/jamieowen/glsl-blend
+    return min(src+dest, vec3(1.0f));
+}
 
 void main(){
     vec3 view_dir  = normalize(camera_pos - f_world_pos);
@@ -48,8 +52,8 @@ void main(){
     vec3 ambient = light_ambient * vec3(texture(texture_diffuse, f_uv));
 
     float diffuse_intensity = max(dot(normal, -light_dir), 0.0);
-    //vec3 diffuse = light_diffuse * (diffuse_intensity * material_diffuse);
-    vec3 diffuse = light_diffuse * (diffuse_intensity * vec3(texture(texture_diffuse, f_uv)));
+    vec3 material_diffuse = blend_additive(vec3(texture(texture_diffuse, f_uv)), material_tint);
+    vec3 diffuse = light_diffuse * diffuse_intensity * material_diffuse;
 
     // Fixed issue with specular passing through objects by multiplying the diffuse and
     // specular intensities together. Thanks to the comment by bjorke on this answer:

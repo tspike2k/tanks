@@ -90,6 +90,7 @@ struct Shader_Constants{
 struct Material{
     Texture diffuse_texture;
     Vec3    specular;
+    Vec3    tint;
     float   shininess;
 }
 
@@ -1085,27 +1086,23 @@ version(opengl){
     private:
 
     struct Shader_Material{
-        Vec3  ambient;
-        float pad0;
-        Vec3  diffuse;
-        float pad1;
+        Vec3  tint;
+        float pad_1;
         Vec3  specular;
         float shininess;
     }
 
     void set_material(Material* material){
         Shader_Material material_uniform;
-        material_uniform.ambient   = Vec3(1, 1, 1);
-        material_uniform.diffuse   = Vec3(1, 1, 1);
         material_uniform.specular  = material.specular;
         material_uniform.shininess = material.shininess;
+        material_uniform.tint      = material.tint;
 
         glBindBuffer(GL_UNIFORM_BUFFER, g_shader_material_buffer);
         glBufferSubData(GL_UNIFORM_BUFFER, 0, Shader_Material.sizeof, &material_uniform);
 
         glActiveTexture(GL_TEXTURE0 + Texture_Index_Diffuse);
-        g_current_texture = material.diffuse_texture;
-        glBindTexture(GL_TEXTURE_2D, cast(GLuint)material.diffuse_texture);
+        set_texture(material.diffuse_texture);
     }
 
     void shader_light_source(Shader_Light* light){

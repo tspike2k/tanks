@@ -662,19 +662,12 @@ bool ray_vs_plane(Vec3 ray_start, Vec3 ray_dir, Vec3 plane_p, Vec3 plane_n, Vec3
     return result;
 }
 
-void setup_basic_material(Material* m, Texture diffuse_texture){
+void setup_basic_material(Material* m, Texture diffuse_texture, Vec3 tint = Vec3(0, 0, 0)){
     m.diffuse_texture = diffuse_texture;
     m.specular        = Vec3(1, 1, 1); // TODO: Use a specular texture?
     m.shininess       = 2.0f;
+    m.tint            = tint;
 }
-
-/+
-void setup_basic_material(Material* m, Vec3 color, float shininess){
-    m.ambient   = color*0.75f;
-    m.diffuse   = color;
-    m.specular  = color;
-    m.shininess = 256.0f;
-}+/
 
 ubyte get_player_index(Entity* e){
     assert(e.type == Entity_Type.Tank);
@@ -1495,7 +1488,7 @@ Texture load_texture_from_file(String file_name, uint flags, Allocator* allocato
 }
 
 Texture generate_default_texture(uint flags){
-    uint[4] pixels = 0xffffffff;
+    uint[4] pixels = 0xff000000;
     auto result = create_texture(pixels[], 2, 2, flags);
     return result;
 }
@@ -1571,17 +1564,19 @@ extern(C) int main(int args_count, char** args){
     s.img_wood        = load_texture_from_file("./build/wood.tga", 0, &s.frame_memory);
 
     Shader_Light light = void;
-    Vec3 light_color = Vec3(0.6f, 0.6f, 0.6f);
-    light.ambient  = light_color*0.75f;
+    Vec3 light_color = Vec3(1.0f, 1.0f, 1.0f);
+    light.ambient  = light_color*0.15f;
     light.diffuse  = light_color;
     light.specular = light_color;
 
     setup_basic_material(&s.material_ground, s.img_wood);
-    setup_basic_material(&s.material_enemy_tank, s.img_default);
-    setup_basic_material(&s.material_player_tank, s.img_default);
-    setup_basic_material(&s.material_block, s.img_default);
-    setup_basic_material(&s.material_eraser, s.img_default);
-    setup_basic_material(&s.material_breakable_block, s.img_default);
+    setup_basic_material(&s.material_enemy_tank, s.img_default, Vec3(0.2f, 0.2f, 0.4f));
+    s.material_enemy_tank.shininess = 256;
+    setup_basic_material(&s.material_player_tank, s.img_default, Vec3(0.2f, 0.2f, 0.8f));
+    s.material_player_tank.shininess = 256;
+    setup_basic_material(&s.material_block, s.img_default, Vec3(0.30f, 0.42f, 0.30f));
+    setup_basic_material(&s.material_eraser, s.img_default, Vec3(0.8f, 0.2f, 0.2f));
+    setup_basic_material(&s.material_breakable_block, s.img_default, Vec3(0.7f, 0.3f, 0.15f));
     s.running = true;
 
     Player_Input player_input;
