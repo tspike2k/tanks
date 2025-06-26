@@ -1156,12 +1156,12 @@ void simulate_world(App_State* s, Player_Input* input, float dt){
                 if(input.turn_left){
                     auto amount = rot_speed*dt;
                     e.angle += amount;
-                    meters_moved += amount; // TODO: Better angle to meters?
+                    meters_moved += amount/2.0f; // TODO: Better angle to meters?
                 }
                 if(input.turn_right){
                     auto amount = rot_speed*dt;
                     e.angle -= amount;
-                    meters_moved += amount; // TODO: Better angle to meters?
+                    meters_moved += amount/2.0f; // TODO: Better angle to meters?
                 }
 
                 auto turret_dir = s.mouse_world - e.pos;
@@ -1215,7 +1215,7 @@ void simulate_world(App_State* s, Player_Input* input, float dt){
                         p.angle = e.angle + deg_to_rad(90);
 
                         s.tread_particles_cursor++;
-                        if(s.tread_particles_cursor > s.tread_particles.length){
+                        if(s.tread_particles_cursor >= s.tread_particles.length){
                             s.tread_particles_cursor = 0;
                             s.tread_particles_full   = true;
                         }
@@ -1574,9 +1574,9 @@ extern(C) int main(int args_count, char** args){
     s.material_enemy_tank.shininess = 256;
     setup_basic_material(&s.material_player_tank, s.img_default, Vec3(0.2f, 0.2f, 0.8f));
     s.material_player_tank.shininess = 256;
-    setup_basic_material(&s.material_block, s.img_default, Vec3(0.30f, 0.42f, 0.30f));
+    setup_basic_material(&s.material_block, s.img_default, Vec3(0.46f, 0.72f, 0.46f));
     setup_basic_material(&s.material_eraser, s.img_default, Vec3(0.8f, 0.2f, 0.2f));
-    setup_basic_material(&s.material_breakable_block, s.img_default, Vec3(0.7f, 0.3f, 0.15f));
+    setup_basic_material(&s.material_breakable_block, s.img_default, Vec3(0.92f, 0.42f, 0.20f));
     s.running = true;
 
     Player_Input player_input;
