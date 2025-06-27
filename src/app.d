@@ -18,8 +18,7 @@ TODO:
     - Better scoring
     - Multiplayer
     - Temp saves
-    - Debug camera?
-    - Better camera for level editor (fully overhead view)
+    - More editor features (tank params, level size, etc)
     - Debug collision volume display?
     - Bullet can get lodged between two blocks, destroying it before the player sees it reflected.
 
@@ -85,6 +84,65 @@ enum Game_Mode : uint{
     Menu,
     Editor,
     Campaign,
+}
+
+enum Menu_ID : uint{
+    Main_Menu
+}
+
+struct Menu_Text{
+    Font*  font;
+    String text;
+    Rect   bounds;
+}
+
+struct Menu_Item{
+    String  label;
+    uint    action_id;
+    Menu_ID target_menu;
+    Rect    bounds;
+}
+
+struct Menu{
+    Rect         canvas;
+    uint         item_index;
+    uint         text_entries_count;
+    Menu_Text[8] text_entries;
+    uint         items_count;
+    Menu_Item[8] items;
+}
+
+void begin_menu_def(Menu* menu, Rect canvas){
+    menu.canvas = canvas;
+    menu.text_entries_count = 0;
+    menu.items_count = 0;
+}
+
+void add_text(Menu* menu, Font* font, String text, float height_percent){
+    auto entry = &menu.text_entries[menu.text_entries_count++];
+    entry.font = font;
+    entry.text = text;
+
+    float target_height = void;
+    if(height_percent > 0.0f){
+        target_height = height(menu.canvas)*height_percent;
+    }
+    else{
+        float margin = 4.0f;
+        target_height = margin*2.0f + font.metrics.height;
+    }
+    entry.bounds = rect_cut_top(&menu.canvas, target_height);
+}
+
+void render_menu(Render_Passes* rp, Menu* menu){
+    foreach(ref entry; menu.text_entries[0 .. menu.text_entries_count]){
+        auto p = center_text(entry.font, entry.text, entry.bounds);
+        render_text(rp.hud_text, entry.font, p, entry.text);
+    }
+}
+
+void end_menu_def(Menu* menu){
+
 }
 
 bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* allocator){
@@ -227,6 +285,7 @@ struct App_State{
     Campaign  campaign;
     Session   session;
 
+    Menu      menu;
     Gui_State gui;
     Font font_main;
     Font font_editor_small;
@@ -1625,7 +1684,8 @@ extern(C) int main(int args_count, char** args){
 
     audio_init(Audio_Frames_Per_Sec, 2, &s.main_memory);
 
-    s.mode = Game_Mode.Campaign;
+    //s.mode = Game_Mode.Campaign;
+    s.mode = Game_Mode.Menu;
 
     float target_dt = 1.0f/60.0f;
     ulong current_timestamp = ns_timestamp();
@@ -1650,7 +1710,12 @@ extern(C) int main(int args_count, char** args){
 
         Camera world_camera = void;
         set_world_projection(&world_camera, map.width+2, map.height+2, window_aspect_ratio);
-        set_world_view(&world_camera, grid_center, 45.0f);
+
+        float world_camera_angle = 45.0f;
+        if(s.mode == Game_Mode.Editor)
+            world_camera_angle = g_editor_camera_angle;
+
+        set_world_view(&world_camera, grid_center, world_camera_angle);
         auto mouse_world_3d = camera_ray_vs_plane(&world_camera, s.mouse_pixel, window.width, window.height);
         s.mouse_world = Vec2(mouse_world_3d.x, -mouse_world_3d.z);
 
@@ -1659,15 +1724,29 @@ extern(C) int main(int args_count, char** args){
                 assert(0); break;
 
             case Game_Mode.Editor:{
-                assert(editor_is_open);
-                editor_simulate(s, target_dt);
-                if(!editor_is_open){
+                auto close_editor = editor_simulate(s, target_dt);
+                if(close_editor){
                     s.mode = Game_Mode.Campaign;
                 }
             } break;
 
             case Game_Mode.Menu:{
+                Event evt;
+                while(next_event(&evt)){
+                    switch(evt.type){
+                        default: break;
 
+                        case Event_Type.Window_Close:{
+                            // TODO: Save state before exit in a temp/suspend file. Only in single player?
+                            s.running = false;
+                        } break;
+                    }
+                }
+
+                auto window_bounds = rect_from_min_max(Vec2(0, 0), Vec2(window.width, window.height));
+                begin_menu_def(&s.menu, window_bounds);
+                add_text(&s.menu, &s.font_main, "Tanks!", 0.25f);
+                end_menu_def(&s.menu);
             } break;
 
             case Game_Mode.Campaign:{
@@ -1711,7 +1790,7 @@ extern(C) int main(int args_count, char** args){
             } break;
 
             case Game_Mode.Menu:{
-
+                render_menu(&render_passes, &s.menu);
             } break;
 
             case Game_Mode.Campaign:{

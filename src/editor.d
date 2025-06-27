@@ -32,7 +32,7 @@ enum Button_Prev_Map          = gui_id(Window_ID_Main);
 enum Button_Next_Map          = gui_id(Window_ID_Main);
 enum Button_New_Map           = gui_id(Window_ID_Main);
 
-bool editor_is_open;
+float g_editor_camera_angle;
 
 private:
 
@@ -82,6 +82,7 @@ struct Variant{
     List!Tank_Entry     tank_params;
 }
 
+bool           g_editor_is_open;
 Allocator*     g_allocator;
 Allocator*     g_frame_allocator;
 char[256]      g_dest_file_name;
@@ -196,8 +197,8 @@ bool editor_load_campaign(String name){
     return success;
 }
 
-public void editor_simulate(App_State* s, float dt){
-    assert(editor_is_open);
+public bool editor_simulate(App_State* s, float dt){
+    assert(g_editor_is_open);
 
     bool should_close = false;
 
@@ -496,6 +497,7 @@ public void editor_simulate(App_State* s, float dt){
     if(should_close){
         editor_toggle(s);
     }
+    return should_close;
 }
 
 Entity make_entity_from_cell(Map_Cell cell, Vec2 pos){
@@ -707,9 +709,11 @@ public void editor_toggle(App_State* s){
     import core.stdc.stdlib : malloc, free;
 
     auto gui = &s.gui;
-    if(!editor_is_open){
+    if(!g_editor_is_open){
         g_allocator       = &s.editor_memory;
         g_frame_allocator = &s.frame_memory;
+
+        g_editor_camera_angle = 90.0f;
 
         g_mouse_left_is_down  = false;
         g_mouse_right_is_down = false;
@@ -745,6 +749,6 @@ public void editor_toggle(App_State* s){
         }
     }
 
-    editor_is_open = !editor_is_open;
+    g_editor_is_open = !g_editor_is_open;
 }
 

@@ -419,6 +419,20 @@ Rect cut_right(Rect r, float size){
     return result;
 }
 
+Rect rect_cut_top(Rect* source, float height){
+    float extents_y = height*0.5f;
+    assert(source.extents.y >= extents_y);
+
+    auto result = Rect(
+        Vec2(source.center.x, top(*source) - extents_y),
+        Vec2(source.extents.x, extents_y)
+    );
+
+    source.center.y  -= extents_y;
+    source.extents.y -= extents_y;
+    return result;
+}
+
 bool rects_overlap(Rect a, Rect b)
 {
     bool result = a.center.x - a.extents.x < b.center.x + b.extents.x
