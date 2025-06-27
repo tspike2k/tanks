@@ -419,7 +419,7 @@ Rect cut_right(Rect r, float size){
     return result;
 }
 
-Rect rect_cut_top(Rect* source, float height){
+Rect cut_top(Rect* source, float height){
     float extents_y = height*0.5f;
     assert(source.extents.y >= extents_y);
 

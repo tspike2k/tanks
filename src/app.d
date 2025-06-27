@@ -86,63 +86,120 @@ enum Game_Mode : uint{
     Campaign,
 }
 
+enum Menu_Item_Type : uint{
+    None,
+    Title,
+    Heading,
+    Button,
+}
+
+enum Menu_Action : uint{
+    None,
+    Change_Menu,
+    Quit_Game,
+}
+
 enum Menu_ID : uint{
+    None,
     Main_Menu
 }
 
-struct Menu_Text{
-    Font*  font;
-    String text;
-    Rect   bounds;
-}
+enum Null_Menu_Index = uint.max;
 
 struct Menu_Item{
-    String  label;
-    uint    action_id;
-    Menu_ID target_menu;
-    Rect    bounds;
+    Menu_Item_Type type;
+    String         text;
+    float          target_height_percent;
+    Rect           bounds; // Set by the layout algorithm
+
+    // Data for interactive menu items
+    Menu_Action action;
+    Menu_ID     target_menu;
 }
 
+// TODO: We could be more flexible if we go down the command buffer road, but I'm not sure I want
+// to do that. It's nice to be able to arbitrarily index into the menu items. We could get that
+// flexibility by seperatig the layout data from the actually menu elements. The layout engine
+// is the only thing that should care about those elements, right? Unless we want to render
+// gutter/section borders like in traditional GUIs.
 struct Menu{
-    Rect         canvas;
-    uint         item_index;
-    uint         text_entries_count;
-    Menu_Text[8] text_entries;
-    uint         items_count;
-    Menu_Item[8] items;
+    Font*         button_font;
+    Font*         heading_font;
+    Font*         title_font;
+    float         items_section_height_percent;
+
+    uint          hover_item_index;
+    uint          items_count;
+    Menu_Item[16] items;
 }
 
-void begin_menu_def(Menu* menu, Rect canvas){
-    menu.canvas = canvas;
-    menu.text_entries_count = 0;
+void begin_menu_def(Menu* menu){
     menu.items_count = 0;
-}
-
-void add_text(Menu* menu, Font* font, String text, float height_percent){
-    auto entry = &menu.text_entries[menu.text_entries_count++];
-    entry.font = font;
-    entry.text = text;
-
-    float target_height = void;
-    if(height_percent > 0.0f){
-        target_height = height(menu.canvas)*height_percent;
-    }
-    else{
-        float margin = 4.0f;
-        target_height = margin*2.0f + font.metrics.height;
-    }
-    entry.bounds = rect_cut_top(&menu.canvas, target_height);
-}
-
-void render_menu(Render_Passes* rp, Menu* menu){
-    foreach(ref entry; menu.text_entries[0 .. menu.text_entries_count]){
-        auto p = center_text(entry.font, entry.text, entry.bounds);
-        render_text(rp.hud_text, entry.font, p, entry.text);
-    }
 }
 
 void end_menu_def(Menu* menu){
 
+}
+
+void add_title(Menu* menu, String text, float height_percent){
+    auto entry = &menu.items[menu.items_count++];
+    clear_to_zero(*entry);
+    entry.type = Menu_Item_Type.Title;
+    entry.text = text;
+    entry.target_height_percent = height_percent;
+}
+
+void add_heading(Menu* menu, String text, float target_height_percent){
+    auto entry = &menu.items[menu.items_count++];
+    clear_to_zero(*entry);
+    entry.type = Menu_Item_Type.Heading;
+    entry.text = text;
+}
+
+void add_button(Menu* menu, String text, Menu_Action action, Menu_ID target_menu){
+    auto entry = &menu.items[menu.items_count++];
+    clear_to_zero(*entry);
+    entry.type = Menu_Item_Type.Button;
+    entry.text = text;
+}
+
+void menu_handle_event(Menu* menu, Event* event){
+
+}
+
+Font* get_menu_font(Menu* menu, Menu_Item_Type type){
+    Font* font;
+    final switch(type){
+        case Menu_Item_Type.None: assert(0);
+        case Menu_Item_Type.Title:   font = menu.title_font; break;
+        case Menu_Item_Type.Heading: font = menu.heading_font; break;
+        case Menu_Item_Type.Button:  font = menu.button_font; break;
+    }
+    return font;
+}
+
+void update_menu(Menu* menu, Rect canvas){
+    enum Margin = 4.0f;
+    // TODO: Cache the canvas size. If size is the same, no reason to re-run layout.
+    foreach(ref entry; menu.items[0 .. menu.items_count]){
+        float height = void;
+        if(entry.target_height_percent == 0){
+            auto font = get_menu_font(menu, entry.type);
+            height = Margin*2.0f + font.metrics.height;
+        }
+        else{
+            height = math.height(canvas)*entry.target_height_percent;
+        }
+        entry.bounds = cut_top(&canvas, height);
+    }
+}
+
+void render_menu(Render_Passes* rp, Menu* menu){
+    foreach(ref entry; menu.items[0 .. menu.items_count]){
+        auto font = get_menu_font(menu, entry.type);
+        auto p = center_text(font, entry.text, entry.bounds);
+        render_text(rp.hud_text, font, p, entry.text);
+    }
 }
 
 bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* allocator){
@@ -1686,6 +1743,15 @@ extern(C) int main(int args_count, char** args){
 
     //s.mode = Game_Mode.Campaign;
     s.mode = Game_Mode.Menu;
+    s.menu.heading_font = &s.font_main;
+    s.menu.title_font = &s.font_main;
+    s.menu.button_font = &s.font_editor_small;
+
+    begin_menu_def(&s.menu);
+    add_title(&s.menu, "Tanks!", 0.25f);
+    add_button(&s.menu, "Campaign", Menu_Action.None, Menu_ID.None);
+    add_button(&s.menu, "Quit", Menu_Action.Quit_Game, Menu_ID.None);
+    end_menu_def(&s.menu);
 
     float target_dt = 1.0f/60.0f;
     ulong current_timestamp = ns_timestamp();
@@ -1731,22 +1797,21 @@ extern(C) int main(int args_count, char** args){
             } break;
 
             case Game_Mode.Menu:{
+                auto window_bounds = rect_from_min_max(Vec2(0, 0), Vec2(window.width, window.height));
                 Event evt;
                 while(next_event(&evt)){
-                    switch(evt.type){
-                        default: break;
+                    //if(!handle_event(&s.menu, &evt)){
+                        switch(evt.type){
+                            default: break;
 
-                        case Event_Type.Window_Close:{
-                            // TODO: Save state before exit in a temp/suspend file. Only in single player?
-                            s.running = false;
-                        } break;
-                    }
+                            case Event_Type.Window_Close:{
+                                // TODO: Save state before exit in a temp/suspend file. Only in single player?
+                                s.running = false;
+                            } break;
+                        }
+                    //}
                 }
-
-                auto window_bounds = rect_from_min_max(Vec2(0, 0), Vec2(window.width, window.height));
-                begin_menu_def(&s.menu, window_bounds);
-                add_text(&s.menu, &s.font_main, "Tanks!", 0.25f);
-                end_menu_def(&s.menu);
+                update_menu(&s.menu, window_bounds);
             } break;
 
             case Game_Mode.Campaign:{
