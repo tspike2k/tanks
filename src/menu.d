@@ -77,10 +77,17 @@ struct Menu{
 
 void begin_menu_def(Menu* menu){
     menu.items_count = 0;
+    menu.hover_item_index = Null_Menu_Index;
 }
 
 void end_menu_def(Menu* menu){
-
+    // Find the first interactive item and set the hover_item_index to it's slot.
+    foreach(item_index, ref item; menu.items[0 .. menu.items_count]){
+        if(item.type == Menu_Item_Type.Button){
+            menu.hover_item_index = cast(uint)item_index;
+            break;
+        }
+    }
 }
 
 Menu_Container* add_container(Menu* menu, float target_w, float target_h){
@@ -95,7 +102,7 @@ Menu_Container* add_container(Menu* menu, float target_w, float target_h){
 private Menu_Item* add_menu_item(Menu* menu, Menu_Item_Type type){
     auto entry = &menu.items[menu.items_count++];
     clear_to_zero(*entry);
-    entry.type = Menu_Item_Type.Title;
+    entry.type = type;
 
     auto container = &menu.containers[menu.containers_count-1];
     auto base_index = cast(size_t)((container.items.ptr - menu.items.ptr));
@@ -173,10 +180,17 @@ void update_menu(Menu* menu, Rect canvas){
     }
 }
 
-void render_menu(Render_Passes* rp, Menu* menu){
-    foreach(ref entry; menu.items[0 .. menu.items_count]){
+void render_menu(Render_Passes* rp, Menu* menu, float time){
+    foreach(entry_index, ref entry; menu.items[0 .. menu.items_count]){
         auto font = get_font(menu, entry.type);
         auto p = center_text(font, entry.text, entry.bounds);
-        render_text(rp.hud_text, font, p, entry.text);
+
+        auto color = Vec4(1, 1, 1, 1);
+        if(entry_index == menu.hover_item_index){
+            float t = fabs(0.8f*cos(0.5f*time*TAU));
+            color = lerp(Vec4(1, 0, 0, 1), Vec4(1, 1, 1, 1), t);
+        }
+
+        render_text(rp.hud_text, font, p, entry.text, color);
     }
 }

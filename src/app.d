@@ -1428,8 +1428,6 @@ void campaign_simulate(App_State* s, Player_Input* player_input, float dt){
     }
     update_gui(&s.gui, dt);
 
-    s.t += dt;
-
     s.session.timer += dt;
     final switch(s.session.state){
         case Session_State.Game_Over:
@@ -1629,8 +1627,8 @@ extern(C) int main(int args_count, char** args){
     //s.mode = Game_Mode.Campaign;
     s.mode = Game_Mode.Menu;
     s.menu.heading_font = &s.font_main;
-    s.menu.title_font = &s.font_main;
-    s.menu.button_font = &s.font_editor_small;
+    s.menu.title_font   = &s.font_main;
+    s.menu.button_font  = &s.font_editor_small;
 
     begin_menu_def(&s.menu);
     add_container(&s.menu, 0, 0.40f);
@@ -1671,6 +1669,8 @@ extern(C) int main(int args_count, char** args){
         set_world_view(&world_camera, grid_center, world_camera_angle);
         auto mouse_world_3d = camera_ray_vs_plane(&world_camera, s.mouse_pixel, window.width, window.height);
         s.mouse_world = Vec2(mouse_world_3d.x, -mouse_world_3d.z);
+
+        s.t += dt;
 
         final switch(s.mode){
             case Game_Mode.None:
@@ -1742,7 +1742,7 @@ extern(C) int main(int args_count, char** args){
             } break;
 
             case Game_Mode.Menu:{
-                render_menu(&render_passes, &s.menu);
+                render_menu(&render_passes, &s.menu, s.t);
             } break;
 
             case Game_Mode.Campaign:{
