@@ -1687,16 +1687,19 @@ extern(C) int main(int args_count, char** args){
                 auto window_bounds = rect_from_min_max(Vec2(0, 0), Vec2(window.width, window.height));
                 Event evt;
                 while(next_event(&evt)){
-                    //if(!handle_event(&s.menu, &evt)){
-                        switch(evt.type){
+                    if(evt.type == Event_Type.Window_Close){
+                        s.running = false;
+                    }
+                    else{
+                        auto menu_evt = menu_handle_event(&s.menu, &evt);
+                        switch(menu_evt.action){
                             default: break;
 
-                            case Event_Type.Window_Close:{
-                                // TODO: Save state before exit in a temp/suspend file. Only in single player?
+                            case Menu_Action.Quit_Game:{
                                 s.running = false;
                             } break;
                         }
-                    //}
+                    }
                 }
                 update_menu(&s.menu, window_bounds);
             } break;

@@ -127,8 +127,51 @@ void add_button(Menu* menu, String text, Menu_Action action, Menu_ID target_menu
     entry.target_menu = target_menu;
 }
 
-void menu_handle_event(Menu* menu, Event* event){
+private uint get_next_hover_index(Menu* menu){
+    auto result = menu.hover_item_index;
+    auto start = result == Null_Menu_Index ? 0 : result;
+    foreach(i; 0 .. menu.items_count){
+        auto index = (start + i + 1) % menu.items_count;
+        auto entry = &menu.items[index];
+        if(entry.type == Menu_Item_Type.Button){
+            result = index;
+            break;
+        }
+    }
+    return result;
+}
 
+struct Menu_Event{
+    Menu_Action action;
+    Menu_ID     target_menu;
+}
+
+Menu_Event menu_handle_event(Menu* menu, Event* event){
+    Menu_Event result;
+
+    switch(event.type){
+        default: break;
+
+        case Event_Type.Key:{
+            auto key = &event.key;
+            if(key.pressed){
+                switch(key.id){
+                    default: break;
+
+                    case Key_ID_Arrow_Down:{
+                        menu.hover_item_index = get_next_hover_index(menu);
+                    } break;
+
+                    case Key_ID_Enter:{
+                        auto item = menu.items[menu.hover_item_index];
+                        result.action = item.action;
+                        result.target_menu = item.target_menu;
+                    } break;
+                }
+            }
+        } break;
+    }
+    return result;
 }
 
 private Font* get_font(Menu* menu, Menu_Item_Type type){
@@ -142,7 +185,7 @@ private Font* get_font(Menu* menu, Menu_Item_Type type){
     return font;
 }
 
-void update_menu(Menu* menu, Rect canvas){
+private void do_layout(Menu* menu, Rect canvas){
     enum Margin = 4.0f;
     // TODO: Cache the canvas size. If size is the same, no reason to re-run layout.
 
@@ -178,6 +221,10 @@ void update_menu(Menu* menu, Rect canvas){
 
         pen.y -= spacer_y;
     }
+}
+
+void update_menu(Menu* menu, Rect canvas){
+    do_layout(menu, canvas);
 }
 
 void render_menu(Render_Passes* rp, Menu* menu, float time){
