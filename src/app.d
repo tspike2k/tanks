@@ -50,6 +50,7 @@ import net;
 import editor;
 import gui;
 import audio;
+import menu;
 
 enum Main_Memory_Size    =  4*1024*1024;
 enum Frame_Memory_Size   =  8*1024*1024;
@@ -84,122 +85,6 @@ enum Game_Mode : uint{
     Menu,
     Editor,
     Campaign,
-}
-
-enum Menu_Item_Type : uint{
-    None,
-    Title,
-    Heading,
-    Button,
-}
-
-enum Menu_Action : uint{
-    None,
-    Change_Menu,
-    Quit_Game,
-}
-
-enum Menu_ID : uint{
-    None,
-    Main_Menu
-}
-
-enum Null_Menu_Index = uint.max;
-
-struct Menu_Item{
-    Menu_Item_Type type;
-    String         text;
-    float          target_height_percent;
-    Rect           bounds; // Set by the layout algorithm
-
-    // Data for interactive menu items
-    Menu_Action action;
-    Menu_ID     target_menu;
-}
-
-// TODO: We could be more flexible if we go down the command buffer road, but I'm not sure I want
-// to do that. It's nice to be able to arbitrarily index into the menu items. We could get that
-// flexibility by seperatig the layout data from the actually menu elements. The layout engine
-// is the only thing that should care about those elements, right? Unless we want to render
-// gutter/section borders like in traditional GUIs.
-struct Menu{
-    Font*         button_font;
-    Font*         heading_font;
-    Font*         title_font;
-    float         items_section_height_percent;
-
-    uint          hover_item_index;
-    uint          items_count;
-    Menu_Item[16] items;
-}
-
-void begin_menu_def(Menu* menu){
-    menu.items_count = 0;
-}
-
-void end_menu_def(Menu* menu){
-
-}
-
-void add_title(Menu* menu, String text, float height_percent){
-    auto entry = &menu.items[menu.items_count++];
-    clear_to_zero(*entry);
-    entry.type = Menu_Item_Type.Title;
-    entry.text = text;
-    entry.target_height_percent = height_percent;
-}
-
-void add_heading(Menu* menu, String text, float target_height_percent){
-    auto entry = &menu.items[menu.items_count++];
-    clear_to_zero(*entry);
-    entry.type = Menu_Item_Type.Heading;
-    entry.text = text;
-}
-
-void add_button(Menu* menu, String text, Menu_Action action, Menu_ID target_menu){
-    auto entry = &menu.items[menu.items_count++];
-    clear_to_zero(*entry);
-    entry.type = Menu_Item_Type.Button;
-    entry.text = text;
-}
-
-void menu_handle_event(Menu* menu, Event* event){
-
-}
-
-Font* get_menu_font(Menu* menu, Menu_Item_Type type){
-    Font* font;
-    final switch(type){
-        case Menu_Item_Type.None: assert(0);
-        case Menu_Item_Type.Title:   font = menu.title_font; break;
-        case Menu_Item_Type.Heading: font = menu.heading_font; break;
-        case Menu_Item_Type.Button:  font = menu.button_font; break;
-    }
-    return font;
-}
-
-void update_menu(Menu* menu, Rect canvas){
-    enum Margin = 4.0f;
-    // TODO: Cache the canvas size. If size is the same, no reason to re-run layout.
-    foreach(ref entry; menu.items[0 .. menu.items_count]){
-        float height = void;
-        if(entry.target_height_percent == 0){
-            auto font = get_menu_font(menu, entry.type);
-            height = Margin*2.0f + font.metrics.height;
-        }
-        else{
-            height = math.height(canvas)*entry.target_height_percent;
-        }
-        entry.bounds = cut_top(&canvas, height);
-    }
-}
-
-void render_menu(Render_Passes* rp, Menu* menu){
-    foreach(ref entry; menu.items[0 .. menu.items_count]){
-        auto font = get_menu_font(menu, entry.type);
-        auto p = center_text(font, entry.text, entry.bounds);
-        render_text(rp.hud_text, font, p, entry.text);
-    }
 }
 
 bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* allocator){
@@ -1748,7 +1633,9 @@ extern(C) int main(int args_count, char** args){
     s.menu.button_font = &s.font_editor_small;
 
     begin_menu_def(&s.menu);
-    add_title(&s.menu, "Tanks!", 0.25f);
+    add_container(&s.menu, 0, 0.40f);
+    add_title(&s.menu, "Tanks!", );
+    add_container(&s.menu, 0, 0.60f);
     add_button(&s.menu, "Campaign", Menu_Action.None, Menu_ID.None);
     add_button(&s.menu, "Quit", Menu_Action.Quit_Game, Menu_ID.None);
     end_menu_def(&s.menu);

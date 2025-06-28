@@ -1,0 +1,182 @@
+/*
+Authors:   tspike (github.com/tspike2k)
+Copyright: Copyright (c) 2025
+License:   Boost Software License 1.0 (https://www.boost.org/LICENSE_1_0.txt)
+*/
+
+import memory;
+import assets;
+import display;
+import math;
+import app : Render_Passes;
+import render;
+
+enum Menu_Item_Type : uint{
+    None,
+    Title,
+    Heading,
+    Button,
+}
+
+enum Menu_Action : uint{
+    None,
+    Change_Menu,
+    Quit_Game,
+}
+
+enum Menu_ID : uint{
+    None,
+    Main_Menu
+}
+
+enum Null_Menu_Index = uint.max;
+
+// TODO: Allow menu items to have target_width, target_height values. If the values are less than
+// or equal to one, they're a percentage of the container that contains them.
+
+struct Menu_Item{
+    Menu_Item_Type  type;
+    String          text;
+    Rect            bounds; // Set by the layout algorithm
+
+    // Data for interactive menu items
+    Menu_Action action;
+    Menu_ID     target_menu;
+}
+
+/+
+TODO:
+    We want to support simple horizontal layout. The most obvious way to do this is to have
+    containers that contain a list of items. Perhaps that would be the best way. This way
+    we would be creating a simple tree. Containers can contain containers. Containers also
+    have style information attached to them. This could work. But we could invert that and
+    make menu items hold a reference to a container instead. We'll see how that goes.
++/
+
+struct Menu_Container{
+    float       target_w;
+    float       target_h;
+    Menu_Item[] items;
+    Rect        bounds;
+}
+
+struct Menu{
+    Allocator*    allocator;
+    Font*         button_font;
+    Font*         heading_font;
+    Font*         title_font;
+
+    // TODO: Allow containers to hold other containers.
+    uint              containers_count;
+    Menu_Container[8] containers;
+
+    uint              hover_item_index;
+    uint              items_count;
+    Menu_Item[16]     items;
+}
+
+void begin_menu_def(Menu* menu){
+    menu.items_count = 0;
+}
+
+void end_menu_def(Menu* menu){
+
+}
+
+Menu_Container* add_container(Menu* menu, float target_w, float target_h){
+    auto result = &menu.containers[menu.containers_count++];
+    clear_to_zero(*result);
+    result.target_w = target_w;
+    result.target_h = target_h;
+    result.items = menu.items[menu.items_count .. menu.items_count];
+    return result;
+}
+
+private Menu_Item* add_menu_item(Menu* menu, Menu_Item_Type type){
+    auto entry = &menu.items[menu.items_count++];
+    clear_to_zero(*entry);
+    entry.type = Menu_Item_Type.Title;
+
+    auto container = &menu.containers[menu.containers_count-1];
+    auto base_index = cast(size_t)((container.items.ptr - menu.items.ptr));
+    container.items = menu.items[base_index .. menu.items_count];
+    return entry;
+}
+
+void add_title(Menu* menu, String text){
+    auto entry = add_menu_item(menu, Menu_Item_Type.Title);
+    entry.text = text;
+}
+
+void add_heading(Menu* menu, String text){
+    auto entry = add_menu_item(menu, Menu_Item_Type.Heading);
+    entry.text = text;
+}
+
+void add_button(Menu* menu, String text, Menu_Action action, Menu_ID target_menu){
+    auto entry = add_menu_item(menu, Menu_Item_Type.Button);
+    entry.text = text;
+    entry.action = action;
+    entry.target_menu = target_menu;
+}
+
+void menu_handle_event(Menu* menu, Event* event){
+
+}
+
+private Font* get_font(Menu* menu, Menu_Item_Type type){
+    Font* font;
+    final switch(type){
+        case Menu_Item_Type.None: assert(0);
+        case Menu_Item_Type.Title:   font = menu.title_font; break;
+        case Menu_Item_Type.Heading: font = menu.heading_font; break;
+        case Menu_Item_Type.Button:  font = menu.button_font; break;
+    }
+    return font;
+}
+
+void update_menu(Menu* menu, Rect canvas){
+    enum Margin = 4.0f;
+    // TODO: Cache the canvas size. If size is the same, no reason to re-run layout.
+
+    float get_item_height(Menu* menu, Menu_Item* item){
+        auto font = get_font(menu, item.type);
+        auto result = Margin + font.metrics.height;
+        return result;
+    }
+
+    auto pen = Vec2(canvas.center.x, top(canvas));
+    auto canvas_width  = width(canvas);
+    auto canvas_height = height(canvas);
+    foreach(ref container; menu.containers[0 .. menu.containers_count]){
+        float items_height = 0;
+        foreach(ref item; container.items){
+            // TODO: Include item margins.
+            items_height += get_item_height(menu, &item);
+        }
+
+        assert(container.target_h > 0.0f && container.target_h <= 1.0f);
+        float height = floor(canvas_height*container.target_h);
+        auto spacer_y = 0.5f*(height - items_height);
+        pen.y -= spacer_y;
+
+        foreach(ref item; container.items){
+            auto item_h = get_item_height(menu, &item);
+            item.bounds = Rect(
+                Vec2(pen.x, pen.y - item_h*0.5f),
+                Vec2(canvas.extents.x, item_h*0.5f)
+            );
+            pen.y -= item_h;
+        }
+
+        pen.y -= spacer_y;
+    }
+}
+
+void render_menu(Render_Passes* rp, Menu* menu){
+    foreach(ref entry; menu.items[0 .. menu.items_count]){
+        auto font = get_font(menu, entry.type);
+        auto p = center_text(font, entry.text, entry.bounds);
+        render_text(rp.hud_text, font, p, entry.text);
+    }
+}
