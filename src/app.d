@@ -1316,8 +1316,36 @@ Tread_Particle[] get_visible_tread_particles(App_State* s){
 
 }
 
-void simulate_main_menu(App_State* s){
+void change_to_menu(Menu* menu, Menu_ID menu_id){
+    if(menu.current_menu_id == menu_id) return;
 
+    switch(menu_id){
+        default: break;
+
+        case Menu_ID.None: assert(0);
+
+        case Menu_ID.Main_Menu:{
+            begin_menu_def(menu, menu_id);
+            add_container(menu, 0, 0.40f);
+            add_title(menu, "Tanks!", );
+            add_container(menu, 0, 0.60f);
+            add_button(menu, "Campaign", Menu_Action.Change_Menu, Menu_ID.Campaign);
+            add_button(menu, "Quit", Menu_Action.Quit_Game, Menu_ID.None);
+            end_menu_def(menu);
+        } break;
+
+        case Menu_ID.Campaign:{
+            begin_menu_def(menu, menu_id);
+            add_container(menu, 0, 0.2f);
+            add_heading(menu, "Campaign");
+            add_container(menu, 0, 0.8f);
+            add_button(menu, "Back", Menu_Action.Change_Menu, Menu_ID.Main_Menu);
+            end_menu_def(menu);
+        } break;
+    }
+
+    menu.hover_item_index = Null_Menu_Index;
+    menu.hover_item_index = get_next_hover_index(menu);
 }
 
 void campaign_simulate(App_State* s, Player_Input* player_input, float dt){
@@ -1629,14 +1657,7 @@ extern(C) int main(int args_count, char** args){
     s.menu.heading_font = &s.font_main;
     s.menu.title_font   = &s.font_main;
     s.menu.button_font  = &s.font_editor_small;
-
-    begin_menu_def(&s.menu);
-    add_container(&s.menu, 0, 0.40f);
-    add_title(&s.menu, "Tanks!", );
-    add_container(&s.menu, 0, 0.60f);
-    add_button(&s.menu, "Campaign", Menu_Action.None, Menu_ID.None);
-    add_button(&s.menu, "Quit", Menu_Action.Quit_Game, Menu_ID.None);
-    end_menu_def(&s.menu);
+    change_to_menu(&s.menu, Menu_ID.Main_Menu);
 
     float target_dt = 1.0f/60.0f;
     ulong current_timestamp = ns_timestamp();
@@ -1694,6 +1715,10 @@ extern(C) int main(int args_count, char** args){
                         auto menu_evt = menu_handle_event(&s.menu, &evt);
                         switch(menu_evt.action){
                             default: break;
+
+                            case Menu_Action.Change_Menu:{
+                                change_to_menu(&s.menu, menu_evt.target_menu);
+                            } break;
 
                             case Menu_Action.Quit_Game:{
                                 s.running = false;

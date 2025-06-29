@@ -26,7 +26,8 @@ enum Menu_Action : uint{
 
 enum Menu_ID : uint{
     None,
-    Main_Menu
+    Main_Menu,
+    Campaign,
 }
 
 enum Null_Menu_Index = uint.max;
@@ -61,7 +62,6 @@ struct Menu_Container{
 }
 
 struct Menu{
-    Allocator*    allocator;
     Font*         button_font;
     Font*         heading_font;
     Font*         title_font;
@@ -70,14 +70,17 @@ struct Menu{
     uint              containers_count;
     Menu_Container[8] containers;
 
+    Menu_ID           current_menu_id;
     uint              hover_item_index;
     uint              items_count;
     Menu_Item[16]     items;
 }
 
-void begin_menu_def(Menu* menu){
+void begin_menu_def(Menu* menu, Menu_ID menu_id){
     menu.items_count = 0;
+    menu.containers_count = 0;
     menu.hover_item_index = Null_Menu_Index;
+    menu.current_menu_id = menu_id;
 }
 
 void end_menu_def(Menu* menu){
@@ -127,7 +130,21 @@ void add_button(Menu* menu, String text, Menu_Action action, Menu_ID target_menu
     entry.target_menu = target_menu;
 }
 
-private uint get_next_hover_index(Menu* menu){
+uint get_prev_hover_index(Menu* menu){
+    auto result = menu.hover_item_index;
+    auto start = result == Null_Menu_Index ? 0 : result;
+    foreach(i; 0 .. menu.items_count){
+        auto index = (start - i - 1 + menu.items_count) % menu.items_count;
+        auto entry = &menu.items[index];
+        if(entry.type == Menu_Item_Type.Button){
+            result = index;
+            break;
+        }
+    }
+    return result;
+}
+
+uint get_next_hover_index(Menu* menu){
     auto result = menu.hover_item_index;
     auto start = result == Null_Menu_Index ? 0 : result;
     foreach(i; 0 .. menu.items_count){
@@ -160,6 +177,10 @@ Menu_Event menu_handle_event(Menu* menu, Event* event){
 
                     case Key_ID_Arrow_Down:{
                         menu.hover_item_index = get_next_hover_index(menu);
+                    } break;
+
+                    case Key_ID_Arrow_Up:{
+                        menu.hover_item_index = get_prev_hover_index(menu);
                     } break;
 
                     case Key_ID_Enter:{
