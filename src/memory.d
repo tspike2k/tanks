@@ -37,12 +37,6 @@ T zero_type(T)(){
     return result;
 }
 
-void[] eat_bytes(ref void[] data, size_t size){
-    auto result = data[0 .. size];
-    data = data[size .. $];
-    return result;
-}
-
 Unqual!T[] dup_array(T)(T[] src, Allocator* allocator){
     auto result = alloc_array!(Unqual!T)(allocator, src.length);
     copy(src[0 .. $], result[0 .. $]);
