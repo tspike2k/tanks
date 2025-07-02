@@ -255,7 +255,8 @@ struct App_State{
     Material material_mine;
     Material material_breakable_block;
 
-    Texture img_default;
+    Texture img_blank_mesh;
+    Texture img_blank_rect;
     Texture img_x_mark;
     Texture img_tread_marks;
     Texture img_wood;
@@ -1523,8 +1524,8 @@ Texture load_texture_from_file(String file_name, uint flags, Allocator* allocato
     return result;
 }
 
-Texture generate_default_texture(uint flags){
-    uint[4] pixels = 0xff000000;
+Texture generate_solid_texture(uint color, uint flags){
+    uint[4] pixels = color;
     auto result = create_texture(pixels[], 2, 2, flags);
     return result;
 }
@@ -1594,7 +1595,8 @@ extern(C) int main(int args_count, char** args){
 
     s.sfx_fire_bullet = load_wave_file("./build/fire_bullet.wav", Audio_Frames_Per_Sec, &s.main_memory);
 
-    s.img_default     = generate_default_texture(0);
+    s.img_blank_mesh  = generate_solid_texture(0xff000000, 0);
+    s.img_blank_rect  = generate_solid_texture(0xffffffff, 0);
     s.img_x_mark      = load_texture_from_file("./build/x_mark.tga", 0, &s.frame_memory);
     s.img_tread_marks = load_texture_from_file("./build/tread_marks.tga", 0, &s.frame_memory);
     s.img_wood        = load_texture_from_file("./build/wood.tga", 0, &s.frame_memory);
@@ -1606,13 +1608,13 @@ extern(C) int main(int args_count, char** args){
     light.specular = light_color;
 
     setup_basic_material(&s.material_ground, s.img_wood);
-    setup_basic_material(&s.material_enemy_tank, s.img_default, Vec3(0.2f, 0.2f, 0.4f));
+    setup_basic_material(&s.material_enemy_tank, s.img_blank_mesh, Vec3(0.2f, 0.2f, 0.4f));
     s.material_enemy_tank.shininess = 256;
-    setup_basic_material(&s.material_player_tank, s.img_default, Vec3(0.2f, 0.2f, 0.8f));
+    setup_basic_material(&s.material_player_tank, s.img_blank_mesh, Vec3(0.2f, 0.2f, 0.8f));
     s.material_player_tank.shininess = 256;
-    setup_basic_material(&s.material_block, s.img_default, Vec3(0.46f, 0.72f, 0.46f));
-    setup_basic_material(&s.material_eraser, s.img_default, Vec3(0.8f, 0.2f, 0.2f));
-    setup_basic_material(&s.material_breakable_block, s.img_default, Vec3(0.92f, 0.42f, 0.20f));
+    setup_basic_material(&s.material_block, s.img_blank_mesh, Vec3(0.46f, 0.72f, 0.46f));
+    setup_basic_material(&s.material_eraser, s.img_blank_mesh, Vec3(0.8f, 0.2f, 0.2f));
+    setup_basic_material(&s.material_breakable_block, s.img_blank_mesh, Vec3(0.92f, 0.42f, 0.20f));
     s.running = true;
 
     Player_Input player_input;
@@ -1769,7 +1771,7 @@ extern(C) int main(int args_count, char** args){
 
         render_passes.hud_rects = add_render_pass(&hud_camera);
         set_shader(render_passes.hud_rects, &s.text_shader);
-        set_texture(render_passes.hud_rects, s.img_default);
+        set_texture(render_passes.hud_rects, s.img_blank_rect);
         render_passes.hud_rects.flags = Render_Flag_Disable_Depth_Test;
 
         render_passes.hud_text  = add_render_pass(&hud_camera);

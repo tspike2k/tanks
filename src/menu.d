@@ -256,12 +256,12 @@ void update_menu(Menu* menu, Rect canvas){
 }
 
 void render_menu(Render_Passes* rp, Menu* menu, float time){
-    Vec4[2] block_colors = [Vec4(1, 1, 1, 1), Vec4(0, 0, 0, 1)];
+    Vec4[2] block_colors = [Vec4(0.25f, 0.25f, 0.25f, 1), Vec4(0, 0, 0, 1)];
     foreach(block_index, ref block; menu.blocks[0 .. menu.blocks_count]){
         auto color = block_colors[block_index % block_colors.length];
 
         auto bounds = rect_from_min_max(Vec2(0, block.end_y), Vec2(1920, block.start_y));
-        render_rect(rp.hud_text, bounds, color);
+        render_rect(rp.hud_rects, bounds, color);
     }
 
     foreach(entry_index, ref entry; menu.items[0 .. menu.items_count]){
@@ -274,6 +274,7 @@ void render_menu(Render_Passes* rp, Menu* menu, float time){
             color = lerp(Vec4(1, 0, 0, 1), Vec4(1, 1, 1, 1), t);
         }
 
+        render_rect(rp.hud_rects, entry.bounds, Vec4(0, 1, 0, 1));
         render_text(rp.hud_text, font, p, entry.text, color);
     }
 }
@@ -330,6 +331,7 @@ float get_item_height(Menu* menu, Menu_Item* item){
 
 void do_layout(Menu* menu, Rect canvas){
     enum Margin = 4.0f;
+    auto canvas_width  = width(canvas);
     auto canvas_height = height(canvas);
 
     uint item_index = 0;
@@ -340,15 +342,16 @@ void do_layout(Menu* menu, Rect canvas){
         foreach(ref item; items){
             auto height = get_item_height(menu, &item);
             item.bounds.extents.y = 0.5f*height; // TODO: Include padding
+            item.bounds.extents.x = 0.5f*canvas_width; // TODO: Base this on text width or, in the case of buttons, target width
             total_height += height;
         }
 
         assert(block.height > 0 && block.height <= 1);
         auto block_height = canvas_height*block.height;
 
+        block.start_y = top(canvas);
+        block.end_y = block.start_y - block_height;
         auto pen_y = floor(top(canvas) - (block_height - total_height)*0.5f);
-        block.start_y = pen_y;
-        block.end_y  = pen_y - block_height;
         foreach(ref item; items){
             item.bounds.center.x = canvas.center.x;
             item.bounds.center.y = pen_y - item.bounds.extents.y; // TODO: Add margins?
