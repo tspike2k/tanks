@@ -376,6 +376,11 @@ void set_light(Render_Pass* pass, Shader_Light* light){
     cmd.light = light;
 }
 
+void set_texture(Render_Pass* pass, Texture texture){
+    auto cmd    = push_command!Set_Texture(pass);
+    cmd.texture = texture;
+}
+
 float get_text_width(Font* font, String text){
     float result = 0;
     uint prev_codepoint = 0;
@@ -414,6 +419,7 @@ enum Command : uint{
     Pop_Scissor,
     Render_Particle,
     Render_Ground_Decal,
+    Set_Texture,
 }
 
 struct Render_Cmd{
@@ -465,6 +471,14 @@ struct Set_Light{
     alias header this;
 
     Shader_Light* light;
+}
+
+struct Set_Texture{
+    enum Type = Command.Set_Texture;
+    Render_Cmd header;
+    alias header this;
+
+    Texture texture;
 }
 
 struct Push_Scissor{
@@ -971,6 +985,11 @@ version(opengl){
                             cast(int)min_p.x, cast(int)min_p.y,
                             cast(int)width(cmd.scissor), cast(int)height(cmd.scissor)
                         );
+                    } break;
+
+                    case Command.Set_Texture:{
+                        auto cmd = cast(Set_Texture*)cmd_node;
+                        set_texture(cmd.texture);
                     } break;
                 }
 

@@ -175,6 +175,7 @@ struct Render_Passes{
     Render_Pass* holes;
     Render_Pass* hole_cutouts;
     Render_Pass* world;
+    Render_Pass* hud_rects;
     Render_Pass* hud_text;
 }
 
@@ -1326,27 +1327,28 @@ void change_to_menu(Menu* menu, Menu_ID menu_id){
 
         case Menu_ID.Main_Menu:{
             begin_menu_def(menu, menu_id);
-            begin_container(menu, 0, 0.40f);
+            begin_block(menu, 0.40f);
             add_title(menu, "Tanks!");
-            end_container(menu);
-            begin_container(menu, 0, 0.60f);
+            end_block(menu);
+            /+
+            begin_block(menu, 0.60f);
             add_button(menu, "Campaign", Menu_Action.Change_Menu, Menu_ID.Campaign);
             add_button(menu, "Quit", Menu_Action.Quit_Game, Menu_ID.None);
-            end_container(menu);
+            end_block(menu);+/
             end_menu_def(menu);
         } break;
 
         case Menu_ID.Campaign:{
             begin_menu_def(menu, menu_id);
-            begin_container(menu, 0, 0.2f);
+            begin_block(menu, 0.2f);
             add_heading(menu, "Campaign");
-            end_container(menu);
-            begin_container(menu, 0, 0.8f);
+            end_block(menu);
+            begin_block(menu, 0.8f);
             // TODO: We want to be able to select the campaign and the variant from here. This
             // will require a way to select an index. Should be interesting!
             //add_index_picker(menu, "Variant", )
             add_button(menu, "Back", Menu_Action.Change_Menu, Menu_ID.Main_Menu);
-            end_container(menu);
+            end_block(menu);
             end_menu_def(menu);
         } break;
     }
@@ -1664,7 +1666,6 @@ extern(C) int main(int args_count, char** args){
     s.menu.heading_font = &s.font_main;
     s.menu.title_font   = &s.font_main;
     s.menu.button_font  = &s.font_editor_small;
-    s.menu.memory = alloc_array!void(&s.main_memory, 4096);
     change_to_menu(&s.menu, Menu_ID.Main_Menu);
 
     float target_dt = 1.0f/60.0f;
@@ -1765,6 +1766,11 @@ extern(C) int main(int args_count, char** args){
         render_passes.world = add_render_pass(&world_camera);
         set_shader(render_passes.world, &s.shader);
         set_light(render_passes.world, &light);
+
+        render_passes.hud_rects = add_render_pass(&hud_camera);
+        set_shader(render_passes.hud_rects, &s.text_shader);
+        set_texture(render_passes.hud_rects, s.img_default);
+        render_passes.hud_rects.flags = Render_Flag_Disable_Depth_Test;
 
         render_passes.hud_text  = add_render_pass(&hud_camera);
         set_shader(render_passes.hud_text, &s.text_shader);

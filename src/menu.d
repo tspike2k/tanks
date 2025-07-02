@@ -5,21 +5,15 @@ License:   Boost Software License 1.0 (https://www.boost.org/LICENSE_1_0.txt)
 */
 
 /+
-For now, the GUI library isn't sufficiently flexible enough to use for the in-game menus. That's where this comes in. Most menus will feature one item per row, centered along the x-axis. However, we need to support multiple items per row in some cases, and have alignment that matches the rest of the menu. One tricky menu will be the campaign selection menu. Here we need to display the following:
-    name
-    author
-    date
-    description
-    version_string
-    variants
+As of now, the code in gui.d isn't sufficiently flexible enough to use for in-game menus. That's
+where this code comes in. This also isn't aiming to be a general approach, just offer enough
+flexibility that we can write menus without having to manually place every item.
 
-The last of which needs to be selectible. And before we display that, we should be able to choose which campaign to display. Interestingly, a library called "microui" has an API where you can declare the number of columns you want in a row and their sizes. I think we could do the same. We would also want to set the column alignment. So something like the following:
+The basic idea is there are menu items (text, buttons, sliders, etc) and there are containers.
+A container is a vertical slice of the screen region and can hold one or more menu items.
+Containers are not displayed, they're only used to place menu items.
 
-    auto row_style = [Menu_Row(0.5f, Menu_Align.Right), Menu_Row(0.5f, Menu_Align.Left)];
-    set_row_style(menu, row_style);
-    add_label(menu, "Name:");
-    add_label(menu, campaign.name);
-    set_row_style(menu, null); // Return to normal row settings.
+TODO: Explain the rest after we finilize things!
 +/
 
 import memory;
@@ -28,15 +22,6 @@ import display;
 import math;
 import app : Render_Passes;
 import render;
-
-enum Menu_Entry_Type : uint{
-    None,
-    Container_Begin,
-    Container_End,
-    Row_Begin,
-    Row_End,
-    Item,
-}
 
 enum Menu_Item_Type : uint{
     None,
@@ -58,24 +43,43 @@ enum Menu_ID : uint{
     Campaign,
 }
 
-enum Null_Menu_Index = uint.max;
+enum Align : uint{
+    Front,
+    Center,
+    Back,
 
-// TODO: Allow menu items to have target_width, target_height values. If the values are less than
-// or equal to one, they're a percentage of the container that contains them.
-
-struct Menu_Entry_Header{
-    Menu_Entry_Type type;
-    uint            size;
+    Left  = Front,
+    Right = Back,
 }
+
+enum Null_Menu_Index = uint.max;
 
 struct Menu_Item{
     Menu_Item_Type type;
     String         text;
     Rect           bounds; // Set by the layout algorithm
+    uint           flags;
 
     // Data for interactive menu items
     Menu_Action action;
     Menu_ID     target_menu;
+}
+
+/+
+struct Row{
+    uint     aligns_count;
+    Align[4] aligns;
+    uint     items_end;
+}+/
+
+struct Block{
+    // TODO: Add vertical alignment? We probably won't ever use that.
+    float height;
+    uint  items_end;
+
+    // For debugging
+    float start_y;
+    float end_y;
 }
 
 struct Menu{
@@ -84,61 +88,27 @@ struct Menu{
     Font*         title_font;
 
     Menu_ID current_menu_id;
-    uint   memory_used;
-    void[] memory;
 
-    uint         hover_item_index;
-    uint         items_count;
-    Menu_Item*[] items; // List of interactive elements.
-
-    Menu_Entry_Header* last_header;
+    uint          hover_item_index;
+    uint          items_count;
+    Menu_Item[32] items;
+    uint          blocks_count;
+    Block[8]      blocks;
+    //uint          row_layouts_count;
+    //Row[16]       row_layouts;
 }
 
 void begin_menu_def(Menu* menu, Menu_ID menu_id){
-    menu.memory_used = 0;
-    menu.items_count = 0;
+    menu.blocks_count = 0;
+    menu.items_count  = 0;
     menu.hover_item_index = Null_Menu_Index;
     menu.current_menu_id = menu_id;
-}
 
-struct Menu_Entry{
-    Menu_Entry_Header header;
-    void[]            data;
-}
-
-struct Menu_Iterator{
-    void[]     memory;
-    Menu_Entry entry;
-}
-
-Menu_Iterator iterate(Menu* menu){
-    Menu_Iterator result;
-    result.memory = menu.memory[0 .. menu.memory_used];
-    return result;
-}
-
-bool iterate_next(Menu_Iterator* iter){
-    bool result = false;
-    if(iter.memory.length >= Menu_Entry_Header.sizeof){
-        auto header = cast(Menu_Entry_Header*)iter.memory;
-        iter.memory = iter.memory[Menu_Entry_Header.sizeof .. $];
-
-        auto entry = &iter.entry;
-        entry.header = *header;
-        if(iter.memory.length >= header.size){
-            entry.data  = iter.memory[0 .. header.size];
-            iter.memory = iter.memory[header.size .. $];
-        }
-        result = entry.data.length == header.size;
-    }
-
-    return result;
+    //auto row = push_row(menu);
+    //row.aligns[row.aligns_count++] = Layout(Align.Center, 0);
 }
 
 void end_menu_def(Menu* menu){
-
-
-
     // Find the first interactive item and set the hover_item_index to it's slot.
     /+
     foreach(item_index, ref item; menu.items[0 .. menu.items_count]){
@@ -149,18 +119,42 @@ void end_menu_def(Menu* menu){
     }+/
 }
 
-void begin_container(Menu* menu, float target_w, float target_h){
-    push_header(menu, Menu_Entry_Type.Container_Begin);
-    // TODO: Store container info
+enum Menu_Command_Type : uint{
+    None,
+    Menu_Item,
+    Block_Begin,
+    Block_End,
+    Horizontal_Layout_Begin,
+    Horizontal_Layout_End,
 }
 
-void end_container(Menu* menu){
-    push_header(menu, Menu_Entry_Type.Container_End);
+struct Menu_Command{
+    Menu_Command_Type type;
+    uint              value;
 }
 
+void begin_block(Menu* menu, float block_height){
+    auto block = &menu.blocks[menu.blocks_count++];
+    block.height = block_height;
+}
+
+void end_block(Menu* menu){
+    auto block = &menu.blocks[menu.blocks_count-1];
+    block.items_end = menu.items_count;
+}
+
+/+
+void begin_horizontal_layout(Menu* menu, Layout layout){
+    auto array = (&layout)[0 .. 1];
+    push_layout_command(menu, Menu_Command_Type.Horizontal_Layout_Begin, array);
+}
+
+void end_horizontal_layout(Menu* menu){
+    push_command(menu, Menu_Command_Type.Horizontal_Layout_End, 0);
+}
++/
 Menu_Item* add_menu_item(Menu* menu, Menu_Item_Type type){
-    push_header(menu, Menu_Entry_Type.Item);
-    auto result = cast(Menu_Item*)push_bytes(menu, Menu_Item.sizeof);
+    auto result = &menu.items[menu.items_count++];
     clear_to_zero(*result);
     result.type = type;
     return result;
@@ -250,7 +244,67 @@ Menu_Event menu_handle_event(Menu* menu, Event* event){
     return result;
 }
 
-private Font* get_font(Menu* menu, Menu_Item_Type type){
+void update_menu(Menu* menu, Rect canvas){
+    // TODO: Only run the layout algorithm if the canvas position or size has changed
+    // since the last update.
+    do_layout(menu, canvas);
+
+    /+
+    for(auto iter = iterate(menu); iterate_next(&iter);){
+        auto entry = &iter.entry;
+    }+/
+}
+
+void render_menu(Render_Passes* rp, Menu* menu, float time){
+    Vec4[2] block_colors = [Vec4(1, 1, 1, 1), Vec4(0, 0, 0, 1)];
+    foreach(block_index, ref block; menu.blocks[0 .. menu.blocks_count]){
+        auto color = block_colors[block_index % block_colors.length];
+
+        auto bounds = rect_from_min_max(Vec2(0, block.end_y), Vec2(1920, block.start_y));
+        render_rect(rp.hud_text, bounds, color);
+    }
+
+    foreach(entry_index, ref entry; menu.items[0 .. menu.items_count]){
+        auto font = get_font(menu, entry.type);
+        auto p = center_text(font, entry.text, entry.bounds);
+
+        auto color = Vec4(1, 1, 1, 1);
+        if(entry_index == menu.hover_item_index){
+            float t = fabs(0.8f*cos(0.5f*time*TAU));
+            color = lerp(Vec4(1, 0, 0, 1), Vec4(1, 1, 1, 1), t);
+        }
+
+        render_text(rp.hud_text, font, p, entry.text, color);
+    }
+}
+
+////
+//
+private:
+//
+////
+
+/+
+void[] push_command_bytes(Menu* menu, size_t bytes){
+    auto result = menu.command_memory[menu.command_memory_used .. menu.command_memory_used + bytes];
+    menu.command_memory_used += bytes;
+    return result;
+}
+
+void push_command(Menu* menu, Menu_Command_Type type, uint value){
+    auto cmd  = cast(Menu_Command*)push_command_bytes(menu, Menu_Command.sizeof);
+    cmd.type  = type;
+    cmd.value = value;
+}+/
+
+/+
+void push_layout_command(Menu* menu, Menu_Command_Type type, Layout[] layout){
+    push_command(menu, type, cast(uint)layout.length);
+    auto dest = cast(Layout[])push_command_bytes(menu, layout.length*Layout.sizeof);
+    copy(layout, dest);
+}+/
+
+Font* get_font(Menu* menu, Menu_Item_Type type){
     Font* font;
     switch(type){
         default: assert(0);
@@ -261,13 +315,47 @@ private Font* get_font(Menu* menu, Menu_Item_Type type){
     return font;
 }
 
-private void do_layout(Menu* menu, Rect canvas){
-    enum Margin = 4.0f;
+/+
+Row* push_row(Menu* menu){
+    Row* result = &menu.row_layouts[menu.row_layouts_count++];
+    clear_to_zero(*result);
+    return result;
+}+/
 
-    float get_item_height(Menu* menu, Menu_Item* item){
-        auto font = get_font(menu, item.type);
-        auto result = Margin + font.metrics.height;
-        return result;
+float get_item_height(Menu* menu, Menu_Item* item){
+    auto font = get_font(menu, item.type);
+    auto result = font.metrics.height; // TODO: Add padding?
+    return result;
+}
+
+void do_layout(Menu* menu, Rect canvas){
+    enum Margin = 4.0f;
+    auto canvas_height = height(canvas);
+
+    uint item_index = 0;
+    foreach(ref block; menu.blocks[0 .. menu.blocks_count]){
+        auto items   = menu.items[item_index .. block.items_end];
+
+        float total_height = 0.0f;
+        foreach(ref item; items){
+            auto height = get_item_height(menu, &item);
+            item.bounds.extents.y = 0.5f*height; // TODO: Include padding
+            total_height += height;
+        }
+
+        assert(block.height > 0 && block.height <= 1);
+        auto block_height = canvas_height*block.height;
+
+        auto pen_y = floor(top(canvas) - (block_height - total_height)*0.5f);
+        block.start_y = pen_y;
+        block.end_y  = pen_y - block_height;
+        foreach(ref item; items){
+            item.bounds.center.x = canvas.center.x;
+            item.bounds.center.y = pen_y - item.bounds.extents.y; // TODO: Add margins?
+            pen_y = floor(pen_y - height(item.bounds));
+        }
+
+        item_index = block.items_end;
     }
 
     /+
@@ -299,43 +387,3 @@ private void do_layout(Menu* menu, Rect canvas){
     }+/
 }
 
-void update_menu(Menu* menu, Rect canvas){
-    // TODO: Only run the layout algorithm if the canvas position or size has changed
-    // since the last update.
-    //do_layout(menu, canvas);
-
-    for(auto iter = iterate(menu); iterate_next(&iter);){
-        auto entry = &iter.entry;
-    }
-}
-
-void render_menu(Render_Passes* rp, Menu* menu, float time){
-    foreach(entry_index, ref entry; menu.items[0 .. menu.items_count]){
-        auto font = get_font(menu, entry.type);
-        auto p = center_text(font, entry.text, entry.bounds);
-
-        auto color = Vec4(1, 1, 1, 1);
-        if(entry_index == menu.hover_item_index){
-            float t = fabs(0.8f*cos(0.5f*time*TAU));
-            color = lerp(Vec4(1, 0, 0, 1), Vec4(1, 1, 1, 1), t);
-        }
-
-        render_text(rp.hud_text, font, p, entry.text, color);
-    }
-}
-
-void push_header(Menu* menu, Menu_Entry_Type type){
-    auto header = cast(Menu_Entry_Header*)menu.memory[menu.memory_used .. $];
-    menu.memory_used += Menu_Entry_Header.sizeof;
-    header.type = type;
-    header.size = 0;
-    menu.last_header = header;
-}
-
-void[] push_bytes(Menu* menu, size_t bytes){
-    assert(menu.last_header);
-    void[] result = menu.memory[menu.memory_used .. menu.memory_used + bytes];
-    menu.memory_used += bytes;
-    menu.last_header.size += bytes;
-    return result;
-}
