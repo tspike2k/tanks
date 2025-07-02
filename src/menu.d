@@ -102,6 +102,7 @@ void begin_menu_def(Menu* menu, Menu_ID menu_id){
     menu.blocks_count = 0;
     menu.items_count  = 0;
     menu.hover_item_index = Null_Menu_Index;
+    menu.hover_item_index = get_next_hover_index(menu);
     menu.current_menu_id = menu_id;
 
     //auto row = push_row(menu);
@@ -179,7 +180,6 @@ void add_button(Menu* menu, String text, Menu_Action action, Menu_ID target_menu
 
 uint get_prev_hover_index(Menu* menu){
     auto result = menu.hover_item_index;
-    /+
     auto start = result == Null_Menu_Index ? 0 : result;
     foreach(i; 0 .. menu.items_count){
         auto index = (start - i - 1 + menu.items_count) % menu.items_count;
@@ -188,13 +188,12 @@ uint get_prev_hover_index(Menu* menu){
             result = index;
             break;
         }
-    }+/
+    }
     return result;
 }
 
 uint get_next_hover_index(Menu* menu){
     auto result = menu.hover_item_index;
-    /+
     auto start = result == Null_Menu_Index ? 0 : result;
     foreach(i; 0 .. menu.items_count){
         auto index = (start + i + 1) % menu.items_count;
@@ -203,7 +202,7 @@ uint get_next_hover_index(Menu* menu){
             result = index;
             break;
         }
-    }+/
+    }
     return result;
 }
 
@@ -335,6 +334,8 @@ void do_layout(Menu* menu, Rect canvas){
     auto canvas_height = height(canvas);
 
     uint item_index = 0;
+    float pen_y = top(canvas);
+
     foreach(ref block; menu.blocks[0 .. menu.blocks_count]){
         auto items   = menu.items[item_index .. block.items_end];
 
@@ -348,15 +349,17 @@ void do_layout(Menu* menu, Rect canvas){
 
         assert(block.height > 0 && block.height <= 1);
         auto block_height = canvas_height*block.height;
+        auto block_end = pen_y - block_height;
 
-        block.start_y = top(canvas);
+        block.start_y = pen_y;
         block.end_y = block.start_y - block_height;
-        auto pen_y = floor(top(canvas) - (block_height - total_height)*0.5f);
+        pen_y = floor(pen_y - (block_height - total_height)*0.5f);
         foreach(ref item; items){
             item.bounds.center.x = canvas.center.x;
             item.bounds.center.y = pen_y - item.bounds.extents.y; // TODO: Add margins?
             pen_y = floor(pen_y - height(item.bounds));
         }
+        pen_y = block_end;
 
         item_index = block.items_end;
     }

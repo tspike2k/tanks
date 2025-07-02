@@ -1331,11 +1331,10 @@ void change_to_menu(Menu* menu, Menu_ID menu_id){
             begin_block(menu, 0.40f);
             add_title(menu, "Tanks!");
             end_block(menu);
-            /+
             begin_block(menu, 0.60f);
             add_button(menu, "Campaign", Menu_Action.Change_Menu, Menu_ID.Campaign);
             add_button(menu, "Quit", Menu_Action.Quit_Game, Menu_ID.None);
-            end_block(menu);+/
+            end_block(menu);
             end_menu_def(menu);
         } break;
 
