@@ -65,13 +65,6 @@ struct Menu_Item{
     Menu_ID     target_menu;
 }
 
-/+
-struct Row{
-    uint     aligns_count;
-    Align[4] aligns;
-    uint     items_end;
-}+/
-
 struct Block{
     // TODO: Add vertical alignment? We probably won't ever use that.
     float height;
@@ -94,30 +87,18 @@ struct Menu{
     Menu_Item[32] items;
     uint          blocks_count;
     Block[8]      blocks;
-    //uint          row_layouts_count;
-    //Row[16]       row_layouts;
 }
 
 void begin_menu_def(Menu* menu, Menu_ID menu_id){
     menu.blocks_count = 0;
     menu.items_count  = 0;
-    menu.hover_item_index = Null_Menu_Index;
-    menu.hover_item_index = get_next_hover_index(menu);
     menu.current_menu_id = menu_id;
-
-    //auto row = push_row(menu);
-    //row.aligns[row.aligns_count++] = Layout(Align.Center, 0);
 }
 
 void end_menu_def(Menu* menu){
     // Find the first interactive item and set the hover_item_index to it's slot.
-    /+
-    foreach(item_index, ref item; menu.items[0 .. menu.items_count]){
-        if(item.type == Menu_Item_Type.Button){
-            menu.hover_item_index = cast(uint)item_index;
-            break;
-        }
-    }+/
+    menu.hover_item_index = Null_Menu_Index;
+    menu.hover_item_index = get_next_hover_index(menu);
 }
 
 enum Menu_Command_Type : uint{
@@ -144,16 +125,6 @@ void end_block(Menu* menu){
     block.items_end = menu.items_count;
 }
 
-/+
-void begin_horizontal_layout(Menu* menu, Layout layout){
-    auto array = (&layout)[0 .. 1];
-    push_layout_command(menu, Menu_Command_Type.Horizontal_Layout_Begin, array);
-}
-
-void end_horizontal_layout(Menu* menu){
-    push_command(menu, Menu_Command_Type.Horizontal_Layout_End, 0);
-}
-+/
 Menu_Item* add_menu_item(Menu* menu, Menu_Item_Type type){
     auto result = &menu.items[menu.items_count++];
     clear_to_zero(*result);
@@ -247,11 +218,6 @@ void update_menu(Menu* menu, Rect canvas){
     // TODO: Only run the layout algorithm if the canvas position or size has changed
     // since the last update.
     do_layout(menu, canvas);
-
-    /+
-    for(auto iter = iterate(menu); iterate_next(&iter);){
-        auto entry = &iter.entry;
-    }+/
 }
 
 void render_menu(Render_Passes* rp, Menu* menu, float time){
@@ -284,26 +250,6 @@ private:
 //
 ////
 
-/+
-void[] push_command_bytes(Menu* menu, size_t bytes){
-    auto result = menu.command_memory[menu.command_memory_used .. menu.command_memory_used + bytes];
-    menu.command_memory_used += bytes;
-    return result;
-}
-
-void push_command(Menu* menu, Menu_Command_Type type, uint value){
-    auto cmd  = cast(Menu_Command*)push_command_bytes(menu, Menu_Command.sizeof);
-    cmd.type  = type;
-    cmd.value = value;
-}+/
-
-/+
-void push_layout_command(Menu* menu, Menu_Command_Type type, Layout[] layout){
-    push_command(menu, type, cast(uint)layout.length);
-    auto dest = cast(Layout[])push_command_bytes(menu, layout.length*Layout.sizeof);
-    copy(layout, dest);
-}+/
-
 Font* get_font(Menu* menu, Menu_Item_Type type){
     Font* font;
     switch(type){
@@ -315,13 +261,6 @@ Font* get_font(Menu* menu, Menu_Item_Type type){
     return font;
 }
 
-/+
-Row* push_row(Menu* menu){
-    Row* result = &menu.row_layouts[menu.row_layouts_count++];
-    clear_to_zero(*result);
-    return result;
-}+/
-
 float get_item_height(Menu* menu, Menu_Item* item){
     auto font = get_font(menu, item.type);
     auto result = font.metrics.height; // TODO: Add padding?
@@ -330,66 +269,43 @@ float get_item_height(Menu* menu, Menu_Item* item){
 
 void do_layout(Menu* menu, Rect canvas){
     enum Margin = 4.0f;
+    enum Padding = 4.0f;
     auto canvas_width  = width(canvas);
     auto canvas_height = height(canvas);
+    auto canvas_left   = left(canvas);
 
     uint item_index = 0;
-    float pen_y = top(canvas);
-
+    float block_pen_y = top(canvas);
     foreach(ref block; menu.blocks[0 .. menu.blocks_count]){
         auto items   = menu.items[item_index .. block.items_end];
 
         float total_height = 0.0f;
+        float item_pen_y = 0;
         foreach(ref item; items){
             auto height = get_item_height(menu, &item);
-            item.bounds.extents.y = 0.5f*height; // TODO: Include padding
-            item.bounds.extents.x = 0.5f*canvas_width; // TODO: Base this on text width or, in the case of buttons, target width
-            total_height += height;
+            auto width  = canvas_width; // TODO: Base this on text width or, in the case of buttons, target width
+            auto extents = Vec2(0.5f*width, 0.5f*(height+Padding*2.0f));
+            auto center  = Vec2(0.5f*canvas_width, item_pen_y - extents.y);
+            item.bounds = Rect(center, extents);
+            total_height += height + Margin;
+            item_pen_y -= extents.y - Margin;
         }
 
         assert(block.height > 0 && block.height <= 1);
         auto block_height = canvas_height*block.height;
-        auto block_end = pen_y - block_height;
+        auto block_end = block_pen_y - block_height;
 
-        block.start_y = pen_y;
-        block.end_y = block.start_y - block_height;
-        pen_y = floor(pen_y - (block_height - total_height)*0.5f);
+        // Debug values
+        block.start_y = block_pen_y;
+        block.end_y   = block_end;
+
+        auto block_offset = Vec2(canvas_left, block_pen_y - (block_height - total_height)*0.5f);
+        block_pen_y = block_end;
         foreach(ref item; items){
-            item.bounds.center.x = canvas.center.x;
-            item.bounds.center.y = pen_y - item.bounds.extents.y; // TODO: Add margins?
-            pen_y = floor(pen_y - height(item.bounds));
+            item.bounds.center = floor(item.bounds.center + block_offset);
         }
-        pen_y = block_end;
 
         item_index = block.items_end;
     }
-
-    /+
-    auto pen = Vec2(canvas.center.x, top(canvas));
-    auto canvas_width  = width(canvas);
-    auto canvas_height = height(canvas);
-    foreach(ref container; menu.containers[0 .. menu.containers_count]){
-        float items_height = 0;
-        foreach(ref item; container.items){
-            // TODO: Include item margins.
-            items_height += get_item_height(menu, &item);
-        }
-
-        assert(container.target_h > 0.0f && container.target_h <= 1.0f);
-        float height = floor(canvas_height*container.target_h);
-        auto spacer_y = 0.5f*(height - items_height);
-        pen.y -= spacer_y;
-
-        foreach(ref item; container.items){
-            auto item_h = get_item_height(menu, &item);
-            item.bounds = Rect(
-                Vec2(pen.x, pen.y - item_h*0.5f),
-                Vec2(canvas.extents.x, item_h*0.5f)
-            );
-            pen.y -= item_h;
-        }
-
-        pen.y -= spacer_y;
-    }+/
 }
 
