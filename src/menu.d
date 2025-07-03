@@ -268,8 +268,8 @@ float get_item_height(Menu* menu, Menu_Item* item){
 }
 
 void do_layout(Menu* menu, Rect canvas){
-    enum Margin = 4.0f;
-    enum Padding = 4.0f;
+    enum Margin = 8.0f;
+    enum Padding = 8.0f;
     auto canvas_width  = width(canvas);
     auto canvas_height = height(canvas);
     auto canvas_left   = left(canvas);
@@ -288,7 +288,7 @@ void do_layout(Menu* menu, Rect canvas){
             auto center  = Vec2(0.5f*canvas_width, item_pen_y - extents.y);
             item.bounds = Rect(center, extents);
             total_height += height + Margin;
-            item_pen_y -= extents.y - Margin;
+            item_pen_y -= extents.y + Margin;
         }
 
         assert(block.height > 0 && block.height <= 1);
