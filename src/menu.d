@@ -116,8 +116,8 @@ void begin_menu_def(Menu* menu, Menu_ID menu_id){
     auto default_group = &menu.style_groups[0];
     clear_to_zero(*default_group);
     default_group.style_end = 1;
-    //menu.styles[0] = Style(0, Align.Center);
-    menu.styles[0] = Style(0.5f, Align.Right);
+    //menu.styles[0] = Style(0.5f, Align.Right);
+    menu.styles[0] = Style(0, Align.Center);
 }
 
 void end_menu_def(Menu* menu){
@@ -181,7 +181,7 @@ void add_button(Menu* menu, String text, Menu_Action action, Menu_ID target_menu
     entry.target_menu = target_menu;
 }
 
-void set_style(Menu* menu, Style[] style){
+void set_style(Menu* menu, const Style[] style){
     // Mark the end of the previous group
     auto group = &menu.style_groups[menu.style_groups_count-1];
     group.items_end = menu.items_count;
@@ -323,26 +323,34 @@ void do_layout(Menu* menu, Rect canvas){
     uint item_index = 0;
     float block_pen_y = top(canvas);
 
+    auto style_group_index = 0;
+    auto style_groups = menu.style_groups[0 .. menu.style_groups_count];
+
+    auto style_group = &style_groups[style_group_index++];
+    auto styles = menu.styles[style_group.style_offset .. style_group.style_end];
+
     foreach(ref block; menu.blocks[0 .. menu.blocks_count]){
         auto items   = menu.items[item_index .. block.items_end];
         if(items.length > 0){
             float total_height = 0.0f;
             float item_pen_y = 0;
 
-            auto style_group = &menu.style_groups[0];
             uint column = 0;
             auto pen_x  = 0;
             foreach(i, ref item; items){
-                auto styles = menu.styles[style_group.style_offset .. style_group.style_end];
-                auto style  = &styles[column];
-
                 auto bounds = &item.bounds;
                 auto width  = width(*bounds);
                 auto height = height(*bounds);
 
+                if(item_index + i >= style_group.items_end){
+                    style_group = &style_groups[style_group_index++];
+                    styles = menu.styles[style_group.style_offset .. style_group.style_end];
+                }
+                auto style = &styles[column];
+
                 float target_width = (canvas_width - pen_x);
                 if(style.size != 0.0f){
-                    target_width *= style.size;
+                    target_width = canvas_width*style.size;
                 }
 
                 float center_x = void;
@@ -363,15 +371,16 @@ void do_layout(Menu* menu, Rect canvas){
                 }
 
                 bounds.center = Vec2(center_x, item_pen_y - bounds.extents.y);
+                pen_x += target_width;
 
                 column++;
                 if(column >= styles.length){
                     column = 0;
                     pen_x  = 0;
-                }
 
-                total_height += height;
-                item_pen_y -= (height + Margin);
+                   total_height += height;
+                    item_pen_y -= (height + Margin);
+                }
             }
             total_height += Margin*(cast(float)items.length-1);
 
