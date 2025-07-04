@@ -124,8 +124,8 @@ void end_menu_def(Menu* menu){
     // Find the first interactive item and set the hover_item_index to it's slot.
     menu.hover_item_index = Null_Menu_Index;
     menu.hover_item_index = get_next_hover_index(menu);
-    auto last_group = &menu.style_groups[menu.style_groups_count-1];
-    last_group.items_end = menu.items_count;
+
+    end_current_style_group(menu);
 }
 
 enum Menu_Command_Type : uint{
@@ -183,17 +183,25 @@ void add_button(Menu* menu, String text, Menu_Action action, Menu_ID target_menu
 
 void set_style(Menu* menu, const Style[] style){
     // Mark the end of the previous group
-    auto group = &menu.style_groups[menu.style_groups_count-1];
-    group.items_end = menu.items_count;
+    end_current_style_group(menu);
 
     // Begin a new group
-    group = &menu.style_groups[menu.style_groups_count++];
+    auto group = &menu.style_groups[menu.style_groups_count++];
     clear_to_zero(*group);
     group.style_offset = menu.styles_count;
     group.style_end    = group.style_offset + cast(uint)style.length;
 
     auto dest_style = menu.styles[menu.styles_count .. menu.styles_count + style.length];
     copy(style, dest_style);
+}
+
+void set_default_style(Menu* menu){
+    // Mark the end of the previous group
+    end_current_style_group(menu);
+
+    auto group = &menu.style_groups[menu.style_groups_count++];
+    clear_to_zero(*group);
+    group.style_end = 1; // Point to the first style element, the default style.
 }
 
 uint get_prev_hover_index(Menu* menu){
@@ -337,10 +345,12 @@ void do_layout(Menu* menu, Rect canvas){
 
             uint column = 0;
             auto pen_x  = 0;
+            float max_height = 0.0f;
             foreach(i, ref item; items){
                 auto bounds = &item.bounds;
                 auto width  = width(*bounds);
                 auto height = height(*bounds);
+                max_height = max(height, max_height);
 
                 if(item_index + i >= style_group.items_end){
                     style_group = &style_groups[style_group_index++];
@@ -375,11 +385,12 @@ void do_layout(Menu* menu, Rect canvas){
 
                 column++;
                 if(column >= styles.length){
+                    total_height += max_height;
+                    item_pen_y -= (max_height + Margin);
+
                     column = 0;
                     pen_x  = 0;
-
-                   total_height += height;
-                    item_pen_y -= (height + Margin);
+                    max_height = 0.0f;
                 }
             }
             total_height += Margin*(cast(float)items.length-1);
@@ -403,3 +414,7 @@ void do_layout(Menu* menu, Rect canvas){
     }
 }
 
+void end_current_style_group(Menu* menu){
+    auto group = &menu.style_groups[menu.style_groups_count-1];
+    group.items_end = menu.items_count;
+}

@@ -1344,10 +1344,9 @@ void change_to_menu(Menu* menu, Menu_ID menu_id){
             add_heading(menu, "Campaign");
             end_block(menu);
             begin_block(menu, 0.8f);
-            immutable row_style = [Style(0.5f, Align.Right), Style(0.5f, Align.Left)];
+            immutable row_style = [Style(0.5f, Align.Right), Style(0.5f, Align.Left)]; // We have to use immutable so D doesn't try to use the GC
             set_style(menu, row_style[]);
-
-            add_button(menu, "Item A", Menu_Action.None, Menu_ID.None);
+            add_heading(menu, "Test:");
             add_button(menu, "Item B", Menu_Action.None, Menu_ID.None);
             add_button(menu, "Item A", Menu_Action.None, Menu_ID.None);
             add_button(menu, "Item B", Menu_Action.None, Menu_ID.None);
@@ -1356,7 +1355,7 @@ void change_to_menu(Menu* menu, Menu_ID menu_id){
             // TODO: We want to be able to select the campaign and the variant from here. This
             // will require a way to select an index. Should be interesting!
             //add_index_picker(menu, "Variant", )
-            //set_default_style(menu);
+            set_default_style(menu);
             add_button(menu, "Back", Menu_Action.Change_Menu, Menu_ID.Main_Menu);
             end_block(menu);
             end_menu_def(menu);
