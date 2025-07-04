@@ -65,6 +65,18 @@ struct Menu_Item{
     Menu_ID     target_menu;
 }
 
+struct Style_Group{
+    uint items_end;
+
+    uint style_offset;
+    uint style_end;
+}
+
+struct Style{
+    float size;
+    Align alignment;
+}
+
 struct Block{
     // TODO: Add vertical alignment? We probably won't ever use that.
     float height;
@@ -82,23 +94,38 @@ struct Menu{
 
     Menu_ID current_menu_id;
 
-    uint          hover_item_index;
-    uint          items_count;
-    Menu_Item[32] items;
-    uint          blocks_count;
-    Block[8]      blocks;
+    uint           hover_item_index;
+    uint           items_count;
+    Menu_Item[32]  items;
+    uint           blocks_count;
+    Block[8]       blocks;
+    uint           style_groups_count;
+    Style_Group[8] style_groups;
+    uint           styles_count;
+    Style[32]      styles;
 }
 
 void begin_menu_def(Menu* menu, Menu_ID menu_id){
     menu.blocks_count = 0;
     menu.items_count  = 0;
     menu.current_menu_id = menu_id;
+
+    menu.style_groups_count = 1;
+    menu.styles_count       = 1;
+
+    auto default_group = &menu.style_groups[0];
+    clear_to_zero(*default_group);
+    default_group.style_end = 1;
+    //menu.styles[0] = Style(0, Align.Center);
+    menu.styles[0] = Style(0.5f, Align.Right);
 }
 
 void end_menu_def(Menu* menu){
     // Find the first interactive item and set the hover_item_index to it's slot.
     menu.hover_item_index = Null_Menu_Index;
     menu.hover_item_index = get_next_hover_index(menu);
+    auto last_group = &menu.style_groups[menu.style_groups_count-1];
+    last_group.items_end = menu.items_count;
 }
 
 enum Menu_Command_Type : uint{
@@ -125,28 +152,48 @@ void end_block(Menu* menu){
     block.items_end = menu.items_count;
 }
 
-Menu_Item* add_menu_item(Menu* menu, Menu_Item_Type type){
+Menu_Item* add_menu_item(Menu* menu, Menu_Item_Type type, String text){
     auto result = &menu.items[menu.items_count++];
     clear_to_zero(*result);
     result.type = type;
+
+    enum Padding = 8.0f;
+    auto font   = get_font(menu, result.type);
+    auto width  = get_text_width(font, text) + Padding*2.0f; // TODO: Base this on text width or, in the case of buttons, target width
+    auto height = (cast(float)font.metrics.height) + Padding*2.0f;
+    result.bounds.extents = 0.5f*Vec2(width, height);
+    result.text = text;
+
     return result;
 }
 
 void add_title(Menu* menu, String text){
-    auto entry = add_menu_item(menu, Menu_Item_Type.Title);
-    entry.text = text;
+    auto entry = add_menu_item(menu, Menu_Item_Type.Title, text);
 }
 
 void add_heading(Menu* menu, String text){
-    auto entry = add_menu_item(menu, Menu_Item_Type.Heading);
-    entry.text = text;
+    auto entry = add_menu_item(menu, Menu_Item_Type.Heading, text);
 }
 
 void add_button(Menu* menu, String text, Menu_Action action, Menu_ID target_menu){
-    auto entry = add_menu_item(menu, Menu_Item_Type.Button);
-    entry.text = text;
+    auto entry = add_menu_item(menu, Menu_Item_Type.Button, text);
     entry.action = action;
     entry.target_menu = target_menu;
+}
+
+void set_style(Menu* menu, Style[] style){
+    // Mark the end of the previous group
+    auto group = &menu.style_groups[menu.style_groups_count-1];
+    group.items_end = menu.items_count;
+
+    // Begin a new group
+    group = &menu.style_groups[menu.style_groups_count++];
+    clear_to_zero(*group);
+    group.style_offset = menu.styles_count;
+    group.style_end    = group.style_offset + cast(uint)style.length;
+
+    auto dest_style = menu.styles[menu.styles_count .. menu.styles_count + style.length];
+    copy(style, dest_style);
 }
 
 uint get_prev_hover_index(Menu* menu){
@@ -269,40 +316,78 @@ float get_item_height(Menu* menu, Menu_Item* item){
 
 void do_layout(Menu* menu, Rect canvas){
     enum Margin = 8.0f;
-    enum Padding = 8.0f;
     auto canvas_width  = width(canvas);
     auto canvas_height = height(canvas);
     auto canvas_left   = left(canvas);
 
     uint item_index = 0;
     float block_pen_y = top(canvas);
+
     foreach(ref block; menu.blocks[0 .. menu.blocks_count]){
         auto items   = menu.items[item_index .. block.items_end];
+        if(items.length > 0){
+            float total_height = 0.0f;
+            float item_pen_y = 0;
 
-        float total_height = 0.0f;
-        float item_pen_y = 0;
-        foreach(ref item; items){
-            auto height = get_item_height(menu, &item);
-            auto width  = canvas_width; // TODO: Base this on text width or, in the case of buttons, target width
-            auto extents = Vec2(0.5f*width, 0.5f*(height+Padding*2.0f));
-            auto center  = Vec2(0.5f*canvas_width, item_pen_y - extents.y);
-            item.bounds = Rect(center, extents);
-            total_height += height + Margin;
-            item_pen_y -= extents.y + Margin;
-        }
+            auto style_group = &menu.style_groups[0];
+            uint column = 0;
+            auto pen_x  = 0;
+            foreach(i, ref item; items){
+                auto styles = menu.styles[style_group.style_offset .. style_group.style_end];
+                auto style  = &styles[column];
 
-        assert(block.height > 0 && block.height <= 1);
-        auto block_height = canvas_height*block.height;
-        auto block_end = block_pen_y - block_height;
+                auto bounds = &item.bounds;
+                auto width  = width(*bounds);
+                auto height = height(*bounds);
 
-        // Debug values
-        block.start_y = block_pen_y;
-        block.end_y   = block_end;
+                float target_width = (canvas_width - pen_x);
+                if(style.size != 0.0f){
+                    target_width *= style.size;
+                }
 
-        auto block_offset = Vec2(canvas_left, block_pen_y - (block_height - total_height)*0.5f);
-        block_pen_y = block_end;
-        foreach(ref item; items){
-            item.bounds.center = floor(item.bounds.center + block_offset);
+                float center_x = void;
+                switch(style.alignment){
+                    default: assert(0);
+
+                    case Align.Center:{
+                        center_x = pen_x + target_width*0.5f;
+                    } break;
+
+                    case Align.Right:{
+                        center_x = pen_x + target_width - width*0.5f - Margin;
+                    } break;
+
+                    case Align.Left:{
+                        center_x = pen_x + width*0.5f + Margin;
+                    } break;
+                }
+
+                bounds.center = Vec2(center_x, item_pen_y - bounds.extents.y);
+
+                column++;
+                if(column >= styles.length){
+                    column = 0;
+                    pen_x  = 0;
+                }
+
+                total_height += height;
+                item_pen_y -= (height + Margin);
+            }
+            total_height += Margin*(cast(float)items.length-1);
+
+            assert(block.height > 0 && block.height <= 1);
+            auto block_height = canvas_height*block.height;
+            auto block_end = block_pen_y - block_height;
+
+            // Debug values
+            block.start_y = block_pen_y;
+            block.end_y   = block_end;
+
+            auto block_offset = Vec2(canvas_left, block_pen_y - (block_height - total_height)*0.5f);
+            block_pen_y = block_end;
+            foreach(ref item; items){
+                item.bounds.center = floor(item.bounds.center + block_offset);
+            }
         }
 
         item_index = block.items_end;
