@@ -231,6 +231,7 @@ struct App_State{
     Session   session;
 
     Menu      menu;
+    Menu_ID   next_menu_id;
     Gui_State gui;
     Font font_main;
     Font font_editor_small;
@@ -1321,7 +1322,14 @@ Tread_Particle[] get_visible_tread_particles(App_State* s){
 }
 
 void change_to_menu(App_State* s, Menu* menu, Menu_ID menu_id){
-    if(menu.current_menu_id == menu_id) return;
+    s.next_menu_id = menu_id;
+}
+
+void menu_simulate(App_State* s, float dt){
+    auto menu = &s.menu;
+
+    auto menu_id = s.next_menu_id;
+    bool menu_changed = menu.current_menu_id != menu_id;
 
     switch(menu_id){
         default: break;
@@ -1329,40 +1337,49 @@ void change_to_menu(App_State* s, Menu* menu, Menu_ID menu_id){
         case Menu_ID.None: assert(0);
 
         case Menu_ID.Main_Menu:{
-            begin_menu_def(menu, menu_id);
-            begin_block(menu, 0.40f);
-            add_title(menu, "Tanks!");
-            end_block(menu);
-            begin_block(menu, 0.60f);
-            add_button(menu, "Campaign", Menu_Action.Change_Menu, Menu_ID.Campaign);
-            add_button(menu, "Quit", Menu_Action.Quit_Game, Menu_ID.None);
-            end_block(menu);
-            end_menu_def(menu);
+            if(menu_changed){
+                begin_menu_def(menu, menu_id);
+                begin_block(menu, 0.40f);
+                add_title(menu, "Tanks!");
+                end_block(menu);
+                begin_block(menu, 0.60f);
+                add_button(menu, "Campaign", Menu_Action.Change_Menu, Menu_ID.Campaign);
+                add_button(menu, "Quit", Menu_Action.Quit_Game, Menu_ID.None);
+                end_block(menu);
+                end_menu_def(menu);
+            }
         } break;
 
         case Menu_ID.Campaign:{
-            begin_menu_def(menu, menu_id);
-            begin_block(menu, 0.2f);
-            add_heading(menu, "Campaign");
-            end_block(menu);
-            begin_block(menu, 0.8f);
-            immutable row_style = [Style(0.5f, Align.Right), Style(0.5f, Align.Left)]; // We have to use immutable so D doesn't try to use the GC
-            set_style(menu, row_style[]);
-            //add_label(menu, "Test:");
-            add_index_picker(menu, &s.test_index, 20, "Variant");
-            add_label(menu, "Value: ");
-            // TODO: We want to be able to select the campaign and the variant from here. This
-            // will require a way to select an index. Should be interesting!
-            //add_index_picker(menu, "Variant", )
-            set_default_style(menu);
-            add_button(menu, "Back", Menu_Action.Change_Menu, Menu_ID.Main_Menu);
-            end_block(menu);
-            end_menu_def(menu);
+            enum Variant_Label_Index = 2;
+
+            auto campaign = &s.campaign;
+            auto variant  = &campaign.variants[s.session.variant_index];
+            if(menu_changed){
+
+                begin_menu_def(menu, menu_id);
+                begin_block(menu, 0.2f);
+                add_heading(menu, "Campaign");
+                end_block(menu);
+                begin_block(menu, 0.8f);
+                immutable row_style = [Style(0.5f, Align.Right), Style(0.5f, Align.Left)]; // We have to use immutable so D doesn't try to use the GC
+                set_style(menu, row_style[]);
+                //add_label(menu, "Test:");
+                add_index_picker(menu, &s.session.variant_index, cast(uint)campaign.variants.length, "Variant");
+                auto variant_label_index = add_label(menu, "");
+                assert(variant_label_index == Variant_Label_Index);
+                // TODO: We want to be able to select the campaign and the variant from here. This
+                // will require a way to select an index. Should be interesting!
+                //add_index_picker(menu, "Variant", )
+                set_default_style(menu);
+                add_button(menu, "Back", Menu_Action.Change_Menu, Menu_ID.Main_Menu);
+                end_block(menu);
+                end_menu_def(menu);
+            }
+
+            set_text(menu, &menu.items[Variant_Label_Index], variant.name);
         } break;
     }
-
-    menu.hover_item_index = Null_Menu_Index;
-    menu.hover_item_index = get_next_hover_index(menu);
 }
 
 void campaign_simulate(App_State* s, Player_Input* player_input, float dt){
@@ -1744,7 +1761,8 @@ extern(C) int main(int args_count, char** args){
                         }
                     }
                 }
-                menu_update(&s.menu, window_bounds);
+                menu_simulate(s, dt);
+                menu_do_layout(&s.menu, window_bounds);
             } break;
 
             case Game_Mode.Campaign:{
@@ -1784,8 +1802,6 @@ extern(C) int main(int args_count, char** args){
         render_passes.hud_text  = add_render_pass(&hud_camera);
         set_shader(render_passes.hud_text, &s.text_shader);
         render_passes.hud_text.flags = Render_Flag_Disable_Depth_Test;
-
-        log("index: {0}\n", s.test_index);
 
         final switch(s.mode){
             case Game_Mode.None: assert(0);

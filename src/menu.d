@@ -161,23 +161,27 @@ Menu_Item* add_menu_item(Menu* menu, Menu_Item_Type type, String text){
     auto result = &menu.items[menu.items_count++];
     clear_to_zero(*result);
     result.type = type;
+    set_text(menu, result, text);
+    return result;
+}
 
+void set_text(Menu* menu, Menu_Item* item, String text){
     enum Padding = 8.0f;
-    auto font   = get_font(menu, result.type);
+    auto font   = get_font(menu, item.type);
     auto width  = get_text_width(font, text) + Padding*2.0f; // TODO: Base this on text width or, in the case of buttons, target width
     auto height = (cast(float)font.metrics.height) + Padding*2.0f;
-    result.bounds.extents = 0.5f*Vec2(width, height);
-    result.text = text;
-
-    return result;
+    item.bounds.extents = 0.5f*Vec2(width, height);
+    item.text = text;
 }
 
 void add_title(Menu* menu, String text){
     auto entry = add_menu_item(menu, Menu_Item_Type.Title, text);
 }
 
-void add_label(Menu* menu, String text){
+uint add_label(Menu* menu, String text){
+    auto index = menu.items_count;
     auto entry = add_menu_item(menu, Menu_Item_Type.Label, text);
+    return index;
 }
 
 void add_heading(Menu* menu, String text){
@@ -297,89 +301,10 @@ Menu_Event menu_handle_event(Menu* menu, Event* event){
     return result;
 }
 
-void menu_update(Menu* menu, Rect canvas){
+void menu_do_layout(Menu* menu, Rect canvas){
     // TODO: Only run the layout algorithm if the canvas position or size has changed
     // since the last update.
-    do_layout(menu, canvas);
-}
 
-void menu_render(Render_Passes* rp, Menu* menu, float time){
-    Vec4[2] block_colors = [Vec4(0.25f, 0.25f, 0.25f, 1), Vec4(0, 0, 0, 1)];
-    foreach(block_index, ref block; menu.blocks[0 .. menu.blocks_count]){
-        auto color = block_colors[block_index % block_colors.length];
-
-        auto bounds = rect_from_min_max(Vec2(0, block.end_y), Vec2(1920, block.start_y));
-        render_rect(rp.hud_rects, bounds, color);
-    }
-
-    foreach(entry_index, ref entry; menu.items[0 .. menu.items_count]){
-        auto font = get_font(menu, entry.type);
-        auto p = center_text(font, entry.text, entry.bounds);
-
-        auto text_color = Vec4(1, 1, 1, 1);
-        if(entry_index == menu.hover_item_index){
-            float t = fabs(0.8f*cos(0.5f*time*TAU));
-            text_color = lerp(Vec4(1, 0, 0, 1), Vec4(1, 1, 1, 1), t);
-        }
-
-        switch(entry.type){
-            default:{
-                render_text(rp.hud_text, font, p, entry.text, text_color);
-            } break;
-
-            case Menu_Item_Type.Button:{
-                render_rect(rp.hud_rects, entry.bounds, Vec4(0, 1, 0, 1));
-                render_text(rp.hud_text, font, p, entry.text, text_color);
-            } break;
-
-            case Menu_Item_Type.Index_Picker:{
-                render_rect(rp.hud_rects, entry.bounds, Vec4(0, 1, 0, 1));
-                render_text(rp.hud_text, font, p, entry.text, text_color);
-            } break;
-        }
-    }
-}
-
-////
-//
-private:
-//
-////
-
-bool is_interactive(Menu_Item* item){
-    bool result = false;
-
-    // TODO: For flexibility (and support for custom widgets), a bt flag should be used
-    // to state if a menu item is interactive or not. Interactive items are items that can
-    // be navigated to using the keyboard or clicked on using the mouse.
-    switch(item.type){
-        default: break;
-
-        case Menu_Item_Type.Button:
-        case Menu_Item_Type.Index_Picker:
-            result = true; break;
-    }
-
-    return result;
-}
-
-Font* get_font(Menu* menu, Menu_Item_Type type){
-    Font* font;
-    switch(type){
-        default: font = menu.button_font; break;
-        case Menu_Item_Type.Title:   font = menu.title_font; break;
-        case Menu_Item_Type.Heading: font = menu.heading_font; break;
-    }
-    return font;
-}
-
-float get_item_height(Menu* menu, Menu_Item* item){
-    auto font = get_font(menu, item.type);
-    auto result = font.metrics.height; // TODO: Add padding?
-    return result;
-}
-
-void do_layout(Menu* menu, Rect canvas){
     enum Margin = 8.0f;
     auto canvas_width  = width(canvas);
     auto canvas_height = height(canvas);
@@ -470,6 +395,82 @@ void do_layout(Menu* menu, Rect canvas){
 
         item_index = block.items_end;
     }
+}
+
+void menu_render(Render_Passes* rp, Menu* menu, float time){
+    Vec4[2] block_colors = [Vec4(0.25f, 0.25f, 0.25f, 1), Vec4(0, 0, 0, 1)];
+    foreach(block_index, ref block; menu.blocks[0 .. menu.blocks_count]){
+        auto color = block_colors[block_index % block_colors.length];
+
+        auto bounds = rect_from_min_max(Vec2(0, block.end_y), Vec2(1920, block.start_y));
+        render_rect(rp.hud_rects, bounds, color);
+    }
+
+    foreach(entry_index, ref entry; menu.items[0 .. menu.items_count]){
+        auto font = get_font(menu, entry.type);
+        auto p = center_text(font, entry.text, entry.bounds);
+
+        auto text_color = Vec4(1, 1, 1, 1);
+        if(entry_index == menu.hover_item_index){
+            float t = fabs(0.8f*cos(0.5f*time*TAU));
+            text_color = lerp(Vec4(1, 0, 0, 1), Vec4(1, 1, 1, 1), t);
+        }
+
+        switch(entry.type){
+            default:{
+                render_text(rp.hud_text, font, p, entry.text, text_color);
+            } break;
+
+            case Menu_Item_Type.Button:{
+                render_rect(rp.hud_rects, entry.bounds, Vec4(0, 1, 0, 1));
+                render_text(rp.hud_text, font, p, entry.text, text_color);
+            } break;
+
+            case Menu_Item_Type.Index_Picker:{
+                render_rect(rp.hud_rects, entry.bounds, Vec4(0, 1, 0, 1));
+                render_text(rp.hud_text, font, p, entry.text, text_color);
+            } break;
+        }
+    }
+}
+
+////
+//
+private:
+//
+////
+
+bool is_interactive(Menu_Item* item){
+    bool result = false;
+
+    // TODO: For flexibility (and support for custom widgets), a bt flag should be used
+    // to state if a menu item is interactive or not. Interactive items are items that can
+    // be navigated to using the keyboard or clicked on using the mouse.
+    switch(item.type){
+        default: break;
+
+        case Menu_Item_Type.Button:
+        case Menu_Item_Type.Index_Picker:
+            result = true; break;
+    }
+
+    return result;
+}
+
+Font* get_font(Menu* menu, Menu_Item_Type type){
+    Font* font;
+    switch(type){
+        default: font = menu.button_font; break;
+        case Menu_Item_Type.Title:   font = menu.title_font; break;
+        case Menu_Item_Type.Heading: font = menu.heading_font; break;
+    }
+    return font;
+}
+
+float get_item_height(Menu* menu, Menu_Item* item){
+    auto font = get_font(menu, item.type);
+    auto result = font.metrics.height; // TODO: Add padding?
+    return result;
 }
 
 void end_current_style_group(Menu* menu){
