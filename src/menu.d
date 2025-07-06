@@ -29,6 +29,7 @@ enum Menu_Item_Type : uint{
     Label,
     Heading,
     Button,
+    Index_Picker,
 }
 
 enum Menu_Action : uint{
@@ -63,6 +64,10 @@ struct Menu_Item{
     // Data for interactive menu items
     Menu_Action action;
     Menu_ID     target_menu;
+
+    // TODO: This should be part of a union.
+    uint* index;
+    uint  index_max;
 }
 
 struct Style_Group{
@@ -171,6 +176,10 @@ void add_title(Menu* menu, String text){
     auto entry = add_menu_item(menu, Menu_Item_Type.Title, text);
 }
 
+void add_label(Menu* menu, String text){
+    auto entry = add_menu_item(menu, Menu_Item_Type.Label, text);
+}
+
 void add_heading(Menu* menu, String text){
     auto entry = add_menu_item(menu, Menu_Item_Type.Heading, text);
 }
@@ -179,6 +188,12 @@ void add_button(Menu* menu, String text, Menu_Action action, Menu_ID target_menu
     auto entry = add_menu_item(menu, Menu_Item_Type.Button, text);
     entry.action = action;
     entry.target_menu = target_menu;
+}
+
+void add_index_picker(Menu* menu, uint* index, uint index_max, String text){
+    auto entry = add_menu_item(menu, Menu_Item_Type.Index_Picker, text);
+    entry.index     = index;
+    entry.index_max = index_max;
 }
 
 void set_style(Menu* menu, const Style[] style){
@@ -210,7 +225,7 @@ uint get_prev_hover_index(Menu* menu){
     foreach(i; 0 .. menu.items_count){
         auto index = (start - i - 1 + menu.items_count) % menu.items_count;
         auto entry = &menu.items[index];
-        if(entry.type == Menu_Item_Type.Button){
+        if(is_interactive(entry)){
             result = index;
             break;
         }
@@ -224,7 +239,7 @@ uint get_next_hover_index(Menu* menu){
     foreach(i; 0 .. menu.items_count){
         auto index = (start + i + 1) % menu.items_count;
         auto entry = &menu.items[index];
-        if(entry.type == Menu_Item_Type.Button){
+        if(is_interactive(entry)){
             result = index;
             break;
         }
@@ -257,6 +272,19 @@ Menu_Event menu_handle_event(Menu* menu, Event* event){
                         menu.hover_item_index = get_prev_hover_index(menu);
                     } break;
 
+                    case Key_ID_Arrow_Left:
+                    case Key_ID_Arrow_Right:{
+                        if(menu.hover_item_index != Null_Menu_Index){
+                            auto item = &menu.items[menu.hover_item_index];
+                            if(item.type == Menu_Item_Type.Index_Picker){
+                                if(key.id == Key_ID_Arrow_Left)
+                                    index_decr(item.index, item.index_max);
+                                else
+                                    index_incr(item.index, item.index_max);
+                            }
+                        }
+                    } break;
+
                     case Key_ID_Enter:{
                         auto item = menu.items[menu.hover_item_index];
                         result.action = item.action;
@@ -269,13 +297,13 @@ Menu_Event menu_handle_event(Menu* menu, Event* event){
     return result;
 }
 
-void update_menu(Menu* menu, Rect canvas){
+void menu_update(Menu* menu, Rect canvas){
     // TODO: Only run the layout algorithm if the canvas position or size has changed
     // since the last update.
     do_layout(menu, canvas);
 }
 
-void render_menu(Render_Passes* rp, Menu* menu, float time){
+void menu_render(Render_Passes* rp, Menu* menu, float time){
     Vec4[2] block_colors = [Vec4(0.25f, 0.25f, 0.25f, 1), Vec4(0, 0, 0, 1)];
     foreach(block_index, ref block; menu.blocks[0 .. menu.blocks_count]){
         auto color = block_colors[block_index % block_colors.length];
@@ -288,14 +316,27 @@ void render_menu(Render_Passes* rp, Menu* menu, float time){
         auto font = get_font(menu, entry.type);
         auto p = center_text(font, entry.text, entry.bounds);
 
-        auto color = Vec4(1, 1, 1, 1);
+        auto text_color = Vec4(1, 1, 1, 1);
         if(entry_index == menu.hover_item_index){
             float t = fabs(0.8f*cos(0.5f*time*TAU));
-            color = lerp(Vec4(1, 0, 0, 1), Vec4(1, 1, 1, 1), t);
+            text_color = lerp(Vec4(1, 0, 0, 1), Vec4(1, 1, 1, 1), t);
         }
 
-        render_rect(rp.hud_rects, entry.bounds, Vec4(0, 1, 0, 1));
-        render_text(rp.hud_text, font, p, entry.text, color);
+        switch(entry.type){
+            default:{
+                render_text(rp.hud_text, font, p, entry.text, text_color);
+            } break;
+
+            case Menu_Item_Type.Button:{
+                render_rect(rp.hud_rects, entry.bounds, Vec4(0, 1, 0, 1));
+                render_text(rp.hud_text, font, p, entry.text, text_color);
+            } break;
+
+            case Menu_Item_Type.Index_Picker:{
+                render_rect(rp.hud_rects, entry.bounds, Vec4(0, 1, 0, 1));
+                render_text(rp.hud_text, font, p, entry.text, text_color);
+            } break;
+        }
     }
 }
 
@@ -305,13 +346,29 @@ private:
 //
 ////
 
+bool is_interactive(Menu_Item* item){
+    bool result = false;
+
+    // TODO: For flexibility (and support for custom widgets), a bt flag should be used
+    // to state if a menu item is interactive or not. Interactive items are items that can
+    // be navigated to using the keyboard or clicked on using the mouse.
+    switch(item.type){
+        default: break;
+
+        case Menu_Item_Type.Button:
+        case Menu_Item_Type.Index_Picker:
+            result = true; break;
+    }
+
+    return result;
+}
+
 Font* get_font(Menu* menu, Menu_Item_Type type){
     Font* font;
     switch(type){
-        default: assert(0);
+        default: font = menu.button_font; break;
         case Menu_Item_Type.Title:   font = menu.title_font; break;
         case Menu_Item_Type.Heading: font = menu.heading_font; break;
-        case Menu_Item_Type.Button:  font = menu.button_font; break;
     }
     return font;
 }
@@ -345,16 +402,27 @@ void do_layout(Menu* menu, Rect canvas){
 
             uint column = 0;
             auto pen_x  = 0;
-            float max_height = 0.0f;
+            float row_height = 0.0f;
+
+            void end_row(){
+                total_height += row_height;
+                item_pen_y -= (row_height + Margin);
+
+                column = 0;
+                pen_x  = 0;
+                row_height = 0.0f;
+            }
+
             foreach(i, ref item; items){
                 auto bounds = &item.bounds;
                 auto width  = width(*bounds);
                 auto height = height(*bounds);
-                max_height = max(height, max_height);
+                row_height = max(height, row_height);
 
                 if(item_index + i >= style_group.items_end){
                     style_group = &style_groups[style_group_index++];
                     styles = menu.styles[style_group.style_offset .. style_group.style_end];
+                    end_row();
                 }
                 auto style = &styles[column];
 
@@ -364,20 +432,15 @@ void do_layout(Menu* menu, Rect canvas){
                 }
 
                 float center_x = void;
-                switch(style.alignment){
-                    default: assert(0);
+                final switch(style.alignment){
+                    case Align.Center:
+                        center_x = pen_x + target_width*0.5f; break;
 
-                    case Align.Center:{
-                        center_x = pen_x + target_width*0.5f;
-                    } break;
+                    case Align.Right:
+                        center_x = pen_x + target_width - width*0.5f - Margin; break;
 
-                    case Align.Right:{
-                        center_x = pen_x + target_width - width*0.5f - Margin;
-                    } break;
-
-                    case Align.Left:{
-                        center_x = pen_x + width*0.5f + Margin;
-                    } break;
+                    case Align.Left:
+                        center_x = pen_x + width*0.5f + Margin; break;
                 }
 
                 bounds.center = Vec2(center_x, item_pen_y - bounds.extents.y);
@@ -385,12 +448,7 @@ void do_layout(Menu* menu, Rect canvas){
 
                 column++;
                 if(column >= styles.length){
-                    total_height += max_height;
-                    item_pen_y -= (max_height + Margin);
-
-                    column = 0;
-                    pen_x  = 0;
-                    max_height = 0.0f;
+                    end_row();
                 }
             }
             total_height += Margin*(cast(float)items.length-1);

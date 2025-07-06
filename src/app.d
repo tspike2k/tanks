@@ -216,6 +216,8 @@ struct App_State{
     float     t;
     Entity_ID player_entity_id;
 
+    uint test_index;
+
     World world;
     Vec2 mouse_pixel;
     Vec2 mouse_world;
@@ -1318,7 +1320,7 @@ Tread_Particle[] get_visible_tread_particles(App_State* s){
 
 }
 
-void change_to_menu(Menu* menu, Menu_ID menu_id){
+void change_to_menu(App_State* s, Menu* menu, Menu_ID menu_id){
     if(menu.current_menu_id == menu_id) return;
 
     switch(menu_id){
@@ -1346,12 +1348,9 @@ void change_to_menu(Menu* menu, Menu_ID menu_id){
             begin_block(menu, 0.8f);
             immutable row_style = [Style(0.5f, Align.Right), Style(0.5f, Align.Left)]; // We have to use immutable so D doesn't try to use the GC
             set_style(menu, row_style[]);
-            add_heading(menu, "Test:");
-            add_button(menu, "Item B", Menu_Action.None, Menu_ID.None);
-            add_button(menu, "Item A", Menu_Action.None, Menu_ID.None);
-            add_button(menu, "Item B", Menu_Action.None, Menu_ID.None);
-            add_button(menu, "Item A", Menu_Action.None, Menu_ID.None);
-            add_button(menu, "Item B", Menu_Action.None, Menu_ID.None);
+            //add_label(menu, "Test:");
+            add_index_picker(menu, &s.test_index, 20, "Variant");
+            add_label(menu, "Value: ");
             // TODO: We want to be able to select the campaign and the variant from here. This
             // will require a way to select an index. Should be interesting!
             //add_index_picker(menu, "Variant", )
@@ -1676,7 +1675,7 @@ extern(C) int main(int args_count, char** args){
     s.menu.heading_font = &s.font_main;
     s.menu.title_font   = &s.font_main;
     s.menu.button_font  = &s.font_editor_small;
-    change_to_menu(&s.menu, Menu_ID.Main_Menu);
+    change_to_menu(s, &s.menu, Menu_ID.Main_Menu);
 
     float target_dt = 1.0f/60.0f;
     ulong current_timestamp = ns_timestamp();
@@ -1736,7 +1735,7 @@ extern(C) int main(int args_count, char** args){
                             default: break;
 
                             case Menu_Action.Change_Menu:{
-                                change_to_menu(&s.menu, menu_evt.target_menu);
+                                change_to_menu(s, &s.menu, menu_evt.target_menu);
                             } break;
 
                             case Menu_Action.Quit_Game:{
@@ -1745,7 +1744,7 @@ extern(C) int main(int args_count, char** args){
                         }
                     }
                 }
-                update_menu(&s.menu, window_bounds);
+                menu_update(&s.menu, window_bounds);
             } break;
 
             case Game_Mode.Campaign:{
@@ -1786,6 +1785,8 @@ extern(C) int main(int args_count, char** args){
         set_shader(render_passes.hud_text, &s.text_shader);
         render_passes.hud_text.flags = Render_Flag_Disable_Depth_Test;
 
+        log("index: {0}\n", s.test_index);
+
         final switch(s.mode){
             case Game_Mode.None: assert(0);
 
@@ -1794,7 +1795,7 @@ extern(C) int main(int args_count, char** args){
             } break;
 
             case Game_Mode.Menu:{
-                render_menu(&render_passes, &s.menu, s.t);
+                menu_render(&render_passes, &s.menu, s.t);
             } break;
 
             case Game_Mode.Campaign:{

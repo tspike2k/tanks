@@ -878,14 +878,14 @@ bool circles_overlap(Vec2 a_center, float a_radius, Vec2 b_center, float b_radiu
     return result;
 }
 
-void index_incr(T)(T* index, T size)
+void index_incr(T)(T* index, T index_max)
 {
-    *index = (*index + 1) % size;
+    *index = (*index + 1) % index_max;
 }
 
-void index_decr(T)(T* index, T size)
+void index_decr(T)(T* index, T index_max)
 {
-    *index = (*index - 1 + size) % size;
+    *index = (*index - 1 + index_max) % index_max;
 }
 
 float lerp(float start, float end, float t){
