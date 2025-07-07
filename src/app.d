@@ -13,7 +13,6 @@ TODO:
     - Particles (Explosions, smoke, etc)
     - Enemy AI
     - Different enemy types (how many are there?)
-    - Campaign variant selection.
     - High score tracking
     - Better scoring
     - Multiplayer
@@ -1143,6 +1142,7 @@ void start_play_session(App_State* s, uint variant_index){
     clear_to_zero(s.session);
     s.session.state = Session_State.Mission_Intro;
     s.session.lives = variant.lives;
+    s.session.variant_index = variant_index;
 
     load_campaign_level(s, &s.campaign, s.session.mission_index);
 }
@@ -1351,7 +1351,7 @@ void menu_simulate(App_State* s, float dt){
         } break;
 
         case Menu_ID.Campaign:{
-            enum Variant_Label_Index = 2;
+            enum Variant_Label_Index = 3;
 
             auto campaign = &s.campaign;
             auto variant  = &campaign.variants[s.session.variant_index];
@@ -1362,6 +1362,7 @@ void menu_simulate(App_State* s, float dt){
                 add_heading(menu, "Campaign");
                 end_block(menu);
                 begin_block(menu, 0.8f);
+                add_button(menu, "Start", Menu_Action.Begin_Campaign, Menu_ID.None);
                 immutable row_style = [Style(0.5f, Align.Right), Style(0.5f, Align.Left)]; // We have to use immutable so D doesn't try to use the GC
                 set_style(menu, row_style[]);
                 //add_label(menu, "Test:");
@@ -1669,8 +1670,6 @@ extern(C) int main(int args_count, char** args){
     s.world.next_entity_id = Null_Entity_ID+1;
     version(all){
         if(load_campaign_from_file(&s.campaign, Campaign_File_Name, &s.main_memory)){
-            s.session.variant_index = 1;
-            start_play_session(s, 1);
         }
         else{
             generate_test_level(s);
@@ -1728,6 +1727,7 @@ extern(C) int main(int args_count, char** args){
 
         s.t += dt;
 
+        auto next_game_mode = s.mode;
         final switch(s.mode){
             case Game_Mode.None:
                 assert(0); break;
@@ -1755,6 +1755,10 @@ extern(C) int main(int args_count, char** args){
                                 change_to_menu(s, &s.menu, menu_evt.target_menu);
                             } break;
 
+                            case Menu_Action.Begin_Campaign:{
+                                next_game_mode = Game_Mode.Campaign;
+                            } break;
+
                             case Menu_Action.Quit_Game:{
                                 s.running = false;
                             } break;
@@ -1768,6 +1772,17 @@ extern(C) int main(int args_count, char** args){
             case Game_Mode.Campaign:{
                 campaign_simulate(s, &player_input, target_dt);
             } break;
+        }
+
+        if(next_game_mode != s.mode){
+            switch(next_game_mode){
+                default: assert(0);
+
+                case Game_Mode.Campaign:{
+                    start_play_session(s, s.session.variant_index);
+                } break;
+            }
+            s.mode = next_game_mode;
         }
 
         audio_update();

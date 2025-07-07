@@ -35,6 +35,7 @@ enum Menu_Item_Type : uint{
 enum Menu_Action : uint{
     None,
     Change_Menu,
+    Begin_Campaign,
     Quit_Game,
 }
 
