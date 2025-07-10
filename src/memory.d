@@ -374,14 +374,16 @@ alias Reader_Slice = inout(char)[];
 
 String eat_line(ref Reader_Slice reader){
     String result = reader;
+    size_t reader_next = reader.length;
     foreach(i, c; reader){
         if(c == '\n'){ // Handle Windows style line ends?
             result = reader[0 .. i];
+            reader_next = i+1;
             break;
         }
     }
 
-    reader = reader[result.ptr - reader.ptr+1 .. $];
+    reader = reader[reader_next .. $];
     return result;
 }
 

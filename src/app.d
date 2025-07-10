@@ -51,6 +51,8 @@ import gui;
 import audio;
 import menu;
 
+pragma(msg, 10%10);
+
 enum Main_Memory_Size    =  4*1024*1024;
 enum Frame_Memory_Size   =  8*1024*1024;
 enum Editor_Memory_Size  =  4*1024*1024;
