@@ -181,12 +181,12 @@ bool editor_load_campaign(String name){
 
         foreach(ref source_variant; campaign.variants){
             auto variant = editor_add_variant();
+        }
 
-            foreach(ref source_map; source_variant.maps){
-                auto entry   = editor_add_map();
-                entry.map = source_map;
-                entry.map.cells = dup_array(source_map.cells, g_allocator);
-            }
+        foreach(ref source_map; campaign.maps){
+            auto entry   = editor_add_map();
+            entry.map = source_map;
+            entry.map.cells = dup_array(source_map.cells, g_allocator);
         }
     }
     else{
@@ -338,7 +338,7 @@ public bool editor_simulate(App_State* s, float dt){
         }
     }
 
-    label(&s.gui, Label_Map_ID, gen_string("map_id: {0}", g_current_map.map.id, &s.frame_memory));
+    //label(&s.gui, Label_Map_ID, gen_string("map_id: {0}", g_current_map.map.id, &s.frame_memory));
     update_gui(&s.gui, dt);
 
     if(s.gui.message_id != Null_Gui_ID){

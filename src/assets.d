@@ -98,7 +98,7 @@ struct Pixels{
 // TODO: Convert Campaign files to using the Asset structure.
 
 enum Campaign_File_Magic = ('T' << 0 | 'a' << 8 | 'n' << 16 | 'k' << 24);
-enum Campaign_File_Version = 3;
+enum Campaign_File_Version = 4;
 
 struct Campaign_Meta{
     enum magic        = Campaign_File_Magic;
@@ -156,10 +156,9 @@ Map_Cell encode_map_cell(bool is_tank, bool is_special, ubyte index){
 }
 
 struct Campaign_Map{
-    uint id;
-    uint width;
-    uint height;
-    uint reserved;
+    uint[2]    reserved;
+    uint       width;
+    uint       height;
     Map_Cell[] cells;
 }
 
@@ -201,7 +200,6 @@ struct Campaign_Variant{
     Campaign_Difficuly difficulty;
     uint[3]            reserved;
     String             name;
-    Campaign_Map[]     maps;
     Campaign_Mission[] missions;
 }
 
@@ -214,6 +212,7 @@ struct Campaign{
     uint[4]            reserved;
     Campaign_Variant[] variants;
     Tank_Type[]        tank_types;
+    Campaign_Map[]     maps;
 }
 
 ////

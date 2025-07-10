@@ -51,8 +51,6 @@ import gui;
 import audio;
 import menu;
 
-pragma(msg, 10%10);
-
 enum Main_Memory_Size    =  4*1024*1024;
 enum Frame_Memory_Size   =  8*1024*1024;
 enum Editor_Memory_Size  =  4*1024*1024;
@@ -133,7 +131,7 @@ void load_campaign_level(App_State* s, Campaign* campaign, uint mission_index){
     s.session.prev_map_index = s.session.map_index;
     s.session.map_index = next_map_index; // TODO: Clamp the mission index to variant.maps.length?
 
-    auto map = &variant.maps[s.session.map_index];
+    auto map = &campaign.maps[s.session.map_index];
     foreach(y; 0 .. map.height){
         foreach(x; 0 .. map.width){
             auto p = Vec2(x, y) + Vec2(0.5f, 0.5f);
@@ -553,8 +551,7 @@ bool is_dynamic_entity(Entity_Type type){
 }
 
 Campaign_Map* get_current_map(App_State* s){
-    auto variant = &s.campaign.variants[s.session.variant_index];
-    auto map     = &variant.maps[s.session.map_index];
+    auto map = &s.campaign.maps[s.session.map_index];
     return map;
 }
 
