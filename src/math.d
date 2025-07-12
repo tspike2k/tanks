@@ -616,94 +616,22 @@ bool approx_zero(float a){
     return result;
 }
 
-/*
-bool ray_vs_rect(Vec2 start, Vec2 delta, Rect bounds, float* t_min, Vec2* collisionNormal){
-    enum EPSILON = 0.0001f;
+bool ray_vs_segment(Vec2 origin, Vec2 delta, Vec2 segment_p, Vec2 segment_normal, float* t_min){
+    // Adapted from Real-Time Collision Detection by Christer Erikson, 5.3.1 "Intersecting Segment Against Plane"
+    auto d = dot(segment_normal, segment_p);
 
-    // Addepted from "Realtime Collision Detection by Christer Ericson"
-    float tmin = 0;
-    float tmax = float.max;
-    auto bmin = min(bounds);
-    auto bmax = max(bounds);
-    Vec2 tv = void; // tmin for each axis
-
-    // For all three slabs
-    for (int i = 0; i < 2; i++) {
-        if (abs(delta.c[i]) < EPSILON) {
-            // Ray is parallel to slab. No hit if origin not within slab
-            if (start.c[i] < bmin.c[i] || start.c[i] > bmax.c[i])
-                return false;
-        } else {
-            // Compute intersection t value of ray with near and far plane of slab
-            float ood = 1.0f / delta.c[i];
-            float t1 = (bmin.c[i] - start.c[i]) * ood;
-            float t2 = (bmax.c[i] - start.c[i]) * ood;
-            // Make t1 be intersection with near plane, t2 with far plane
-            if (t1 > t2) swap(t1, t2);
-            // Compute the intersection of slab intersection intervals
-            if (t1 > tmin) tmin = t1;
-            if (t2 > tmax) tmax = t2;
-
-            tv.c[i] = tmin;
-
-            // Exit with no collision as soon as slab intersection becomes empty
-            if (tmin > tmax)
-                return false;
+    bool result = false;
+    // TODO: Are we correct in assuming that the dot prodect being zero means there's no way
+    // the ray could intersect with the line segment?
+    auto denom = dot(segment_normal, delta);
+    if(denom != 0.0f){ // TODO: Do approximately not zero?
+        auto t = (d - dot(segment_normal, origin)) / denom;
+        if(t > 0.0f && t < *t_min){
+            *t_min = t;
+            result = true;
         }
     }
-
-    if(tmin >= 0.0f && tmin < 1.0f){
-        *t_min = max(tmin - EPSILON, 0.0f);
-
-        if(tv.x > tv.y)
-            *collisionNormal = Vec2(-sign(delta.x), 0);
-        else
-            *collisionNormal = Vec2(0, -sign(delta.y));
-
-        //q = p + d * tmin;
-        return true;
-    }
-
-    return false;
-}*/
-
-bool ray_vs_segment(Vec2 start, Vec2 delta, Vec2 line_start, Vec2 line_end, Vec2 line_normal, float* t_min, Vec2* collision_normal){
-    bool foundContact = false;
-
-    Vec2 startRel = start - line_start;
-    Vec2 endRel   = start + delta - line_start;
-    float startDist = dot(startRel, line_normal);
-    float endDist   = dot(endRel, line_normal);
-
-    if (startDist >= 0.0f && endDist < 0.0f){
-        float deltaDist = dot(delta, line_normal);
-        deltaDist = fabs(deltaDist);
-        float startDistPerc = startDist / deltaDist;
-
-        if (startDistPerc < *t_min){
-            Vec2 contactPoint = Vec2(start.x + delta.x * startDistPerc, start.y + delta.y * startDistPerc);
-
-            // NOTE(tspike): Code for checking if a point is on a line segment courtesy of Daniel Fischer on this SO question:
-            // https://stackoverflow.com/a/17582526
-            // Additional reading can be found here:
-            // http://www.sunshine2k.de/coding/java/PointOnLine/PointOnLine.html#step4
-            // https://www.lucidar.me/en/mathematics/check-if-a-point-belongs-on-a-line-segment/
-            // https://stackoverflow.com/a/328122
-            float lineDiffX = line_end.x - line_start.x;
-            float lineDiffY = line_end.y - line_start.y;
-            float dPoduct = (contactPoint.x - line_start.x) * lineDiffX + (contactPoint.y - line_start.y) * lineDiffY;
-
-            if (dPoduct > 0 && dPoduct < lineDiffX*lineDiffX + lineDiffY*lineDiffY)
-            {
-                startDistPerc = max(0.0f, startDistPerc - TMIN_EPSILON);
-                *t_min = startDistPerc;
-                *collision_normal = line_normal;
-                foundContact = true;
-            }
-        }
-    }
-
-    return foundContact;
+    return result;
 }
 
 bool ray_vs_rect(Vec2 start, Vec2 delta, Rect bounds, float* tMin, Vec2* collisionNormal)

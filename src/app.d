@@ -79,6 +79,8 @@ enum Max_Players = 4;
 
 enum Meters_Per_Treadmark = 0.25f;
 
+enum Skip_Level_Intros = true; // TODO: We should make this based on if we're in the debug mode.
+
 enum Game_Mode : uint{
     None,
     Menu,
@@ -115,7 +117,7 @@ bool is_player(Entity* e){
     return result;
 }
 
-bool check_for_movement_obstacles(World* world, Vec2 ray_start, float angle, float dist){
+bool check_for_movement_obstacles(World* world, Vec2 ray_start, float angle, float dist, Rect world_bounds){
     auto ray_delta = vec2_from_angle(angle)*dist;
     float t_min = 1.0f;
     Vec2 collision_normal = void;
@@ -128,7 +130,10 @@ bool check_for_movement_obstacles(World* world, Vec2 ray_start, float angle, flo
                 break;
             }
         }
+    }
 
+    if(ray_vs_world_bounds(ray_start, ray_delta, world_bounds, &t_min, &collision_normal)){
+        result = true;
     }
 
     return result;
@@ -674,6 +679,28 @@ struct Ray{
     Vec3 dir;
 }
 
+bool ray_vs_world_bounds(Vec2 ray_start, Vec2 ray_delta, Rect bounds, float* t_min, Vec2* hit_normal){
+    auto delta_sign = Vec2(signf(ray_delta.x), signf(ray_delta.y));
+
+    auto edge_x = bounds.extents.x * delta_sign.x + bounds.center.x;
+    auto edge_y = bounds.extents.y * delta_sign.y + bounds.center.y;
+    auto x_normal = Vec2(-delta_sign.x, 0);
+    auto y_normal = Vec2(0, -delta_sign.y);
+
+    bool result = false;
+    if(ray_vs_segment(ray_start, ray_delta, Vec2(edge_x, bounds.center.y), x_normal, t_min)){
+        *hit_normal = x_normal;
+        result = true;
+    }
+
+    if(ray_vs_segment(ray_start, ray_delta, Vec2(bounds.center.x, edge_y), y_normal, t_min)){
+        *hit_normal = y_normal;
+        result = true;
+    }
+
+    return result;
+}
+
 bool ray_vs_plane(Vec3 ray_start, Vec3 ray_dir, Vec3 plane_p, Vec3 plane_n, Vec3* hit_p){
     // Ray vs plane formula thanks to:
     // https://lousodrome.net/blog/light/2020/07/03/intersection-of-a-ray-and-a-plane/
@@ -1208,6 +1235,9 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
     uint remaining_enemies_count;
     Vec2 hit_normal = void;
     float hit_depth = void;
+    // TODO: Store the world bounds in the app_state somewhere? We seem to need it a lot.
+    auto map = get_current_map(s);
+    auto world_bounds = rect_from_min_max(Vec2(0, 0), Vec2(map.width, map.height));
     foreach(ref e; iterate_entities(&s.world)){
         if(is_dynamic_entity(e.type) && !is_destroyed(&e)){
             float meters_moved_prev = e.total_meters_moved;
@@ -1225,7 +1255,7 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
                 auto cmd = zero_type!Tank_Commands;
 
                 if(e.target_angle == 0.0f){
-                    if(check_for_movement_obstacles(&s.world, e.pos, e.angle, 4.0f)){
+                    if(check_for_movement_obstacles(&s.world, e.pos, e.angle, 2.0f, world_bounds)){
                         // TODO: Hackey! Check both ways first.
                         e.target_angle = deg_to_rad(90);
                     }
@@ -1553,6 +1583,10 @@ void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
             if(s.session.timer >= Mission_Intro_Max_Time){
                 reset_timer(&s.session.timer, Mission_Intro_Max_Time);
                 s.session.state = Session_State.Mission_Start;
+            }
+
+            static if(Skip_Level_Intros){
+                s.session.state = Session_State.Playing_Mission;
             }
         } break;
 
