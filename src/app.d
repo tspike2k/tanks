@@ -330,6 +330,7 @@ struct Entity{
     float    total_meters_moved;
 
     // AI related data
+    float target_angle;
 }
 
 void destroy_entity(Entity* e){
@@ -1161,9 +1162,16 @@ void apply_tank_commands(App_State* s, Entity* e, Tank_Commands* input, float dt
     e.vel = Vec2(0, 0);
 
     float rot_speed = ((2.0f*PI)*0.5f);
-    if(input.turn_dir != 0){
-        auto amount = rot_speed*dt;
-        e.angle += amount*cast(float)input.turn_dir;
+    if(input.turn_angle != 0.0f){
+        float a_sign = signf(input.turn_angle);
+
+        auto amount = min(rot_speed*dt, abs(input.turn_angle)); // Don't overshoot. // TODO: This does look a little fake, though.
+        e.angle += amount*a_sign;
+        if(amount >= abs(input.turn_angle))
+            input.turn_angle = 0.0f;
+        else
+            input.turn_angle -= amount*a_sign;
+
         e.total_meters_moved += amount/2.0f; // TODO: Better angle to meters?
     }
 
@@ -1205,21 +1213,30 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
             float meters_moved_prev = e.total_meters_moved;
 
             if(e.id == s.player_entity_id){
+                auto turn_angle = input.turn_angle;
                 apply_tank_commands(s, &e, input, dt);
+                input.turn_angle = turn_angle;
+
                 auto turret_dir = s.mouse_world - e.pos;
                 e.turret_angle = atan2(turret_dir.y, turret_dir.x);
             }
-            else{
+            else if(e.type == Entity_Type.Tank){
                 // Enemy AI
                 auto cmd = zero_type!Tank_Commands;
-                cmd.move_dir = 1;
 
-                if(check_for_movement_obstacles(&s.world, e.pos, e.angle, 4.0f)){
-                    cmd.move_dir = 0;
-                    cmd.turn_dir = 1;
+                if(e.target_angle == 0.0f){
+                    if(check_for_movement_obstacles(&s.world, e.pos, e.angle, 4.0f)){
+                        // TODO: Hackey! Check both ways first.
+                        e.target_angle = deg_to_rad(90);
+                    }
+                    else{
+                        cmd.move_dir = 1;
+                    }
                 }
 
+                cmd.turn_angle = e.target_angle;
                 apply_tank_commands(s, &e, &cmd, dt);
+                e.target_angle = cmd.turn_angle;
             }
 
             switch(e.type){
@@ -1293,10 +1310,10 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
 }
 
 struct Tank_Commands{
-    int  turn_dir;
-    int  move_dir;
-    bool fire_bullet;
-    bool place_mine;
+    float turn_angle;
+    int   move_dir;
+    bool  fire_bullet;
+    bool  place_mine;
 }
 
 Vec3 camera_ray_vs_plane(Camera* camera, Vec2 screen_p, float window_w, float window_h){
@@ -1488,11 +1505,17 @@ void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
                         default: break;
 
                         case Key_ID_A:{
-                            handle_dir_key(key.pressed, &player_input.turn_dir, 1);
+                            if(key.pressed)
+                                player_input.turn_angle = deg_to_rad(90);
+                            else if(player_input.turn_angle > 0.0f)
+                                player_input.turn_angle = 0.0f;
                         } break;
 
                         case Key_ID_D:{
-                            handle_dir_key(key.pressed, &player_input.turn_dir, -1);
+                            if(key.pressed)
+                                player_input.turn_angle = -deg_to_rad(90);
+                            else if(player_input.turn_angle < 0.0f)
+                                player_input.turn_angle = 0.0f;
                         } break;
 
                         case Key_ID_W:{
@@ -1666,7 +1689,7 @@ extern(C) int main(int args_count, char** args){
     setup_basic_material(&s.material_breakable_block, s.img_blank_mesh, Vec3(0.92f, 0.42f, 0.20f));
     s.running = true;
 
-    Tank_Commands player_input;
+    auto player_input = zero_type!Tank_Commands;
     bool send_broadcast;
 
     Socket socket;

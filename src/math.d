@@ -31,6 +31,11 @@ enum TAU = PI*2.0f;
 
 @nogc nothrow:
 
+float equals(float n, float target, float epsilon){
+    bool result = n > target - epsilon && n < target + epsilon;
+    return result;
+}
+
 union Vec2{
     struct{float x = 0.0f; float y = 0.0f;};
     struct{float s; float t;};
