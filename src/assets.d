@@ -178,13 +178,11 @@ struct Enemy_Tank{
 
 // Tank params based on "Wii Tanks AI Parameter Sheet" by BigKitty1011
 struct Tank_Type{
-    // TODO: Finish copying over tank parameter data.
-    Vec4 body_color;
-    Vec4 turret_color;
-    Vec4[2] reserved;
-    uint model_index;
-    uint invisible;
-    uint[41] params;
+    Vec4  body_color;
+    Vec4  turret_color;
+    bool  invisible;
+    float speed;
+    float obstacle_sight_dist; // Obstacle Awareness (Movement)
 }
 
 struct Campaign_Mission{

@@ -12,7 +12,7 @@ Credits:
 TODO:
     - Particles (Explosions, smoke, etc)
     - Enemy AI
-    - Different enemy types (how many are there?)
+    - Different enemy types (there are 8 in the main campaign)
     - High score tracking
     - Better scoring
     - Multiplayer
@@ -132,6 +132,7 @@ void load_campaign_level(App_State* s, Campaign* campaign, uint mission_index){
     s.session.map_index = next_map_index; // TODO: Clamp the mission index to variant.maps.length?
 
     auto map = &campaign.maps[s.session.map_index];
+    auto map_center = Vec2(map.width, map.height)*0.5f;
     foreach(y; 0 .. map.height){
         foreach(x; 0 .. map.width){
             auto p = Vec2(x, y) + Vec2(0.5f, 0.5f);
@@ -142,10 +143,11 @@ void load_campaign_level(App_State* s, Campaign* campaign, uint mission_index){
 
                 // TODO: Entity should face either left or right depending on distance from
                 // center? How does this work in the original? Do we need facing info?
+                Entity* e;
                 if(is_player){
                     assert(tank_index >= 0 && tank_index <= 4);
                     if(tank_index == 0){
-                        auto e = add_entity(world, p, Entity_Type.Tank);
+                        e = add_entity(world, p, Entity_Type.Tank);
                         e.cell_info = occupant;
                         // TODO: We should use an array of of entity_ids that maps to player indeces
                         s.player_entity_id = e.id;
@@ -155,11 +157,24 @@ void load_campaign_level(App_State* s, Campaign* campaign, uint mission_index){
                     foreach(ref enemy_entry; mission.enemies){
                         if(enemy_entry.spawn_index == tank_index){
                             // TODO: Choose tank type based on enemy_entry.type_min/type_max.
-                            auto e = add_entity(world, p, Entity_Type.Tank);
+                            e = add_entity(world, p, Entity_Type.Tank);
                             e.cell_info = occupant;
                             break;
                         }
                     }
+                }
+
+                if(e){
+                    auto dir = normalize(map_center - e.pos);
+                    Vec2 facing = void;
+                    if(abs(dir.x) > abs(dir.y))
+                        facing = Vec2(sign(dir.x), 0);
+                    else
+                        facing = Vec2(0, sign(dir.y));
+
+                    auto facing_angle = atan2(facing.y, facing.x);
+                    e.turret_angle = facing_angle;
+                    e.angle        = facing_angle;
                 }
             }
             else if(occupant){
@@ -293,6 +308,8 @@ struct Entity{
     Map_Cell cell_info;
     float    mine_timer;
     float    total_meters_moved;
+
+    // AI related data
 }
 
 void destroy_entity(Entity* e){
@@ -1146,62 +1163,63 @@ void start_play_session(App_State* s, uint variant_index){
     load_campaign_level(s, &s.campaign, s.session.mission_index);
 }
 
-void simulate_world(App_State* s, Player_Input* input, float dt){
+void apply_tank_commands(App_State* s, Entity* e, Tank_Commands* input, float dt){
+    e.vel = Vec2(0, 0);
+
+    float rot_speed = ((2.0f*PI)*0.5f);
+    if(input.turn_dir != 0){
+        auto amount = rot_speed*dt;
+        e.angle += amount*cast(float)input.turn_dir;
+        e.total_meters_moved += amount/2.0f; // TODO: Better angle to meters?
+    }
+
+    auto facing = rotate(Vec2(1, 0), e.angle);
+    float speed = 4.0f;
+    if(input.move_dir != 0){
+        e.vel = facing*(speed*cast(float)input.move_dir);
+        e.total_meters_moved += speed*dt;
+    }
+
+    if(input.place_mine){
+        auto count = get_child_entity_count(&s.world, e.id, Entity_Type.Mine);
+        if(count < Max_Mines_Per_Tank){
+            spawn_mine(&s.world, e.pos, e.id);
+        }
+    }
+
+    if(input.fire_bullet){
+        auto count = get_child_entity_count(&s.world, e.id, Entity_Type.Bullet);
+        if(count < Max_Bullets_Per_Tank){
+            auto angle      = e.turret_angle;
+            auto bullet_dir = rotate(Vec2(1, 0), angle);
+            auto p          = e.pos + bullet_dir*1.0f;
+            auto bullet     = spawn_bullet(&s.world, e.id, p, angle);
+            bullet.vel      = bullet_dir*4.0f;
+            auto sfx = &s.sfx_fire_bullet;
+            audio_play(sfx.samples, sfx.channels, 0);
+        }
+    }
+}
+
+void simulate_world(App_State* s, Tank_Commands* input, float dt){
     // Entity simulation
     uint remaining_enemies_count;
     Vec2 hit_normal = void;
     float hit_depth = void;
     foreach(ref e; iterate_entities(&s.world)){
-        float meters_moved = 0.0f;
         if(is_dynamic_entity(e.type) && !is_destroyed(&e)){
+            float meters_moved_prev = e.total_meters_moved;
+
             if(e.id == s.player_entity_id){
-                e.vel = Vec2(0, 0);
-
-                float rot_speed = ((2.0f*PI)*0.5f);
-                if(input.turn_left){
-                    auto amount = rot_speed*dt;
-                    e.angle += amount;
-                    meters_moved += amount/2.0f; // TODO: Better angle to meters?
-                }
-                if(input.turn_right){
-                    auto amount = rot_speed*dt;
-                    e.angle -= amount;
-                    meters_moved += amount/2.0f; // TODO: Better angle to meters?
-                }
-
+                apply_tank_commands(s, &e, input, dt);
                 auto turret_dir = s.mouse_world - e.pos;
                 e.turret_angle = atan2(turret_dir.y, turret_dir.x);
-
-                auto dir = rotate(Vec2(1, 0), e.angle);
-                float speed = 4.0f;
-                if(input.move_forward){
-                    e.vel = dir*(speed);
-                    meters_moved += speed*dt;
-                }
-                else if(input.move_backward){
-                    e.vel = dir*-(speed);
-                    meters_moved += speed*dt;
-                }
-
-                if(input.place_mine){
-                    auto count = get_child_entity_count(&s.world, e.id, Entity_Type.Mine);
-                    if(count < Max_Mines_Per_Tank){
-                        spawn_mine(&s.world, e.pos, e.id);
-                    }
-                }
-
-                if(input.fire_bullet){
-                    auto count = get_child_entity_count(&s.world, e.id, Entity_Type.Bullet);
-                    if(count < Max_Bullets_Per_Tank){
-                        auto angle      = e.turret_angle;
-                        auto bullet_dir = rotate(Vec2(1, 0), angle);
-                        auto p          = e.pos + bullet_dir*1.0f;
-                        auto bullet     = spawn_bullet(&s.world, e.id, p, angle);
-                        bullet.vel      = bullet_dir*4.0f;
-                        auto sfx = &s.sfx_fire_bullet;
-                        audio_play(sfx.samples, sfx.channels, 0);
-                    }
-                }
+            }
+            else{
+                // Enemy AI
+                auto cmd = zero_type!Tank_Commands;
+                cmd.move_dir = 1;
+                apply_tank_commands(s, &e, &cmd, dt);
             }
 
             switch(e.type){
@@ -1212,9 +1230,7 @@ void simulate_world(App_State* s, Player_Input* input, float dt){
                         remaining_enemies_count++;
                     }
 
-                    auto r_min = e.total_meters_moved;
-                    auto r_max = e.total_meters_moved + meters_moved;
-                    if(passed_range(r_min, r_max, Meters_Per_Treadmark)){
+                    if(passed_range(meters_moved_prev, e.total_meters_moved, Meters_Per_Treadmark)){
                         auto p = &s.tread_particles[s.tread_particles_cursor];
                         p.pos = e.pos;
                         p.angle = e.angle + deg_to_rad(90);
@@ -1240,9 +1256,8 @@ void simulate_world(App_State* s, Player_Input* input, float dt){
                 } break;
             }
 
-            e.total_meters_moved += meters_moved;
-
             // Since no objects accelerate in this game, we can simplify integration.
+            // TODO: This isn't true: tanks do accelerate, though it's barely noticable.
             e.pos += e.vel*dt;
 
             // TODO: Broadphase, Spatial partitioning to limit the number of entitites
@@ -1277,11 +1292,9 @@ void simulate_world(App_State* s, Player_Input* input, float dt){
     }
 }
 
-struct Player_Input{
-    bool turn_right;
-    bool turn_left;
-    bool move_forward;
-    bool move_backward;
+struct Tank_Commands{
+    int  turn_dir;
+    int  move_dir;
     bool fire_bullet;
     bool place_mine;
 }
@@ -1382,7 +1395,7 @@ void menu_simulate(App_State* s, float dt){
     }
 }
 
-void campaign_simulate(App_State* s, Player_Input* player_input, float dt){
+void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
     version(none){
         sockets_update((&socket)[0 .. 1], &s.frame_memory);
 
@@ -1462,20 +1475,33 @@ void campaign_simulate(App_State* s, Player_Input* player_input, float dt){
 
                 case Event_Type.Key:{
                     auto key = &evt.key;
+                    void handle_dir_key(bool key_pressed, int* dir, int target_dir){
+                        if(key.pressed){
+                            *dir = target_dir;
+                        }
+                        else if(*dir == target_dir){
+                            *dir = 0;
+                        }
+                    }
+
                     switch(key.id){
                         default: break;
 
-                        case Key_ID_A:
-                            player_input.turn_left = key.pressed; break;
+                        case Key_ID_A:{
+                            handle_dir_key(key.pressed, &player_input.turn_dir, 1);
+                        } break;
 
-                        case Key_ID_D:
-                            player_input.turn_right = key.pressed; break;
+                        case Key_ID_D:{
+                            handle_dir_key(key.pressed, &player_input.turn_dir, -1);
+                        } break;
 
-                        case Key_ID_W:
-                            player_input.move_forward = key.pressed; break;
+                        case Key_ID_W:{
+                            handle_dir_key(key.pressed, &player_input.move_dir, 1);
+                        } break;
 
-                        case Key_ID_S:
-                            player_input.move_backward = key.pressed; break;
+                        case Key_ID_S:{
+                            handle_dir_key(key.pressed, &player_input.move_dir, -1);
+                        } break;
 
                         case Key_ID_F2:
                             if(!key.is_repeat && key.pressed){
@@ -1535,7 +1561,6 @@ void campaign_simulate(App_State* s, Player_Input* player_input, float dt){
 
     player_input.fire_bullet = false;
     player_input.place_mine  = false;
-
 }
 
 Texture load_texture_from_file(String file_name, uint flags, Allocator* allocator){
@@ -1641,7 +1666,7 @@ extern(C) int main(int args_count, char** args){
     setup_basic_material(&s.material_breakable_block, s.img_blank_mesh, Vec3(0.92f, 0.42f, 0.20f));
     s.running = true;
 
-    Player_Input player_input;
+    Tank_Commands player_input;
     bool send_broadcast;
 
     Socket socket;

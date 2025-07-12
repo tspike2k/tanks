@@ -23,6 +23,51 @@ struct Map{
     uint[] cells;
 }
 
+struct Tank_Def{
+    uint  invisibility,
+    float mine_escape_offset,
+    uint  mine_limit,
+    uint  mine_timer_max,
+    uint  mine_timer_min,
+    float dist_hold_mine,
+    float mine_percent_cork,
+    float mine_percent_general,
+    uint  mine_cooldown,
+    uint  mine_stun_timer,
+    float acceleration,
+    float deceleration,
+    float turn_angle_max,
+    uint  turn_timer_max,
+    uint  turn_timer_min,
+    float dist_avoid_cpu_mine,
+    float dist_avoid_cpu_shell,
+    float dist_avoid_player_mine,
+    float dist_avoid_player_shell,
+    uint  disarm_while_avoiding,
+    float player_pursuit_rate,
+    uint  turn_div,
+    float speed,
+    float analog_min,
+    float analog_max,
+    float turn_rate,
+    float pivot_angle,
+    uint  obstacle_offset,
+    float turret_search_angle,
+    uint  shell_limit,
+    float angle_detect_self,
+    float angle_detect_cpu,
+    float angle_detect_player,
+    uint  ricochet,
+    uint  shell_timer_max,
+    uint  shell_timer_min,
+    uint  shell_cooldown,
+    float shell_speed,
+    float turret_rotation_rate,
+    uint  turret_target_timer,
+    float dist_hold_shell,
+    uint  shell_stun_timer,
+}
+
 // NOTE: Mission definitions retrieved from "Map/Parameter File Guide for Wii Play: Tanks!"
 // by TheGoldfishKing.
 Mission_Def[] p1_missions = [
@@ -151,6 +196,9 @@ Mission_Def[] p2_missions = [
     {false, [ 0,  0,  0,  0,  0,  0,  8,  8, ], 28, 28, },
 ];
 
+// NOTE: Map data converted from "tanks-lookup" project by cyndifusic
+// https://github.com/cyndifusic/tanks-lookup
+
 enum Map_4x3_Width = 16;
 enum Map_4x3_Height = 17;
 Map[] maps_4x3 = [
@@ -247,6 +295,26 @@ ubyte convert_cell_to_custom_encoding(uint original){
     return result;
 }
 
+void print_map(T)(T[] cells, uint width, uint height){
+    import core.stdc.stdio;
+
+    log("[\n");
+    foreach(y; 0 .. height){
+        foreach(x; 0 .. width){
+            // TODO: Add left-padding to format specifier. For instance: {0l 5} This would ensure the result is at least 5 chars long, padding space to the left if needed.
+            auto value = cells[x + y * width];
+            if(value){
+                printf("%4d, ", value);
+            }
+            else{
+                log("    , ");
+            }
+        }
+        log("\n");
+    }
+    log("]\n");
+}
+
 void make_map(Campaign_Map* map, Map* source, uint width, uint height, Allocator* allocator){
     map.width  = width;
     map.height = height;
@@ -311,6 +379,9 @@ void main(){
     foreach(i, ref source_map; maps_16x9){
         make_map(&campaign.maps[i], &source_map, Map_16x9_Width, Map_16x9_Height, &allocator);
     }
+
+    print_map(campaign.maps[0].cells, Map_16x9_Width, Map_16x9_Height);
+    print_map(maps_16x9[0].cells, Map_16x9_Width, Map_16x9_Height);
 
     foreach(i, ref source_map; maps_4x3){
         auto map = &campaign.maps[i + maps_16x9.length];
