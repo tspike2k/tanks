@@ -120,6 +120,13 @@ mixin template Vec_Ops(){
     }
 }
 
+Vec2 vec2_from_angle(float radians){
+    auto c = cos(radians);
+    auto s = sin(radians);
+    auto result = Vec2(c, s);
+    return result;
+}
+
 Vec2 rotate(Vec2 v, float radians){
     auto c = cos(radians);
     auto s = sin(radians);

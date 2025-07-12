@@ -115,6 +115,25 @@ bool is_player(Entity* e){
     return result;
 }
 
+bool check_for_movement_obstacles(World* world, Vec2 ray_start, float angle, float dist){
+    auto ray_delta = vec2_from_angle(angle)*dist;
+    float t_min = 1.0f;
+    Vec2 collision_normal = void;
+    bool result = false;
+    foreach(ref e; iterate_entities(world)){
+        if(e.type == Entity_Type.Block){
+            auto bounds = Rect(e.pos, e.extents);
+            if(ray_vs_rect(ray_start, ray_delta, bounds, &t_min, &collision_normal)){
+                result = true;
+                break;
+            }
+        }
+
+    }
+
+    return result;
+}
+
 void load_campaign_level(App_State* s, Campaign* campaign, uint mission_index){
     auto world = &s.world;
     world.entities_count = 0;
@@ -165,6 +184,7 @@ void load_campaign_level(App_State* s, Campaign* campaign, uint mission_index){
                 }
 
                 if(e){
+                    // All tanks face towards the center of the map when level begins.
                     auto dir = normalize(map_center - e.pos);
                     Vec2 facing = void;
                     if(abs(dir.x) > abs(dir.y))
@@ -609,17 +629,6 @@ void entity_vs_world_bounds(App_State* s, Entity* e){
     }
 }
 
-/+
-bool obb_vs_world_bounds(Entity* e, Hit_Info* hit){
-    bool was_hit = false;
-
-    auto aabb = aabb_from_obb(e.pos, e.extents, e.angle);
-
-
-    return was_hit;
-}+/
-
-
 bool is_destroyed(Entity* e){
     bool result = e.health == 0;
     return result;
@@ -663,12 +672,6 @@ struct Ray{
     Vec3 pos;
     Vec3 dir;
 }
-
-/+
-Vec3 project_onto_plane(Vec3 p, Vec3 plane_p, Vec3 plane_n){
-    auto result = p - dot(p - plane_p, plane_n)*plane_n;
-    return result;
-}+/
 
 bool ray_vs_plane(Vec3 ray_start, Vec3 ray_dir, Vec3 plane_p, Vec3 plane_n, Vec3* hit_p){
     // Ray vs plane formula thanks to:
@@ -743,15 +746,6 @@ void generate_test_level(App_State* s){
         s.player_entity_id = player.id;
         player.cell_info |= Map_Cell_Is_Player;
     }
-
-    //add_block(&s.world, Vec2(2, 2), 1);
-
-    //add_entity(&s.world, Vec2(-4, -4), Entity_Type.Tank);
-
-    //add_block(&s.world, Vec2(0, 0), 1);
-    //add_block(&s.world, Vec2(Grid_Width-1, Grid_Height-1), 1);
-    //add_block(&s.world, Vec2(0, Grid_Height-1), 1);
-    //add_block(&s.world, Vec2(Grid_Width-1, 0), 1);
 }
 
 enum Shape_Type : uint{
@@ -1219,6 +1213,12 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
                 // Enemy AI
                 auto cmd = zero_type!Tank_Commands;
                 cmd.move_dir = 1;
+
+                if(check_for_movement_obstacles(&s.world, e.pos, e.angle, 4.0f)){
+                    cmd.move_dir = 0;
+                    cmd.turn_dir = 1;
+                }
+
                 apply_tank_commands(s, &e, &cmd, dt);
             }
 
