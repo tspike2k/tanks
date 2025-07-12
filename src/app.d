@@ -50,6 +50,7 @@ import editor;
 import gui;
 import audio;
 import menu;
+import random;
 
 enum Main_Memory_Size    =  4*1024*1024;
 enum Frame_Memory_Size   =  8*1024*1024;
@@ -274,6 +275,8 @@ struct App_State{
     Gui_State gui;
     Font font_main;
     Font font_editor_small;
+
+    Xorshift32 rng;
 
     Sound sfx_fire_bullet;
 
@@ -1200,6 +1203,10 @@ void apply_tank_commands(App_State* s, Entity* e, Tank_Commands* input, float dt
             input.turn_angle -= amount*a_sign;
 
         e.total_meters_moved += amount/2.0f; // TODO: Better angle to meters?
+
+        if(!is_tank_player(e)){
+            e.turret_angle += amount*a_sign;
+        }
     }
 
     auto facing = rotate(Vec2(1, 0), e.angle);
@@ -1254,10 +1261,31 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
                 // Enemy AI
                 auto cmd = zero_type!Tank_Commands;
 
+                // If the tank isn't currently making a turn, handle forward movement
                 if(e.target_angle == 0.0f){
-                    if(check_for_movement_obstacles(&s.world, e.pos, e.angle, 2.0f, world_bounds)){
-                        // TODO: Hackey! Check both ways first.
-                        e.target_angle = deg_to_rad(90);
+                    float obstacle_sight_range = 2.0f; // TODO: Get this from the tank params
+                    if(check_for_movement_obstacles(&s.world, e.pos, e.angle, obstacle_sight_range, world_bounds)){
+                        // If the tank has seen a wall, try to avoid it by looking to the right
+                        // or left. If the left and right are not obstructed, randomly pick
+                        // between the two.
+                        bool left_is_open  = !check_for_movement_obstacles(&s.world, e.pos, e.angle + deg_to_rad(90), obstacle_sight_range, world_bounds);
+                        bool right_is_open = !check_for_movement_obstacles(&s.world, e.pos, e.angle - deg_to_rad(90), obstacle_sight_range, world_bounds);
+
+                        if(left_is_open && right_is_open){
+                            if(random_bool(&s.rng))
+                                e.target_angle = deg_to_rad(90);
+                            else
+                                e.target_angle = -deg_to_rad(90);
+                        }
+                        else if(left_is_open){
+                            e.target_angle = deg_to_rad(90);
+                        }
+                        else if(right_is_open){
+                            e.target_angle = -deg_to_rad(90);
+                        }
+                        else{
+                            // TODO: Go in reverse
+                        }
                     }
                     else{
                         cmd.move_dir = 1;
@@ -1680,6 +1708,8 @@ extern(C) int main(int args_count, char** args){
         return 2;
     }
     scope(exit) render_close();
+
+    seed(&s.rng, 1247865); // TODO: Seed using time values?
 
     // TODO: Build the directory using the path to the application
     load_font("./build/test_en.fnt", &s.font_main, &s.main_memory);
