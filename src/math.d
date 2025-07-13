@@ -132,6 +132,12 @@ Vec2 vec2_from_angle(float radians){
     return result;
 }
 
+float angle_between(Vec2 a, Vec2 b){
+    auto d = normalize(b - a);
+    auto result = atan2(d.y, d.x);
+    return result;
+}
+
 Vec2 rotate(Vec2 v, float radians){
     auto c = cos(radians);
     auto s = sin(radians);

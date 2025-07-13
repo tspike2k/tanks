@@ -118,8 +118,7 @@ bool is_player(Entity* e){
     return result;
 }
 
-bool check_for_movement_obstacles(World* world, Vec2 ray_start, float angle, float dist, Rect world_bounds){
-    auto ray_delta = vec2_from_angle(angle)*dist;
+bool ray_vs_obstacles(World* world, Vec2 ray_start, Vec2 ray_delta){
     float t_min = 1.0f;
     Vec2 collision_normal = void;
     bool result = false;
@@ -133,7 +132,7 @@ bool check_for_movement_obstacles(World* world, Vec2 ray_start, float angle, flo
         }
     }
 
-    if(ray_vs_world_bounds(ray_start, ray_delta, world_bounds, &t_min, &collision_normal)){
+    if(ray_vs_world_bounds(ray_start, ray_delta, world.bounds, &t_min, &collision_normal)){
         result = true;
     }
 
@@ -158,6 +157,8 @@ void load_campaign_level(App_State* s, Campaign* campaign, uint mission_index){
 
     auto map = &campaign.maps[s.session.map_index];
     auto map_center = Vec2(map.width, map.height)*0.5f;
+    s.world.bounds = rect_from_min_max(Vec2(0, 0), Vec2(map.width, map.height));
+
     foreach(y; 0 .. map.height){
         foreach(x; 0 .. map.width){
             auto p = Vec2(x, y) + Vec2(0.5f, 0.5f);
@@ -339,6 +340,7 @@ struct Entity{
 
     // AI related data
     float target_angle;
+    float bullet_cooldown_timer;
 }
 
 void destroy_entity(Entity* e){
@@ -361,6 +363,7 @@ struct World{
     Entity_ID   next_entity_id;
     Entity[512] entities;
     uint        entities_count;
+    Rect        bounds;
 }
 
 bool is_valid_block(Entity* e){
@@ -575,10 +578,13 @@ void spawn_mine(World* world, Vec2 p, Entity_ID id){
 }
 
 Entity* spawn_bullet(World* world, Entity_ID parent_id, Vec2 p, float angle){
-    auto e      = add_entity(world, p, Entity_Type.Bullet);
+    float speed = 4.0f; // TODO: Get this from the tank params
+    auto dir    = vec2_from_angle(angle);
+    auto e      = add_entity(world, p + dir*1.01f, Entity_Type.Bullet);
     e.angle     = angle;
     e.parent_id = parent_id;
     e.health    = 2;
+    e.vel       = dir*speed;
     return e;
 }
 
@@ -610,9 +616,7 @@ void entity_vs_world_bounds(App_State* s, Entity* e){
         aabb = Rect(e.pos, e.extents);
     }
 
-    auto map = get_current_map(s);
-    Rect world_bounds = rect_from_min_max(Vec2(0, 0), Vec2(map.width, map.height));
-    world_bounds = shrink(world_bounds, aabb.extents);
+    auto world_bounds = shrink(s.world.bounds, aabb.extents);
     auto p = aabb.center;
 
     Entity fake_e; // TODO: This is a hack. Should we break entity seperation and collision event handling into two different functions?
@@ -1210,7 +1214,7 @@ void apply_tank_commands(App_State* s, Entity* e, Tank_Commands* input, float dt
     }
 
     auto facing = rotate(Vec2(1, 0), e.angle);
-    float speed = 4.0f;
+    float speed = 3.5f; // Should be less than bullet speed
     if(input.move_dir != 0){
         e.vel = facing*(speed*cast(float)input.move_dir);
         e.total_meters_moved += speed*dt;
@@ -1226,15 +1230,26 @@ void apply_tank_commands(App_State* s, Entity* e, Tank_Commands* input, float dt
     if(input.fire_bullet){
         auto count = get_child_entity_count(&s.world, e.id, Entity_Type.Bullet);
         if(count < Max_Bullets_Per_Tank){
-            auto angle      = e.turret_angle;
-            auto bullet_dir = rotate(Vec2(1, 0), angle);
-            auto p          = e.pos + bullet_dir*1.0f;
-            auto bullet     = spawn_bullet(&s.world, e.id, p, angle);
-            bullet.vel      = bullet_dir*4.0f;
+            auto bullet     = spawn_bullet(&s.world, e.id, e.pos, e.turret_angle);
             auto sfx = &s.sfx_fire_bullet;
             audio_play(sfx.samples, sfx.channels, 0);
+            e.bullet_cooldown_timer = 0.5f;
         }
     }
+}
+
+bool is_point_in_sight(World* world, Entity* e, float sight_angle, float sight_range, Vec2 target_p){
+    bool result = false;
+    if(dist_sq(e.pos, target_p) <= squared(sight_range)){
+        // Line-of-sight algorithm thanks to:
+        // https://nic-gamedev.blogspot.com/2011/11/using-vector-mathematics-and-bit-of.html
+        auto look_dir = vec2_from_angle(e.turret_angle);
+        auto target_dir  = normalize(target_p - e.pos);
+        if(dot(target_dir, look_dir) >= cos(sight_angle)){
+            result = !ray_vs_obstacles(world, e.pos, target_dir*sight_range);
+        }
+    }
+    return result;
 }
 
 void simulate_world(App_State* s, Tank_Commands* input, float dt){
@@ -1261,15 +1276,23 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
                 // Enemy AI
                 auto cmd = zero_type!Tank_Commands;
 
+                if(e.bullet_cooldown_timer > 0){
+                    e.bullet_cooldown_timer -= dt;
+                }
+
                 // If the tank isn't currently making a turn, handle forward movement
                 if(e.target_angle == 0.0f){
                     float obstacle_sight_range = 2.0f; // TODO: Get this from the tank params
-                    if(check_for_movement_obstacles(&s.world, e.pos, e.angle, obstacle_sight_range, world_bounds)){
+                    if(ray_vs_obstacles(&s.world, e.pos, vec2_from_angle(e.angle)*obstacle_sight_range)){
                         // If the tank has seen a wall, try to avoid it by looking to the right
                         // or left. If the left and right are not obstructed, randomly pick
                         // between the two.
-                        bool left_is_open  = !check_for_movement_obstacles(&s.world, e.pos, e.angle + deg_to_rad(90), obstacle_sight_range, world_bounds);
-                        bool right_is_open = !check_for_movement_obstacles(&s.world, e.pos, e.angle - deg_to_rad(90), obstacle_sight_range, world_bounds);
+                        bool left_is_open  = !ray_vs_obstacles(&s.world, e.pos,
+                            vec2_from_angle(e.angle + deg_to_rad(90)) * obstacle_sight_range
+                        );
+                        bool right_is_open = !ray_vs_obstacles(&s.world, e.pos,
+                            vec2_from_angle(e.angle - deg_to_rad(90)) * obstacle_sight_range
+                        );
 
                         if(left_is_open && right_is_open){
                             if(random_bool(&s.rng))
@@ -1290,6 +1313,18 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
                     else{
                         cmd.move_dir = 1;
                     }
+                }
+
+                // TODO: Iterate over all players
+                auto player = get_entity_by_id(&s.world, s.player_entity_id);
+                auto sight_range = 8.0f;
+                if(player && e.bullet_cooldown_timer <= 0.0f &&
+                is_point_in_sight(&s.world, &e, deg_to_rad(65), sight_range, player.pos)){
+                    //float min_angle = deg_to_rad(25);
+                    //auto angle = angle_between(e.pos, player.pos);
+                    //if(abs(angle) < min_angle){
+                        cmd.fire_bullet = true;
+                    //}
                 }
 
                 cmd.turn_angle = e.target_angle;
