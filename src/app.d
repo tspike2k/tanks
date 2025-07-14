@@ -1208,7 +1208,12 @@ void apply_tank_commands(App_State* s, Entity* e, Tank_Commands* input, float dt
             angle_remaining = input.turn_angle - amount*rot_sign;
 
         e.angle += amount*rot_sign;
-        e.total_meters_moved += amount/2.0f; // TODO: Better angle to meters?
+
+        // Calculate the meters turned by using the Arc Length of the tank's circular bounds
+        // to calulate the Sector Area of said circle.
+        // https://www.geogebra.org/m/NWWDJdu8
+        float radius = e.extents.x;
+        e.total_meters_moved += (squared(radius)*amount)/2.0f;
         if(!is_tank_player(e)){
             e.turret_angle += amount*rot_sign;
             e.target_angle  = angle_remaining;
