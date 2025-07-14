@@ -1197,20 +1197,21 @@ void apply_tank_commands(App_State* s, Entity* e, Tank_Commands* input, float dt
 
     float rot_speed = ((2.0f*PI)*0.5f);
     if(input.turn_angle != 0.0f){
-        float a_sign = signf(input.turn_angle);
+        auto rot_sign = signf(input.turn_angle);
+        auto rot_abs = abs(input.turn_angle);
 
-        auto amount = min(rot_speed*dt, abs(input.turn_angle)); // Don't overshoot. // TODO: This does look a little fake, though.
-        e.angle += amount*a_sign;
-        if(amount >= abs(input.turn_angle))
-            input.turn_angle = 0.0f;
+        auto amount = rot_speed*dt;
+        float angle_remaining = 0.0f;
+        if(amount > rot_abs)
+            amount = rot_abs;
         else
-            input.turn_angle -= amount*a_sign;
+            angle_remaining = input.turn_angle - amount*rot_sign;
 
+        e.angle += amount*rot_sign;
         e.total_meters_moved += amount/2.0f; // TODO: Better angle to meters?
-
         if(!is_tank_player(e)){
-            e.turret_angle += amount*a_sign;
-            e.target_angle = input.turn_angle;
+            e.turret_angle += amount*rot_sign;
+            e.target_angle  = angle_remaining;
         }
     }
 
