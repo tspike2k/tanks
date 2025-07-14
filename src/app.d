@@ -1210,6 +1210,7 @@ void apply_tank_commands(App_State* s, Entity* e, Tank_Commands* input, float dt
 
         if(!is_tank_player(e)){
             e.turret_angle += amount*a_sign;
+            e.target_angle = input.turn_angle;
         }
     }
 
@@ -1252,6 +1253,64 @@ bool is_point_in_sight(World* world, Entity* e, float sight_angle, float sight_r
     return result;
 }
 
+void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
+    if(e.bullet_cooldown_timer > 0){
+        e.bullet_cooldown_timer -= dt;
+    }
+
+    cmd.turn_angle = e.target_angle;
+
+    // If the tank isn't currently making a turn, handle forward movement
+    if(e.target_angle == 0.0f){
+        float obstacle_sight_range = 2.0f; // TODO: Get this from the tank params
+        if(ray_vs_obstacles(&s.world, e.pos, vec2_from_angle(e.angle)*obstacle_sight_range)){
+            // If the tank has seen a wall, try to avoid it by looking to the right
+            // or left. If the left and right are not obstructed, randomly pick
+            // between the two.
+            bool left_is_open  = !ray_vs_obstacles(&s.world, e.pos,
+                vec2_from_angle(e.angle + deg_to_rad(90)) * obstacle_sight_range
+            );
+            bool right_is_open = !ray_vs_obstacles(&s.world, e.pos,
+                vec2_from_angle(e.angle - deg_to_rad(90)) * obstacle_sight_range
+            );
+
+            if(left_is_open && right_is_open){
+                if(random_bool(&s.rng))
+                    e.target_angle = deg_to_rad(90);
+                else
+                    e.target_angle = -deg_to_rad(90);
+            }
+            else if(left_is_open){
+                e.target_angle = deg_to_rad(90);
+            }
+            else if(right_is_open){
+                e.target_angle = -deg_to_rad(90);
+            }
+            else{
+                // TODO: Go in reverse
+            }
+        }
+        else{
+            cmd.move_dir = 1;
+        }
+    }
+
+    // TODO: Iterate over all players
+    auto player = get_entity_by_id(&s.world, s.player_entity_id);
+    auto sight_range = 8.0f;
+    if(player && e.bullet_cooldown_timer <= 0.0f &&
+    is_point_in_sight(&s.world, e, deg_to_rad(65), sight_range, player.pos)){
+        // TODO: Actually try and aim at the target player.
+
+
+        //float min_angle = deg_to_rad(25);
+        //auto angle = angle_between(e.pos, player.pos);
+        //if(abs(angle) < min_angle){
+            cmd.fire_bullet = true;
+        //}
+    }
+}
+
 void simulate_world(App_State* s, Tank_Commands* input, float dt){
     // Entity simulation
     uint remaining_enemies_count;
@@ -1264,78 +1323,30 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
         if(is_dynamic_entity(e.type) && !is_destroyed(&e)){
             float meters_moved_prev = e.total_meters_moved;
 
-            if(e.id == s.player_entity_id){
-                auto turn_angle = input.turn_angle;
-                apply_tank_commands(s, &e, input, dt);
-                input.turn_angle = turn_angle;
-
-                auto turret_dir = s.mouse_world - e.pos;
-                e.turret_angle = atan2(turret_dir.y, turret_dir.x);
-            }
-            else if(e.type == Entity_Type.Tank){
-                // Enemy AI
-                auto cmd = zero_type!Tank_Commands;
-
-                if(e.bullet_cooldown_timer > 0){
-                    e.bullet_cooldown_timer -= dt;
-                }
-
-                // If the tank isn't currently making a turn, handle forward movement
-                if(e.target_angle == 0.0f){
-                    float obstacle_sight_range = 2.0f; // TODO: Get this from the tank params
-                    if(ray_vs_obstacles(&s.world, e.pos, vec2_from_angle(e.angle)*obstacle_sight_range)){
-                        // If the tank has seen a wall, try to avoid it by looking to the right
-                        // or left. If the left and right are not obstructed, randomly pick
-                        // between the two.
-                        bool left_is_open  = !ray_vs_obstacles(&s.world, e.pos,
-                            vec2_from_angle(e.angle + deg_to_rad(90)) * obstacle_sight_range
-                        );
-                        bool right_is_open = !ray_vs_obstacles(&s.world, e.pos,
-                            vec2_from_angle(e.angle - deg_to_rad(90)) * obstacle_sight_range
-                        );
-
-                        if(left_is_open && right_is_open){
-                            if(random_bool(&s.rng))
-                                e.target_angle = deg_to_rad(90);
-                            else
-                                e.target_angle = -deg_to_rad(90);
-                        }
-                        else if(left_is_open){
-                            e.target_angle = deg_to_rad(90);
-                        }
-                        else if(right_is_open){
-                            e.target_angle = -deg_to_rad(90);
-                        }
-                        else{
-                            // TODO: Go in reverse
-                        }
-                    }
-                    else{
-                        cmd.move_dir = 1;
-                    }
-                }
-
-                // TODO: Iterate over all players
-                auto player = get_entity_by_id(&s.world, s.player_entity_id);
-                auto sight_range = 8.0f;
-                if(player && e.bullet_cooldown_timer <= 0.0f &&
-                is_point_in_sight(&s.world, &e, deg_to_rad(65), sight_range, player.pos)){
-                    //float min_angle = deg_to_rad(25);
-                    //auto angle = angle_between(e.pos, player.pos);
-                    //if(abs(angle) < min_angle){
-                        cmd.fire_bullet = true;
-                    //}
-                }
-
-                cmd.turn_angle = e.target_angle;
-                apply_tank_commands(s, &e, &cmd, dt);
-                e.target_angle = cmd.turn_angle;
-            }
-
             switch(e.type){
                 default: break;
 
                 case Entity_Type.Tank:{
+                    auto commands = zero_type!Tank_Commands;
+                    if(is_player(&e)){
+                        assert(e.id == s.player_entity_id);
+                        // TODO: Do we really want to do a copy here? For now we do this since
+                        // apply_tank_commands modifies things like the turn_angle. That's useful
+                        // for enemy AI, but doing that for the player tank would override player
+                        // input. As things are, they're perhaps a little too hackey.
+                        commands = *input;
+                    }
+                    else{
+                        handle_enemy_ai(s, &e, &commands, dt);
+                    }
+
+                    apply_tank_commands(s, &e, &commands, dt);
+
+                    if(e.id == s.player_entity_id){
+                        auto turret_dir = s.mouse_world - e.pos;
+                        e.turret_angle = atan2(turret_dir.y, turret_dir.x);
+                    }
+
                     if(!is_player(&e) && !is_destroyed(&e)){
                         remaining_enemies_count++;
                     }
