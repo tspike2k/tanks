@@ -339,8 +339,10 @@ struct Entity{
     float    total_meters_moved;
 
     // AI related data
-    float target_angle;
-    float bullet_cooldown_timer;
+    Entity_ID fire_target_id;
+    Vec2      fire_target_pos;
+    float     target_angle;
+    float     fire_opportunity_timer;
 }
 
 void destroy_entity(Entity* e){
@@ -1192,32 +1194,46 @@ void start_play_session(App_State* s, uint variant_index){
     load_campaign_level(s, &s.campaign, s.session.mission_index);
 }
 
+float rotate_tank_part(float target_rot, float speed, float* rot_remaining){
+    auto rot_sign = signf(target_rot);
+    auto rot_abs  = abs(target_rot);
+
+    float result = void;
+    if(speed > rot_abs){
+        result         = target_rot;
+        *rot_remaining = 0.0f;
+    }
+    else{
+        result         = speed*rot_sign;
+        *rot_remaining = target_rot - result;
+    }
+    return result;
+}
+
 void apply_tank_commands(App_State* s, Entity* e, Tank_Commands* input, float dt){
     e.vel = Vec2(0, 0);
 
-    float rot_speed = ((2.0f*PI)*0.5f);
     if(input.turn_angle != 0.0f){
-        auto rot_sign = signf(input.turn_angle);
-        auto rot_abs = abs(input.turn_angle);
-
-        auto amount = rot_speed*dt;
-        float angle_remaining = 0.0f;
-        if(amount > rot_abs)
-            amount = rot_abs;
-        else
-            angle_remaining = input.turn_angle - amount*rot_sign;
-
-        e.angle += amount*rot_sign;
+        float rot_speed = ((2.0f*PI)*0.5f)*dt;
+        auto rotation   = rotate_tank_part(input.turn_angle, rot_speed, &e.target_angle);
+        e.angle += rotation;
 
         // Calculate the meters turned by using the Arc Length of the tank's circular bounds
         // to calulate the Sector Area of said circle.
         // https://www.geogebra.org/m/NWWDJdu8
         float radius = e.extents.x;
-        e.total_meters_moved += (squared(radius)*amount)/2.0f;
+        e.total_meters_moved += (squared(radius)*abs(rotation))/2.0f;
         if(!is_tank_player(e)){
-            e.turret_angle += amount*rot_sign;
-            e.target_angle  = angle_remaining;
+            e.turret_angle += rotation;
         }
+    }
+
+    if(input.turret_rot != 0.0f){
+        assert(!is_player(e));
+        float rot_speed = ((2.0f*PI)*0.5f)*dt;
+        float remaining = void;
+        auto rotation = rotate_tank_part(input.turret_rot, rot_speed, &remaining);
+        e.turret_angle += rotation;
     }
 
     auto facing = rotate(Vec2(1, 0), e.angle);
@@ -1240,7 +1256,6 @@ void apply_tank_commands(App_State* s, Entity* e, Tank_Commands* input, float dt
             auto bullet     = spawn_bullet(&s.world, e.id, e.pos, e.turret_angle);
             auto sfx = &s.sfx_fire_bullet;
             audio_play(sfx.samples, sfx.channels, 0);
-            e.bullet_cooldown_timer = 0.5f;
         }
     }
 }
@@ -1260,9 +1275,11 @@ bool is_point_in_sight(World* world, Entity* e, float sight_angle, float sight_r
 }
 
 void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
-    if(e.bullet_cooldown_timer > 0){
-        e.bullet_cooldown_timer -= dt;
-    }
+    // TODO: A LOT of work needs to be done here. Here's just a few features we need:
+    // - Random turning
+    // - Turning in smaller increments
+    // - Aiming at player before firing
+    //
 
     cmd.turn_angle = e.target_angle;
 
@@ -1301,19 +1318,32 @@ void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
         }
     }
 
-    // TODO: Iterate over all players
-    auto player = get_entity_by_id(&s.world, s.player_entity_id);
-    auto sight_range = 8.0f;
-    if(player && e.bullet_cooldown_timer <= 0.0f &&
-    is_point_in_sight(&s.world, e, deg_to_rad(65), sight_range, player.pos)){
-        // TODO: Actually try and aim at the target player.
-
-
-        //float min_angle = deg_to_rad(25);
-        //auto angle = angle_between(e.pos, player.pos);
-        //if(abs(angle) < min_angle){
+    auto sight_range = 8.0f;           // TODO: Get this from tank params
+    auto sight_angle = deg_to_rad(65); // TODO: Get this from tank params
+    if(e.fire_target_id != Null_Entity_ID){
+        // TODO: Check to make sure the fire target is clear of obstacles and allies.
+        auto angle = get_angle(e.fire_target_pos - e.pos);
+        if(abs(angle - e.turret_angle) < 0.001f){
             cmd.fire_bullet = true;
-        //}
+            e.fire_target_id = Null_Entity_ID;
+        }
+        else{
+            e.turret_angle = angle;
+            //cmd.turret_rot = cos(angle - e.turret_angle);
+        }
+    }
+    else{
+        e.fire_opportunity_timer -= dt;
+        if(e.fire_opportunity_timer <= 0.0f){
+            // TODO: Look for the closest player tank that is visible to this tank
+            auto player = get_entity_by_id(&s.world, s.player_entity_id);
+            if(player && is_point_in_sight(&s.world, e, sight_angle, sight_range, player.pos)){
+                e.fire_target_id = player.id;
+                e.fire_target_pos = player.pos;
+            }
+
+            e.fire_opportunity_timer = 0.5f; // TODO: This should be a random number determined by the tank params
+        }
     }
 }
 
@@ -1421,6 +1451,7 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
 
 struct Tank_Commands{
     float turn_angle;
+    float turret_rot;
     int   move_dir;
     bool  fire_bullet;
     bool  place_mine;

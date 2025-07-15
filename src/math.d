@@ -132,9 +132,8 @@ Vec2 vec2_from_angle(float radians){
     return result;
 }
 
-float angle_between(Vec2 a, Vec2 b){
-    auto d = normalize(b - a);
-    auto result = atan2(d.y, d.x);
+float get_angle(Vec2 v){
+    auto result = atan2(v.y, v.x);
     return result;
 }
 
