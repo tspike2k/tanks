@@ -188,8 +188,8 @@ void load_campaign_level(App_State* s, Campaign* campaign, uint mission_index){
                             e.fire_timer.min_delay = 1.0f;
                             e.fire_timer.max_delay = 2.0f;
                             e.fire_timer.window    = 0.25f;
-                            e.aim_timer.min_delay = 1.0f;
-                            e.aim_timer.max_delay = 2.0f;
+                            e.aim_timer.min_delay = 2.0f;
+                            e.aim_timer.max_delay = 5.0f;
                             e.aim_timer.window    = 0.25f;
                             timer_reset(&e.fire_timer, 0, &s.rng);
                             timer_reset(&e.aim_timer, 0, &s.rng);
@@ -208,9 +208,10 @@ void load_campaign_level(App_State* s, Campaign* campaign, uint mission_index){
                     else
                         facing = Vec2(0, sign(dir.y));
 
-                    auto facing_angle = atan2(facing.y, facing.x);
-                    e.turret_angle = facing_angle;
-                    e.angle        = facing_angle;
+                    auto facing_angle  = atan2(facing.y, facing.x);
+                    e.turret_angle     = facing_angle;
+                    e.angle            = facing_angle;
+                    e.target_aim_angle = facing_angle;
                 }
             }
             else if(occupant){
@@ -378,7 +379,7 @@ struct Entity{
     Entity_ID fire_target_id;
     Vec2      fire_target_pos;
     float     target_angle;
-    float     target_aim_rot;
+    float     target_aim_angle;
 }
 
 void destroy_entity(Entity* e){
@@ -1246,11 +1247,35 @@ float rotate_tank_part(float target_rot, float speed, float* rot_remaining){
     return result;
 }
 
+float rotate_towards(float angle, float target_angle, float speed){
+    // Based on code found here:
+    // https://stackoverflow.com/questions/11821013/rotate-an-object-gradually-to-face-a-point
+
+    if(target_angle < 0) target_angle += TAU; // Put target angle in the range 0 .. TAU
+
+    float result = angle;
+    auto delta = angle - target_angle;
+    if (delta < -PI) delta += TAU;
+
+    if(abs(delta) > speed){
+        result -= speed * sign(delta);
+
+        if(result > PI)
+            result -= TAU;
+        else if(result < -PI)
+            result += TAU;
+    }
+    else{
+        result = target_angle;
+    }
+    return result;
+}
+
 void apply_tank_commands(App_State* s, Entity* e, Tank_Commands* input, float dt){
     e.vel = Vec2(0, 0);
 
     if(input.turn_angle != 0.0f){
-        float rot_speed = ((2.0f*PI)*0.5f)*dt;
+        float rot_speed = (PI)*dt;
         auto rotation   = rotate_tank_part(input.turn_angle, rot_speed, &e.target_angle);
         e.angle += rotation;
 
@@ -1259,16 +1284,11 @@ void apply_tank_commands(App_State* s, Entity* e, Tank_Commands* input, float dt
         // https://www.geogebra.org/m/NWWDJdu8
         float radius = e.extents.x;
         e.total_meters_moved += (squared(radius)*abs(rotation))/2.0f;
-        if(!is_tank_player(e)){
-            e.turret_angle += rotation;
-        }
     }
 
-    if(input.turret_rot != 0.0f){
-        assert(!is_player(e));
-        float rot_speed = ((2.0f*PI)*0.5f)*dt;
-        auto rotation = rotate_tank_part(input.turret_rot, rot_speed, &e.target_aim_rot);
-        e.turret_angle += rotation;
+    if(e.fire_target_id != Null_Entity_ID){
+        auto target_angle = get_angle(e.fire_target_pos - e.pos);
+        e.turret_angle = rotate_towards(e.turret_angle, target_angle, (PI*0.50f)*dt);
     }
 
     auto facing = rotate(Vec2(1, 0), e.angle);
@@ -1393,12 +1413,16 @@ void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
     auto sight_range = 8.0f;           // TODO: Get this from tank params
     auto sight_angle = deg_to_rad(65); // TODO: Get this from tank params
     if(has_opportunity(&e.fire_timer, e.ai_time) && e.fire_target_id != Null_Entity_ID){
-        auto target_pos = e.fire_target_pos;
         float min_aim_angle = deg_to_rad(25); // TODO: Get this from the tank params
-        auto angle_between = get_angle(target_pos - e.pos);
-        log("Has fire opportunity\n");
-        if(angle_between < min_aim_angle){
-            log("Taking fire opportunity\n");
+
+        // TODO: Rather than fixate on a specific target, we only care if a valid target
+        // is within the range of fire and no ally is in the range.
+        auto target = get_entity_by_id(&s.world, e.fire_target_id);
+
+        // TODO: Perform raycasts to make sure the player is in the range of fire and
+        // allies are not
+        if(target && abs(get_angle(target.pos - e.pos)) < min_aim_angle
+        && is_point_in_sight(&s.world, e, sight_angle, sight_range, target.pos)){
             cmd.fire_bullet = true;
             timer_reset(&e.fire_timer, e.ai_time, &s.rng);
         }
@@ -1407,17 +1431,12 @@ void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
     if(has_opportunity(&e.aim_timer, e.ai_time)){
         e.fire_target_id = Null_Entity_ID;
         auto player = get_entity_by_id(&s.world, s.player_entity_id); // TODO: Choose the closest player
-        log("Has aim opportunity\n");
-        if(player && is_point_in_sight(&s.world, e, sight_angle, sight_range, player.pos)){
-            log("Taking aim opportunity\n");
+        if(player){
             e.fire_target_id  = player.id;
             e.fire_target_pos = player.pos;
-            e.target_aim_rot = cos(e.turret_angle) - get_angle(e.pos - player.pos);
             timer_reset(&e.aim_timer, e.ai_time, &s.rng);
         }
     }
-
-    cmd.turret_rot = e.target_aim_rot;
 }
 
 void simulate_world(App_State* s, Tank_Commands* input, float dt){
@@ -1452,8 +1471,7 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
                     apply_tank_commands(s, &e, &commands, dt);
 
                     if(e.id == s.player_entity_id){
-                        auto turret_dir = s.mouse_world - e.pos;
-                        e.turret_angle = atan2(turret_dir.y, turret_dir.x);
+                        e.turret_angle = get_angle(s.mouse_world - e.pos);
                     }
 
                     if(!is_player(&e) && !is_destroyed(&e)){
