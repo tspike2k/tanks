@@ -184,6 +184,15 @@ void load_campaign_level(App_State* s, Campaign* campaign, uint mission_index){
                         if(enemy_entry.spawn_index == tank_index){
                             // TODO: Choose tank type based on enemy_entry.type_min/type_max.
                             e = add_entity(world, p, Entity_Type.Tank);
+                            // TODO: Get these values from the tank params.
+                            e.fire_timer.min_delay = 1.0f;
+                            e.fire_timer.max_delay = 2.0f;
+                            e.fire_timer.window    = 0.25f;
+                            e.aim_timer.min_delay = 1.0f;
+                            e.aim_timer.max_delay = 2.0f;
+                            e.aim_timer.window    = 0.25f;
+                            timer_reset(&e.fire_timer, 0, &s.rng);
+                            timer_reset(&e.aim_timer, 0, &s.rng);
                             e.cell_info = occupant;
                             break;
                         }
@@ -323,6 +332,28 @@ enum Entity_Type : uint{
     Mine,
 }
 
+struct AI_Timer{
+    float start;
+    float window;
+    float min_delay;
+    float max_delay;
+}
+
+void timer_reset(AI_Timer* timer, float ai_time, Xorshift32* rng){
+    timer.start = ai_time + random_f32_between(rng, timer.min_delay, timer.max_delay);
+}
+
+void timer_update(AI_Timer* timer, float ai_time, Xorshift32* rng){
+    if(ai_time > timer.start + timer.window){
+        timer_reset(timer, ai_time, rng);
+    }
+}
+
+bool has_opportunity(AI_Timer* timer, float ai_time){
+    bool result = ai_time > timer.start && ai_time < timer.start + timer.window;
+    return result;
+}
+
 struct Entity{
     Entity_ID   id;
     Entity_ID   parent_id;
@@ -339,10 +370,15 @@ struct Entity{
     float    total_meters_moved;
 
     // AI related data
+
+    float     ai_time;
+    AI_Timer  fire_timer;
+    AI_Timer  aim_timer;
+
     Entity_ID fire_target_id;
     Vec2      fire_target_pos;
     float     target_angle;
-    float     fire_opportunity_timer;
+    float     target_aim_rot;
 }
 
 void destroy_entity(Entity* e){
@@ -1231,8 +1267,7 @@ void apply_tank_commands(App_State* s, Entity* e, Tank_Commands* input, float dt
     if(input.turret_rot != 0.0f){
         assert(!is_player(e));
         float rot_speed = ((2.0f*PI)*0.5f)*dt;
-        float remaining = void;
-        auto rotation = rotate_tank_part(input.turret_rot, rot_speed, &remaining);
+        auto rotation = rotate_tank_part(input.turret_rot, rot_speed, &e.target_aim_rot);
         e.turret_angle += rotation;
     }
 
@@ -1273,6 +1308,39 @@ bool is_point_in_sight(World* world, Entity* e, float sight_angle, float sight_r
     }
     return result;
 }
+
+
+/+
+    Opportunity timer work differently than we've implemented. They give a random window of
+    opportunity. In the case of taking a shot, the tank could miss a window of opportunity.
+    Using a cooldown timer as we are right now, the tank will sit and wait to take a shot
+    as soon as one becomes availible. This is much too aggressive.
+
+    AI timers use three word, #35, #36, #37. 36 determines the minimum amount of time that
+    must pass before a new window becomes availible. Word 35 determiens the size of the window.
+    Word 37 is the max amount of time that can pass before the next window of opportunity.
+    So, let's label this words:
+        min_timer (35)
+
+
+
+    Turret aiming:
+    This determines where the tank is currently aiming.
+    Tanks begin by setting a target location? What if they don't see the player?
+    Target position is offset by a a random angle, not more than the given max angle
+    After picking a target, the turret will rotate to the target. Once there, it will
+    stay then until given a new target. A new target is picked after the aim target timer
+    ends.
+
+    Turret shooting:
+    This determines if the tank should fire.
+    Fire an infinite ray from the tank in the direction of the current turret angle.
+    Check along this line to see if a player or an ally are inside the range. If an ally
+    is inside, the tank will abort the shot. If not, and a player is found in the zoe,
+    the tank fires. The tank also checks a small radius around the tank to check for allies
+    as well. If the bullet can ricochet, a ray is also fixed from the contact point towards
+    it's destination and check for allies and players the same way.
++/
 
 void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
     // TODO: A LOT of work needs to be done here. Here's just a few features we need:
@@ -1318,33 +1386,38 @@ void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
         }
     }
 
+    e.ai_time += dt;
+    timer_update(&e.fire_timer, e.ai_time, &s.rng);
+    timer_update(&e.aim_timer, e.ai_time, &s.rng);
+
     auto sight_range = 8.0f;           // TODO: Get this from tank params
     auto sight_angle = deg_to_rad(65); // TODO: Get this from tank params
-    if(e.fire_target_id != Null_Entity_ID){
-        // TODO: Check to make sure the fire target is clear of obstacles and allies.
-        auto angle = get_angle(e.fire_target_pos - e.pos);
-        if(abs(angle - e.turret_angle) < 0.001f){
+    if(has_opportunity(&e.fire_timer, e.ai_time) && e.fire_target_id != Null_Entity_ID){
+        auto target_pos = e.fire_target_pos;
+        float min_aim_angle = deg_to_rad(25); // TODO: Get this from the tank params
+        auto angle_between = get_angle(target_pos - e.pos);
+        log("Has fire opportunity\n");
+        if(angle_between < min_aim_angle){
+            log("Taking fire opportunity\n");
             cmd.fire_bullet = true;
-            e.fire_target_id = Null_Entity_ID;
-        }
-        else{
-            e.turret_angle = angle;
-            //cmd.turret_rot = cos(angle - e.turret_angle);
+            timer_reset(&e.fire_timer, e.ai_time, &s.rng);
         }
     }
-    else{
-        e.fire_opportunity_timer -= dt;
-        if(e.fire_opportunity_timer <= 0.0f){
-            // TODO: Look for the closest player tank that is visible to this tank
-            auto player = get_entity_by_id(&s.world, s.player_entity_id);
-            if(player && is_point_in_sight(&s.world, e, sight_angle, sight_range, player.pos)){
-                e.fire_target_id = player.id;
-                e.fire_target_pos = player.pos;
-            }
 
-            e.fire_opportunity_timer = 0.5f; // TODO: This should be a random number determined by the tank params
+    if(has_opportunity(&e.aim_timer, e.ai_time)){
+        e.fire_target_id = Null_Entity_ID;
+        auto player = get_entity_by_id(&s.world, s.player_entity_id); // TODO: Choose the closest player
+        log("Has aim opportunity\n");
+        if(player && is_point_in_sight(&s.world, e, sight_angle, sight_range, player.pos)){
+            log("Taking aim opportunity\n");
+            e.fire_target_id  = player.id;
+            e.fire_target_pos = player.pos;
+            e.target_aim_rot = cos(e.turret_angle) - get_angle(e.pos - player.pos);
+            timer_reset(&e.aim_timer, e.ai_time, &s.rng);
         }
     }
+
+    cmd.turret_rot = e.target_aim_rot;
 }
 
 void simulate_world(App_State* s, Tank_Commands* input, float dt){
