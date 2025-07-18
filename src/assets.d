@@ -191,7 +191,8 @@ struct Tank_Type{
     float fire_delay_min;  // Word 37
     float fire_delay_time; // Word 36
     float fire_window;     // Word 35
-    float aim_timer;
+    float aim_timer;       // Word 40
+    float aim_max_angle;   // Word 29
 }
 
 struct Campaign_Mission{

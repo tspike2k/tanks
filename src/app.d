@@ -439,6 +439,7 @@ Tank_Type[] g_tank_types = [
         fire_window:     (15.0f)/60.0f,
 
         aim_timer: 60.0f/60.0f,
+        aim_max_angle: deg_to_rad(170),
     },
     {
         // Ash
@@ -452,6 +453,9 @@ Tank_Type[] g_tank_types = [
         fire_delay_min:  (180.0f)/60.0f,
         fire_delay_time: (30.0f)/60.0f,
         fire_window:     (15.0f)/60.0f,
+
+        aim_timer: 45.0f/60.0f,
+        aim_max_angle: deg_to_rad(40),
     },
     {
         // Teal
@@ -465,6 +469,9 @@ Tank_Type[] g_tank_types = [
         fire_delay_min:  (180.0f)/60.0f,
         fire_delay_time: (5.0f)/60.0f,
         fire_window:     (5.0f)/60.0f,
+
+        aim_timer: 8.0f/60.0f,
+        aim_max_angle: 0,
     },
     {
         // Pink
@@ -478,6 +485,9 @@ Tank_Type[] g_tank_types = [
         fire_delay_min:  (30.0f)/60.0f,
         fire_delay_time: (5.0f)/60.0f,
         fire_window:     (5.0f)/60.0f,
+
+        aim_timer: 20.0f/60.0f,
+        aim_max_angle: deg_to_rad(40),
     },
     {
         // Yellow
@@ -491,6 +501,9 @@ Tank_Type[] g_tank_types = [
         fire_delay_min:  (180.0f)/60.0f,
         fire_delay_time: (30.0f)/60.0f,
         fire_window:     (15.0f)/60.0f,
+
+        aim_timer: 30.0f/60.0f,
+        aim_max_angle: deg_to_rad(40),
     },
     {
         // Purple
@@ -504,6 +517,9 @@ Tank_Type[] g_tank_types = [
         fire_delay_min:  (30.0f)/60.0f,
         fire_delay_time: (5.0f)/60.0f,
         fire_window:     (5.0f)/60.0f,
+
+        aim_timer: 20.0f/60.0f,
+        aim_max_angle: deg_to_rad(40),
     },
     {
         // Green
@@ -517,6 +533,9 @@ Tank_Type[] g_tank_types = [
         fire_delay_min:  (60.0f)/60.0f,
         fire_delay_time: (5.0f)/60.0f,
         fire_window:     (5.0f)/60.0f,
+
+        aim_timer: 30.0f/60.0f,
+        aim_max_angle: deg_to_rad(80),
     },
     {
         // White
@@ -530,6 +549,9 @@ Tank_Type[] g_tank_types = [
         fire_delay_min:  (30.0f)/60.0f,
         fire_delay_time: (5.0f)/60.0f,
         fire_window:     (5.0f)/60.0f,
+
+        aim_timer: 30.0f/60.0f,
+        aim_max_angle: deg_to_rad(40),
     },
     {
         // Black
@@ -543,6 +565,9 @@ Tank_Type[] g_tank_types = [
         fire_delay_min:  (60.0f)/60.0f,
         fire_delay_time: (5.0f)/60.0f,
         fire_window:     (5.0f)/60.0f,
+
+        aim_timer: 20.0f/60.0f,
+        aim_max_angle: deg_to_rad(5),
     },
 ];
 
@@ -757,13 +782,13 @@ void spawn_mine(World* world, Vec2 p, Entity_ID id){
     e.parent_id = id;
 }
 
-Entity* spawn_bullet(World* world, Entity_ID parent_id, Vec2 p, float angle, float speed){
+Entity* spawn_bullet(World* world, Entity_ID parent_id, Vec2 p, float angle, Tank_Type* tank_info){
     auto dir    = vec2_from_angle(angle);
     auto e      = add_entity(world, p + dir*1.01f, Entity_Type.Bullet);
     e.angle     = angle;
     e.parent_id = parent_id;
-    e.health    = 2;
-    e.vel       = dir*speed;
+    e.health    = tank_info.bullet_ricochets+1;
+    e.vel       = dir*tank_info.bullet_speed;
     return e;
 }
 
@@ -1449,7 +1474,7 @@ void apply_tank_commands(App_State* s, Entity* e, Tank_Commands* input, float dt
     if(input.fire_bullet){
         auto count = get_child_entity_count(&s.world, e.id, Entity_Type.Bullet);
         if(count < tank_info.bullet_limit){
-            auto bullet = spawn_bullet(&s.world, e.id, e.pos, e.turret_angle, tank_info.bullet_speed);
+            auto bullet = spawn_bullet(&s.world, e.id, e.pos, e.turret_angle, tank_info);
             auto sfx = &s.sfx_fire_bullet;
             audio_play(sfx.samples, sfx.channels, 0);
         }
@@ -1558,8 +1583,8 @@ void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
         // TODO: Perform raycasts to make sure the player is in the range of fire and
         // allies are not
         log("Has fire opportunity\n");
-        if(target && abs(get_angle(target.pos - e.pos)) < min_aim_angle
-        && is_point_in_sight(&s.world, e, sight_angle, sight_range, target.pos)){
+        if(target){//&& abs(get_angle(target.pos - e.pos)) < min_aim_angle
+        //&& is_point_in_sight(&s.world, e, sight_angle, sight_range, target.pos)){
             cmd.fire_bullet = true;
             timer_reset(&e.fire_timer, e.ai_time, &s.rng);
         }
@@ -1571,8 +1596,18 @@ void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
         auto player = get_closest_player(s, e.pos);
         if(player){
             auto len   = length(e.pos - player.pos);
-            auto angle = get_angle(e.pos - player.pos);
-            e.aim_target_pos = player.pos;
+            auto angle = get_angle(player.pos - e.pos);
+            if(tank_info.aim_max_angle > 0.001f){
+                auto angle_offset = random_f32_between(&s.rng, -tank_info.aim_max_angle, tank_info.aim_max_angle);
+                angle += angle_offset;
+
+                if(angle > PI)
+                    angle -= TAU;
+                else if(angle < -PI)
+                    angle += TAU;
+            }
+
+            e.aim_target_pos = e.pos + vec2_from_angle(angle)*len;
         }
     }
 }
