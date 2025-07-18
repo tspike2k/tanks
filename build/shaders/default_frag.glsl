@@ -5,8 +5,15 @@ uniform mat4 mat_model;
 in vec2  f_uv;
 in vec3  f_normal;
 in vec3  f_world_pos;
+flat in int  f_material_index;
 
 out vec4 out_color;
+
+struct Material{
+    vec3  tint;
+    vec3  specular;
+    float shininess;
+};
 
 layout(std140) uniform Constants{
     float time;
@@ -17,10 +24,8 @@ layout(std140) uniform Camera{
     vec3 camera_pos; // TODO: Is there some way to do lighting without this?
 };
 
-layout(std140) uniform Material{
-    vec3  material_tint;
-    vec3  material_specular;
-    float material_shininess;
+layout(std140) uniform Materials{
+    Material[2] materials;
 };
 
 layout(std140) uniform Light{
@@ -48,11 +53,13 @@ void main(){
     // https://en.wikipedia.org/wiki/Blinn%E2%80%93Phong_reflection_model
     // https://learnopengl.com/Advanced-Lighting/Advanced-Lighting
 
+    Material material = materials[f_material_index];
+
     //vec3 ambient = light_ambient * material_ambient;
     vec3 ambient = light_ambient * vec3(texture(texture_diffuse, f_uv));
 
     float diffuse_intensity = max(dot(normal, -light_dir), 0.0);
-    vec3 material_diffuse = blend_additive(vec3(texture(texture_diffuse, f_uv)), material_tint);
+    vec3 material_diffuse = blend_additive(vec3(texture(texture_diffuse, f_uv)), material.tint);
     vec3 diffuse = light_diffuse * diffuse_intensity * material_diffuse;
 
     // Fixed issue with specular passing through objects by multiplying the diffuse and
@@ -63,8 +70,8 @@ void main(){
     // Avoid using a zero shininess value.
 
     vec3 half_vector = normalize(light_dir + view_dir);
-    float specular_intensity = pow(max(dot(normal, half_vector), 0.0), material_shininess);
-    vec3 specular = light_specular * (diffuse_intensity*specular_intensity * material_specular);
+    float specular_intensity = pow(max(dot(normal, half_vector), 0.0), material.shininess);
+    vec3 specular = light_specular * (diffuse_intensity*specular_intensity * material.specular);
 
     vec3 linear_color = ambient + diffuse + specular;
     out_color = vec4(linear_color, 1.0f);

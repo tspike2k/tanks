@@ -38,6 +38,8 @@ private{
 
     Allocator* g_allocator;
     Texture    g_current_texture;
+
+    enum Max_Materials = 2;
 }
 
 enum Vec3_Up = Vec3(0, 1, 0); // TODO: Is this correct? If it is, in the future we would prefer it if z positive was up instead.
@@ -64,6 +66,7 @@ struct Vertex{
     }
     Vec3 pos;
     Vec2 uv;
+    uint material_index;
 }
 
 struct Mesh{
@@ -583,7 +586,7 @@ version(opengl){
 
     // TODO: Combine all the uniform blocks into one and use a single binding point?
     enum Constants_Uniform_Binding = 0;
-    enum Material_Uniform_Binding  = 1;
+    enum Materials_Uniform_Binding  = 1;
     enum Light_Uniform_Binding     = 2;
     enum Camera_Uniform_Binding    = 3;
 
@@ -591,6 +594,7 @@ version(opengl){
         Vertex_Attribute_ID_Pos,
         Vertex_Attribute_ID_Common,
         Vertex_Attribute_ID_UV,
+        Vertex_Attribute_ID_Material_Index,
     }
 
     alias Quad_Index_Type = GLuint;
@@ -696,6 +700,9 @@ version(opengl){
         glEnableVertexAttribArray(Vertex_Attribute_ID_UV);
         glVertexAttribPointer(Vertex_Attribute_ID_UV, 2, GL_FLOAT, GL_FALSE, Vertex.sizeof, cast(GLvoid*)Vertex.uv.offsetof);
 
+        glEnableVertexAttribArray(Vertex_Attribute_ID_Material_Index);
+        glVertexAttribPointer(Vertex_Attribute_ID_Material_Index, 1, GL_INT, GL_FALSE, Vertex.sizeof, cast(GLvoid*)Vertex.material_index.offsetof);
+
         // TODO: If we use glDrawElementsBaseVertex, we can use an index buffer with smaller precision (say GL_UNSIGNED_BYTE).
         // Then we tell call glDrawElementsBaseVertex rather than glDrawElements and pass the stride. OpenGL will add the
         // correct offset for each element drawn. Handy.
@@ -741,7 +748,7 @@ version(opengl){
         }
 
         init_uniform_buffer(&g_shader_constants_buffer, Constants_Uniform_Binding, Shader_Constants.sizeof);
-        init_uniform_buffer(&g_shader_material_buffer, Material_Uniform_Binding, Shader_Material.sizeof);
+        init_uniform_buffer(&g_shader_material_buffer, Materials_Uniform_Binding, Shader_Material.sizeof*Max_Materials);
         init_uniform_buffer(&g_shader_light_buffer, Light_Uniform_Binding, Shader_Light.sizeof);
         init_uniform_buffer(&g_shader_camera_buffer, Camera_Uniform_Binding, Shader_Camera.sizeof);
 
@@ -1025,9 +1032,10 @@ version(opengl){
             return 0;
         }
 
-        glBindAttribLocation(program, Vertex_Attribute_ID_Pos,    "v_pos");
-        glBindAttribLocation(program, Vertex_Attribute_ID_Common, "v_common");
-        glBindAttribLocation(program, Vertex_Attribute_ID_UV,     "v_uv");
+        glBindAttribLocation(program, Vertex_Attribute_ID_Pos,            "v_pos");
+        glBindAttribLocation(program, Vertex_Attribute_ID_Common,         "v_common");
+        glBindAttribLocation(program, Vertex_Attribute_ID_UV,             "v_uv");
+        glBindAttribLocation(program, Vertex_Attribute_ID_Material_Index, "v_material_index");
 
         GLuint vertex_shader = compile_shader_pass(GL_VERTEX_SHADER, "Vertex Shader", vertex_source.ptr);
         if(!vertex_shader){
@@ -1077,7 +1085,7 @@ version(opengl){
             }
 
             make_uniform_binding(program_name, program, "Constants", Constants_Uniform_Binding);
-            make_uniform_binding(program_name, program, "Material", Material_Uniform_Binding);
+            make_uniform_binding(program_name, program, "Materials", Materials_Uniform_Binding);
             make_uniform_binding(program_name, program, "Light", Light_Uniform_Binding);
             make_uniform_binding(program_name, program, "Camera", Camera_Uniform_Binding);
 

@@ -1290,7 +1290,6 @@ void render_entity(App_State* s, Entity* e, Render_Passes rp, Material* material
                 auto scale = Vec3(1, height, 1);
                 auto pos = p + Vec3(0, height*0.5f, 0);
 
-
                 render_mesh(
                     rp.world, &s.cube_mesh, material,
                     mat4_translate(pos)*mat4_scale(scale)
