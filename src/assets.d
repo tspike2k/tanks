@@ -138,8 +138,8 @@ alias Map_Cell_Is_Player    = Map_Cell_Is_Special;
 //        to prevent a block with no height (a hole) from being encoded as zero (the empty cell).
 // u    - unused
 // iii  - The "index" value of the entity. When a block, determines height. When a player tank,
-//        determines the index of the player that controls the tank. Determines the enemy slot
-//        to use from the current campaign mission for enemy tanks.
+//        determines the index of the player that controls the tank. For enemy tanks, determines
+//        which spawner on the map should be used to generate the tank.
 Map_Cell encode_map_cell(bool is_tank, bool is_special, ubyte index){
     Map_Cell result;
 
@@ -182,7 +182,16 @@ struct Tank_Type{
     Vec4  turret_color;
     bool  invisible;
     float speed;
+    uint  bullet_limit;
+    uint  bullet_ricochets;
+    float bullet_speed;
+
     float obstacle_sight_dist; // Obstacle Awareness (Movement)
+
+    float fire_delay_min;  // Word 37
+    float fire_delay_time; // Word 36
+    float fire_window;     // Word 35
+    float aim_timer;
 }
 
 struct Campaign_Mission{

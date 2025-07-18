@@ -62,7 +62,6 @@ enum Audio_Frames_Per_Sec = 44100;
 
 enum Campaign_File_Name = "./build/main.camp"; // TODO: Use a specific folder for campaigns?
 
-enum Max_Bullets_Per_Tank = 5;
 enum Max_Mines_Per_Tank   = 3;
 
 enum Mine_Detonation_Time    = 8.0f;
@@ -139,6 +138,41 @@ bool ray_vs_obstacles(World* world, Vec2 ray_start, Vec2 ray_delta){
     return result;
 }
 
+Entity* spawn_tank(App_State* s, Vec2 pos, Vec2 map_center, ubyte cell_info, uint tank_type_min, uint tank_type_max){
+    auto e = add_entity(&s.world, pos, Entity_Type.Tank);
+
+    auto is_player = (cell_info & Map_Cell_Is_Player);
+    if(!is_player){
+        if(tank_type_min != tank_type_max)
+            e.tank_type_index = random_u32_between(&s.rng, tank_type_min, tank_type_max);
+        else
+            e.tank_type_index = tank_type_min;
+
+        auto tank_info = get_tank_info(&s.campaign, e);
+
+        e.fire_timer.min_delay = tank_info.fire_delay_min;
+        e.fire_timer.max_delay = tank_info.fire_delay_min + tank_info.fire_delay_time;
+        e.fire_timer.window    = tank_info.fire_window;
+        timer_reset(&e.fire_timer, 0, &s.rng);
+    }
+
+    // All tanks face towards the center of the map when level begins.
+    auto dir = normalize(map_center - e.pos);
+    Vec2 facing = void;
+    if(abs(dir.x) > abs(dir.y))
+        facing = Vec2(sign(dir.x), 0);
+    else
+        facing = Vec2(0, sign(dir.y));
+
+    auto facing_angle  = atan2(facing.y, facing.x);
+    e.turret_angle     = facing_angle;
+    e.angle            = facing_angle;
+    e.target_aim_angle = facing_angle;
+    e.cell_info        = cell_info;
+
+    return e;
+}
+
 void load_campaign_level(App_State* s, Campaign* campaign, uint mission_index){
     auto world = &s.world;
     world.entities_count = 0;
@@ -162,61 +196,31 @@ void load_campaign_level(App_State* s, Campaign* campaign, uint mission_index){
     foreach(y; 0 .. map.height){
         foreach(x; 0 .. map.width){
             auto p = Vec2(x, y) + Vec2(0.5f, 0.5f);
-            auto occupant = map.cells[x + y * map.width];
-            if(occupant & Map_Cell_Is_Tank){
-                auto tank_index = occupant & Map_Cell_Index_Mask;
-                bool is_player = (occupant & Map_Cell_Is_Player) != 0;
+            auto cell_info = map.cells[x + y * map.width];
+            if(cell_info & Map_Cell_Is_Tank){
+                auto tank_index = cell_info & Map_Cell_Index_Mask;
+                bool is_player = (cell_info & Map_Cell_Is_Player) != 0;
 
-                // TODO: Entity should face either left or right depending on distance from
-                // center? How does this work in the original? Do we need facing info?
-                Entity* e;
                 if(is_player){
                     assert(tank_index >= 0 && tank_index <= 4);
                     if(tank_index == 0){
-                        e = add_entity(world, p, Entity_Type.Tank);
-                        e.cell_info = occupant;
+                        auto e = spawn_tank(s, p, map_center, cell_info, 0, 0);
                         // TODO: We should use an array of of entity_ids that maps to player indeces
                         s.player_entity_id = e.id;
                     }
                 }
                 else{
-                    foreach(ref enemy_entry; mission.enemies){
-                        if(enemy_entry.spawn_index == tank_index){
-                            // TODO: Choose tank type based on enemy_entry.type_min/type_max.
-                            e = add_entity(world, p, Entity_Type.Tank);
-                            // TODO: Get these values from the tank params.
-                            e.fire_timer.min_delay = 1.0f;
-                            e.fire_timer.max_delay = 2.0f;
-                            e.fire_timer.window    = 0.25f;
-                            e.aim_timer.min_delay = 2.0f;
-                            e.aim_timer.max_delay = 5.0f;
-                            e.aim_timer.window    = 0.25f;
-                            timer_reset(&e.fire_timer, 0, &s.rng);
-                            timer_reset(&e.aim_timer, 0, &s.rng);
-                            e.cell_info = occupant;
+                    foreach(ref spawner; mission.enemies){
+                        if(spawner.spawn_index == tank_index){
+                            spawn_tank(s, p, map_center, cell_info, spawner.type_min, spawner.type_max);
                             break;
                         }
                     }
                 }
-
-                if(e){
-                    // All tanks face towards the center of the map when level begins.
-                    auto dir = normalize(map_center - e.pos);
-                    Vec2 facing = void;
-                    if(abs(dir.x) > abs(dir.y))
-                        facing = Vec2(sign(dir.x), 0);
-                    else
-                        facing = Vec2(0, sign(dir.y));
-
-                    auto facing_angle  = atan2(facing.y, facing.x);
-                    e.turret_angle     = facing_angle;
-                    e.angle            = facing_angle;
-                    e.target_aim_angle = facing_angle;
-                }
             }
-            else if(occupant){
+            else if(cell_info){
                 auto e = add_entity(world, p, Entity_Type.Block);
-                e.cell_info = occupant;
+                e.cell_info = cell_info;
             }
         }
     }
@@ -333,6 +337,12 @@ enum Entity_Type : uint{
     Mine,
 }
 
+/+
+In the original Wii Play minigame "Tanks!", AI controlled tanks make decisions based on timers.
+These timers give a limited window of opportunity for the AI to make some sort of decision
+(take aim, fire bullet, etc.). The length of the window is always fixed, but the amount of time
+between opportunities is randomly selected between a minimum and maximum value.
++/
 struct AI_Timer{
     float start;
     float window;
@@ -359,6 +369,7 @@ struct Entity{
     Entity_ID   id;
     Entity_ID   parent_id;
     Entity_Type type;
+    uint        tank_type_index;
 
     Vec2     pos;
     Vec2     extents;
@@ -370,14 +381,12 @@ struct Entity{
     float    mine_timer;
     float    total_meters_moved;
 
-    // AI related data
-
+    // AI related data:
     float     ai_time;
     AI_Timer  fire_timer;
-    AI_Timer  aim_timer;
+    float     aim_timer;
 
-    Entity_ID fire_target_id;
-    Vec2      fire_target_pos;
+    Vec2      aim_target_pos;
     float     target_angle;
     float     target_aim_angle;
 }
@@ -404,6 +413,138 @@ struct World{
     uint        entities_count;
     Rect        bounds;
 }
+
+// TODO: These are debug values. Final values should be stored in the mission file itself.
+Tank_Type[] g_tank_types = [
+    {
+        // Player
+        invisible: false,
+        speed: 1.8f,
+
+        bullet_limit:     5,
+        bullet_ricochets: 1,
+        bullet_speed:     3.0f,
+    },
+    {
+        // Brown
+        invisible: false,
+        speed: 0,
+
+        bullet_limit:     1,
+        bullet_ricochets: 1,
+        bullet_speed:     3.0f,
+
+        fire_delay_min:  (300.0f)/60.0f,
+        fire_delay_time: (30.0f)/60.0f,
+        fire_window:     (15.0f)/60.0f,
+
+        aim_timer: 60.0f/60.0f,
+    },
+    {
+        // Ash
+        invisible: false,
+        speed: 1.2f,
+
+        bullet_limit:     1,
+        bullet_ricochets: 1,
+        bullet_speed:     3.0f,
+
+        fire_delay_min:  (180.0f)/60.0f,
+        fire_delay_time: (30.0f)/60.0f,
+        fire_window:     (15.0f)/60.0f,
+    },
+    {
+        // Teal
+        invisible: false,
+        speed: 1.0f,
+
+        bullet_limit:     1,
+        bullet_ricochets: 0,
+        bullet_speed:     6.0f,
+
+        fire_delay_min:  (180.0f)/60.0f,
+        fire_delay_time: (5.0f)/60.0f,
+        fire_window:     (5.0f)/60.0f,
+    },
+    {
+        // Pink
+        invisible: false,
+        speed: 1.2f,
+
+        bullet_limit:     3,
+        bullet_ricochets: 1,
+        bullet_speed:     3.0f,
+
+        fire_delay_min:  (30.0f)/60.0f,
+        fire_delay_time: (5.0f)/60.0f,
+        fire_window:     (5.0f)/60.0f,
+    },
+    {
+        // Yellow
+        invisible: false,
+        speed: 1.8f,
+
+        bullet_limit:     1,
+        bullet_ricochets: 1,
+        bullet_speed:     3.0f,
+
+        fire_delay_min:  (180.0f)/60.0f,
+        fire_delay_time: (30.0f)/60.0f,
+        fire_window:     (15.0f)/60.0f,
+    },
+    {
+        // Purple
+        invisible: false,
+        speed: 1.8f,
+
+        bullet_limit:     5,
+        bullet_ricochets: 1,
+        bullet_speed:     3.0f,
+
+        fire_delay_min:  (30.0f)/60.0f,
+        fire_delay_time: (5.0f)/60.0f,
+        fire_window:     (5.0f)/60.0f,
+    },
+    {
+        // Green
+        invisible: false,
+        speed: 0,
+
+        bullet_limit:     2,
+        bullet_ricochets: 2,
+        bullet_speed:     6.0f,
+
+        fire_delay_min:  (60.0f)/60.0f,
+        fire_delay_time: (5.0f)/60.0f,
+        fire_window:     (5.0f)/60.0f,
+    },
+    {
+        // White
+        invisible: true,
+        speed: 1.2f,
+
+        bullet_limit:     5,
+        bullet_ricochets: 1,
+        bullet_speed:     3.0f,
+
+        fire_delay_min:  (30.0f)/60.0f,
+        fire_delay_time: (5.0f)/60.0f,
+        fire_window:     (5.0f)/60.0f,
+    },
+    {
+        // Black
+        invisible: false,
+        speed: 2.4f,
+
+        bullet_limit:     3,
+        bullet_ricochets: 0,
+        bullet_speed:     6.0f,
+
+        fire_delay_min:  (60.0f)/60.0f,
+        fire_delay_time: (5.0f)/60.0f,
+        fire_window:     (5.0f)/60.0f,
+    },
+];
 
 bool is_valid_block(Entity* e){
     assert(e.type == Entity_Type.Block);
@@ -616,8 +757,7 @@ void spawn_mine(World* world, Vec2 p, Entity_ID id){
     e.parent_id = id;
 }
 
-Entity* spawn_bullet(World* world, Entity_ID parent_id, Vec2 p, float angle){
-    float speed = 4.0f; // TODO: Get this from the tank params
+Entity* spawn_bullet(World* world, Entity_ID parent_id, Vec2 p, float angle, float speed){
     auto dir    = vec2_from_angle(angle);
     auto e      = add_entity(world, p + dir*1.01f, Entity_Type.Bullet);
     e.angle     = angle;
@@ -1272,7 +1412,7 @@ float rotate_towards(float angle, float target_angle, float speed){
 }
 
 void apply_tank_commands(App_State* s, Entity* e, Tank_Commands* input, float dt){
-    e.vel = Vec2(0, 0);
+    auto tank_info = get_tank_info(&s.campaign, e);
 
     if(input.turn_angle != 0.0f){
         float rot_speed = (PI)*dt;
@@ -1286,13 +1426,14 @@ void apply_tank_commands(App_State* s, Entity* e, Tank_Commands* input, float dt
         e.total_meters_moved += (squared(radius)*abs(rotation))/2.0f;
     }
 
-    if(e.fire_target_id != Null_Entity_ID){
-        auto target_angle = get_angle(e.fire_target_pos - e.pos);
+    if(!is_player(e)){
+        auto target_angle = get_angle(e.aim_target_pos - e.pos);
         e.turret_angle = rotate_towards(e.turret_angle, target_angle, (PI*0.50f)*dt);
     }
 
-    auto facing = rotate(Vec2(1, 0), e.angle);
-    float speed = 3.5f; // Should be less than bullet speed
+    e.vel = Vec2(0, 0);
+    auto facing = vec2_from_angle(e.angle);
+    float speed = tank_info.speed;
     if(input.move_dir != 0){
         e.vel = facing*(speed*cast(float)input.move_dir);
         e.total_meters_moved += speed*dt;
@@ -1307,8 +1448,8 @@ void apply_tank_commands(App_State* s, Entity* e, Tank_Commands* input, float dt
 
     if(input.fire_bullet){
         auto count = get_child_entity_count(&s.world, e.id, Entity_Type.Bullet);
-        if(count < Max_Bullets_Per_Tank){
-            auto bullet     = spawn_bullet(&s.world, e.id, e.pos, e.turret_angle);
+        if(count < tank_info.bullet_limit){
+            auto bullet = spawn_bullet(&s.world, e.id, e.pos, e.turret_angle, tank_info.bullet_speed);
             auto sfx = &s.sfx_fire_bullet;
             audio_play(sfx.samples, sfx.channels, 0);
         }
@@ -1331,25 +1472,15 @@ bool is_point_in_sight(World* world, Entity* e, float sight_angle, float sight_r
 
 
 /+
-    Opportunity timer work differently than we've implemented. They give a random window of
-    opportunity. In the case of taking a shot, the tank could miss a window of opportunity.
-    Using a cooldown timer as we are right now, the tank will sit and wait to take a shot
-    as soon as one becomes availible. This is much too aggressive.
-
-    AI timers use three word, #35, #36, #37. 36 determines the minimum amount of time that
-    must pass before a new window becomes availible. Word 35 determiens the size of the window.
-    Word 37 is the max amount of time that can pass before the next window of opportunity.
-    So, let's label this words:
-        min_timer (35)
-
-
-
     Turret aiming:
     This determines where the tank is currently aiming.
+
+    Inital target is set to the closest player tank.
+
     Tanks begin by setting a target location? What if they don't see the player?
     Target position is offset by a a random angle, not more than the given max angle
     After picking a target, the turret will rotate to the target. Once there, it will
-    stay then until given a new target. A new target is picked after the aim target timer
+    stay there until given a new target. A new target is picked after the aim target timer
     ends.
 
     Turret shooting:
@@ -1362,6 +1493,11 @@ bool is_point_in_sight(World* world, Entity* e, float sight_angle, float sight_r
     it's destination and check for allies and players the same way.
 +/
 
+Tank_Type* get_tank_info(Campaign* campaign, Entity* e){
+    auto result = &campaign.tank_types[e.tank_type_index];
+    return result;
+}
+
 void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
     // TODO: A LOT of work needs to be done here. Here's just a few features we need:
     // - Random turning
@@ -1369,6 +1505,7 @@ void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
     // - Aiming at player before firing
     //
 
+    auto tank_info = get_tank_info(&s.campaign, e);
     cmd.turn_angle = e.target_angle;
 
     // If the tank isn't currently making a turn, handle forward movement
@@ -1408,19 +1545,19 @@ void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
 
     e.ai_time += dt;
     timer_update(&e.fire_timer, e.ai_time, &s.rng);
-    timer_update(&e.aim_timer, e.ai_time, &s.rng);
 
     auto sight_range = 8.0f;           // TODO: Get this from tank params
     auto sight_angle = deg_to_rad(65); // TODO: Get this from tank params
-    if(has_opportunity(&e.fire_timer, e.ai_time) && e.fire_target_id != Null_Entity_ID){
+    if(has_opportunity(&e.fire_timer, e.ai_time)){
         float min_aim_angle = deg_to_rad(25); // TODO: Get this from the tank params
 
         // TODO: Rather than fixate on a specific target, we only care if a valid target
         // is within the range of fire and no ally is in the range.
-        auto target = get_entity_by_id(&s.world, e.fire_target_id);
+        auto target = get_entity_by_id(&s.world, s.player_entity_id);
 
         // TODO: Perform raycasts to make sure the player is in the range of fire and
         // allies are not
+        log("Has fire opportunity\n");
         if(target && abs(get_angle(target.pos - e.pos)) < min_aim_angle
         && is_point_in_sight(&s.world, e, sight_angle, sight_range, target.pos)){
             cmd.fire_bullet = true;
@@ -1428,15 +1565,24 @@ void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
         }
     }
 
-    if(has_opportunity(&e.aim_timer, e.ai_time)){
-        e.fire_target_id = Null_Entity_ID;
-        auto player = get_entity_by_id(&s.world, s.player_entity_id); // TODO: Choose the closest player
+    e.aim_timer -= dt;
+    if(e.aim_timer < 0.0f){
+        e.aim_timer = tank_info.aim_timer + e.aim_timer;
+        auto player = get_closest_player(s, e.pos);
         if(player){
-            e.fire_target_id  = player.id;
-            e.fire_target_pos = player.pos;
-            timer_reset(&e.aim_timer, e.ai_time, &s.rng);
+            auto len   = length(e.pos - player.pos);
+            auto angle = get_angle(e.pos - player.pos);
+            e.aim_target_pos = player.pos;
         }
     }
+}
+
+Entity* get_closest_player(App_State* s, Vec2 pos){
+    float min_dist_sq = float.max;
+
+    // TODO: Loop through all the player and pick the closest one
+    Entity* result = get_entity_by_id(&s.world, s.player_entity_id);
+    return result;
 }
 
 void simulate_world(App_State* s, Tank_Commands* input, float dt){
@@ -1953,12 +2099,8 @@ extern(C) int main(int args_count, char** args){
     scope(exit) close_socket(&socket);
 
     s.world.next_entity_id = Null_Entity_ID+1;
-    version(all){
-        if(load_campaign_from_file(&s.campaign, Campaign_File_Name, &s.main_memory)){
-        }
-        else{
-            generate_test_level(s);
-        }
+    s.campaign.tank_types = g_tank_types[];
+    if(load_campaign_from_file(&s.campaign, Campaign_File_Name, &s.main_memory)){
     }
     else{
         generate_test_level(s);
@@ -2072,6 +2214,8 @@ extern(C) int main(int args_count, char** args){
 
         audio_update();
 
+        // TODO: Sometimes the game becomes a stuttering mess, and the only way to fix it is
+        // to minimize the window and restore it. Figure out what's causing this.
         current_timestamp = ns_timestamp();
         ulong frame_time = cast(ulong)(dt*1000000000.0f);
         ulong elapsed_time = current_timestamp - prev_timestamp;
