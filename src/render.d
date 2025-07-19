@@ -301,10 +301,10 @@ void set_shader(Render_Pass* pass, Shader* shader){
     cmd.shader = shader;
 }
 
-void render_mesh(Render_Pass* pass, Mesh* mesh, Material* material, Mat4 transform){
-    auto cmd   = push_command!Render_Mesh(pass);
+void render_mesh(Render_Pass* pass, Mesh* mesh, Material[] materials, Mat4 transform){
+    auto cmd      = push_command!Render_Mesh(pass);
     cmd.mesh      = mesh;
-    cmd.material  = material;
+    cmd.materials = materials;
     cmd.transform = transform;
 }
 
@@ -451,9 +451,9 @@ struct Render_Mesh{
     Render_Cmd header;
     alias header this;
 
-    Mesh*     mesh;
-    Material* material;
-    Mat4      transform;
+    Mesh*      mesh;
+    Material[] materials;
+    Mat4       transform;
 }
 
 struct Render_Text{
@@ -808,7 +808,7 @@ version(opengl){
                 glDisable(GL_DEPTH_TEST);
             }
 
-            Material* material;
+            Material[] materials;
             Shader* shader;
             Shader_Light* light;
             bool scissor_enabled = false;
@@ -842,7 +842,7 @@ version(opengl){
 
                     case Command.Render_Rect:{
                         auto cmd = cast(Render_Rect*)cmd_node;
-                        material = null;
+                        materials = null;
 
                         // TODO: Push quads into a vertex buffer. Flush on state change.
                         Vertex[4] v = void;
@@ -853,7 +853,7 @@ version(opengl){
 
                     case Command.Render_Particle:{
                         auto cmd = cast(Render_Particle*)cmd_node;
-                        material = null;
+                        materials = null;
 
                         assert(0);
 
@@ -896,7 +896,7 @@ version(opengl){
                     } break;
 
                     case Command.Render_Ground_Decal:{
-                        material = null;
+                        materials = null;
                         // TODO: Decal rendering that doesn't have z-fighting!
                         auto cmd = cast(Render_Ground_Decal*)cmd_node;
 
@@ -945,9 +945,9 @@ version(opengl){
                         assert(shader.uniform_loc_model != -1);
                         set_uniform(shader.uniform_loc_model, &cmd.transform);
 
-                        if(material != cmd.material){
-                            set_material(cmd.material);
-                            material = cmd.material;
+                        if(materials.ptr != cmd.materials.ptr || materials.length < cmd.materials.length){
+                            set_materials(cmd.materials);
+                            materials = cmd.materials;
                         }
 
                         auto mesh = cmd.mesh;
@@ -959,7 +959,7 @@ version(opengl){
 
                     case Command.Render_Text:{
                         auto cmd = cast(Render_Text*)cmd_node;
-                        material = null;
+                        materials = null;
 
                         auto p = cmd.pos;
                         switch(cmd.text_align){
@@ -1126,17 +1126,24 @@ version(opengl){
         float shininess;
     }
 
-    void set_material(Material* material){
-        Shader_Material material_uniform;
-        material_uniform.specular  = material.specular;
-        material_uniform.shininess = material.shininess;
-        material_uniform.tint      = material.tint;
+    void set_materials(Material[] materials){
+        push_frame(g_allocator.scratch);
+        scope(exit) pop_frame(g_allocator.scratch);
+
+        auto dest = alloc_array!Shader_Material(g_allocator.scratch, materials.length);
+        foreach(i, ref entry; dest){
+            auto source = &materials[i];
+
+            entry.specular  = source.specular;
+            entry.shininess = source.shininess;
+            entry.tint      = source.tint;
+
+            glActiveTexture(GL_TEXTURE0 + cast(uint)i);
+            set_texture(source.diffuse_texture);
+        }
 
         glBindBuffer(GL_UNIFORM_BUFFER, g_shader_material_buffer);
-        glBufferSubData(GL_UNIFORM_BUFFER, 0, Shader_Material.sizeof, &material_uniform);
-
-        glActiveTexture(GL_TEXTURE0 + Texture_Index_Diffuse);
-        set_texture(material.diffuse_texture);
+        glBufferSubData(GL_UNIFORM_BUFFER, 0, Shader_Material.sizeof*dest.length, dest.ptr);
     }
 
     void shader_light_source(Shader_Light* light){

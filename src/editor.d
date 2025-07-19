@@ -535,7 +535,7 @@ public void editor_render(App_State* s, Render_Passes rp){
     auto grid_center  = world_to_render_pos(grid_extents);
 
     auto ground_xform = mat4_translate(grid_center)*mat4_scale(Vec3(grid_extents.x, 1.0f, grid_extents.y));
-    render_mesh(rp.world, &s.ground_mesh, &s.material_ground, ground_xform);
+    render_mesh(rp.world, &s.ground_mesh, (&s.material_ground)[0..1], ground_xform);
     foreach(y; 0 .. map.height){
         foreach(x; 0 .. map.width){
             auto cell = &map.cells[x + y * map.width];
@@ -544,12 +544,7 @@ public void editor_render(App_State* s, Render_Passes rp){
                 auto p = Vec2(x, y) + Vec2(0.5f, 0.5f); // Center on the tile
                 auto e = make_entity_from_cell(entity_type, p);
 
-                Material* material = null;
-                if(cell == g_selected_cell){
-                    material = &s.material_eraser;
-                }
-
-                render_entity(s, &e, rp, material);
+                render_entity(s, &e, rp, cell == g_selected_cell);
             }
         }
     }
@@ -641,7 +636,7 @@ public void editor_render(App_State* s, Render_Passes rp){
 
     // Draw cursor
     auto p = world_to_render_pos(s.mouse_world);
-    auto material = &s.material_block;
+    auto material = (&s.material_block)[0..1];
     render_mesh(
         rp.world, &s.cube_mesh, material,
         mat4_translate(p)*mat4_scale(Vec3(0.25f, 0.25f, 0.25f))

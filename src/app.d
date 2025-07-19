@@ -279,7 +279,6 @@ struct App_State{
 
     // TODO: These could be moved to the editor now.
     Entity_ID highlight_entity_id;
-    Material* highlight_material;
 
     Game_Mode mode;
     Campaign  campaign;
@@ -945,40 +944,6 @@ bool is_breakable(Entity* e){
     return result;
 }
 
-Material* choose_material(App_State*s, Entity* e){
-    Material* result;
-    if(e.id == s.highlight_entity_id){
-        result = s.highlight_material;
-    }
-    else{
-        switch(e.type){
-            default: {
-                result = &s.material_block;
-            } break;
-
-            case Entity_Type.Tank: {
-                if(is_tank_player(e))
-                    result = &s.material_player_tank;
-                else
-                    result = &s.material_enemy_tank;
-            } break;
-
-            case Entity_Type.Block: {
-                if(is_hole(e)){
-                    result = &s.material_ground;
-                }
-                else{
-                    if(!is_breakable(e))
-                        result = &s.material_block;
-                    else
-                        result = &s.material_breakable_block;
-                }
-            } break;
-        }
-    }
-    return result;
-}
-
 void generate_test_level(App_State* s){
     {
         auto player = add_entity(&s.world, Vec2(2, 2), Entity_Type.Tank);
@@ -1273,10 +1238,54 @@ Mat4_Pair make_hud_camera(uint window_width, uint window_height){
     return result;
 }
 
-void render_entity(App_State* s, Entity* e, Render_Passes rp, Material* material = null){
-    if(!material){
-        material = choose_material(s, e);
+Material[] choose_materials(App_State* s, Entity* e, bool highlighted){
+    Material[] result;
+    if(e.id != s.highlight_entity_id && !highlighted){
+        switch(e.type){
+            default: {
+                result = (&s.material_block)[0..1];
+            } break;
+
+            case Entity_Type.Mine:{
+                if(is_exploding(e)){
+                    // TODO: The explosion should spin over time. This would only have any impact
+                    // once we add a texture to it.
+                    result = (&s.material_eraser)[0..1]; // TODO: Have a dedicated explosion material
+                }
+                else{
+                    result = (&s.material_block)[0..1];
+                }
+            } break;
+
+            case Entity_Type.Tank: {
+                if(is_tank_player(e))
+                    result = (&s.material_player_tank)[0..1];
+                else
+                    result = (&s.material_enemy_tank)[0..1];
+            } break;
+
+            case Entity_Type.Block: {
+                if(is_hole(e)){
+                    result = (&s.material_ground)[0..1];
+                }
+                else{
+                    if(!is_breakable(e))
+                        result = (&s.material_block)[0..1];
+                    else
+                        result = (&s.material_breakable_block)[0..1];
+                }
+            } break;
+        }
     }
+    else{
+        result = (&s.material_eraser)[0..1];
+    }
+    return result;
+}
+
+// TODO: We could change "highlighted" to some form of flag
+void render_entity(App_State* s, Entity* e, Render_Passes rp, bool highlighted = false){
+    Material[] materials = choose_materials(s, e, highlighted);
 
     Vec3 p = world_to_render_pos(e.pos);
     switch(e.type){
@@ -1291,7 +1300,7 @@ void render_entity(App_State* s, Entity* e, Render_Passes rp, Material* material
                 auto pos = p + Vec3(0, height*0.5f, 0);
 
                 render_mesh(
-                    rp.world, &s.cube_mesh, material,
+                    rp.world, &s.cube_mesh, materials,
                     mat4_translate(pos)*mat4_scale(scale)
                 );
             }
@@ -1321,8 +1330,8 @@ void render_entity(App_State* s, Entity* e, Render_Passes rp, Material* material
                 auto hole_offset = Vec3(0, -0.5f*hole_scale.y+0.01f, 0);
 
                 auto xform = mat4_translate(p + hole_offset)*mat4_scale(hole_scale);
-                render_mesh(rp.holes, &s.hole_mesh, material, xform);
-                render_mesh(rp.hole_cutouts, &s.hole_mesh, material, xform);
+                render_mesh(rp.holes, &s.hole_mesh, materials, xform);
+                render_mesh(rp.hole_cutouts, &s.hole_mesh, materials, xform);
             }
         } break;
 
@@ -1330,11 +1339,11 @@ void render_entity(App_State* s, Entity* e, Render_Passes rp, Material* material
             if(e.health > 0){
                 auto mat_tran = mat4_translate(p + Vec3(0, 0.18f, 0))*mat4_scale(Vec3(0.5f, 0.5f, 0.5f));
                 render_mesh(
-                    rp.world, &s.tank_base_mesh, material,
+                    rp.world, &s.tank_base_mesh, materials,
                     mat_tran*mat4_rot_y(e.angle)
                 );
                 render_mesh(
-                    rp.world, &s.tank_top_mesh, material,
+                    rp.world, &s.tank_top_mesh, materials,
                     mat_tran*mat4_rot_y(e.turret_angle)
                 );
             }
@@ -1349,7 +1358,7 @@ void render_entity(App_State* s, Entity* e, Render_Passes rp, Material* material
         case Entity_Type.Bullet:{
             //auto mat_tran = mat4_translate(p);
             auto mat_tran = mat4_translate(p + Vec3(0, 0.5f, 0)); // TODO: Use this offset when we're done testing the camera
-            render_mesh(rp.world, &s.bullet_mesh, material, mat_tran*mat4_rot_y(e.angle));
+            render_mesh(rp.world, &s.bullet_mesh, materials, mat_tran*mat4_rot_y(e.angle));
         } break;
 
         case Entity_Type.Mine:{
@@ -1357,19 +1366,15 @@ void render_entity(App_State* s, Entity* e, Render_Passes rp, Material* material
             // a shader for that?
             if(!is_exploding(e)){
                 render_mesh(
-                    rp.world, &s.half_sphere_mesh, material,
+                    rp.world, &s.half_sphere_mesh, materials,
                     mat4_translate(p)*mat4_scale(Vec3(0.5f, 0.5f, 0.5f))
                 );
             }
             else{
-                // TODO: The explosion should spin over time. This would only have any impact
-                // once we add a texture to it.
-                material = &s.material_eraser; // TODO: Have a dedicated explosion material
-
                 auto radius = e.extents.x;
                 auto scale = Vec3(radius, radius, radius)*2.0f;
                 render_mesh(
-                    rp.world, &s.half_sphere_mesh, material,
+                    rp.world, &s.half_sphere_mesh, materials,
                     mat4_translate(p)*mat4_scale(scale)
                 );
             }
@@ -2295,7 +2300,7 @@ extern(C) int main(int args_count, char** args){
             case Game_Mode.Campaign:{
                 if(s.session.state != Session_State.Mission_Intro){
                     auto ground_xform = mat4_translate(grid_center)*mat4_scale(Vec3(grid_extents.x, 1.0f, grid_extents.y));
-                    render_mesh(render_passes.world, &s.ground_mesh, &s.material_ground, ground_xform);
+                    render_mesh(render_passes.world, &s.ground_mesh, (&s.material_ground)[0..1], ground_xform);
 
                     foreach(ref e; iterate_entities(&s.world)){
                         render_entity(s, &e, render_passes);
