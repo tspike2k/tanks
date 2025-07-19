@@ -1,5 +1,7 @@
 #version 330
 
+#define Materials_Max 2
+
 uniform mat4 mat_model;
 
 in vec2  f_uv;
@@ -25,8 +27,10 @@ layout(std140) uniform Camera{
 };
 
 layout(std140) uniform Materials{
-    Material[2] materials;
+    Material[Materials_Max] materials;
 };
+
+uniform sampler2D texture_diffuse[Materials_Max];
 
 layout(std140) uniform Light{
     vec3  light_pos;
@@ -34,8 +38,6 @@ layout(std140) uniform Light{
     vec3  light_diffuse;
     vec3  light_specular;
 };
-
-uniform sampler2D texture_diffuse;
 
 vec3 blend_additive(vec3 src, vec3 dest){
     // Adapted from  github.com/jamieowen/glsl-blend
@@ -59,7 +61,7 @@ void main(){
     vec3 ambient = light_ambient * vec3(texture(texture_diffuse, f_uv));
 
     float diffuse_intensity = max(dot(normal, -light_dir), 0.0);
-    vec3 material_diffuse = blend_additive(vec3(texture(texture_diffuse, f_uv)), material.tint);
+    vec3 material_diffuse = blend_additive(vec3(texture(texture_diffuse[0], f_uv)), material.tint);
     vec3 diffuse = light_diffuse * diffuse_intensity * material_diffuse;
 
     // Fixed issue with specular passing through objects by multiplying the diffuse and
