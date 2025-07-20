@@ -306,8 +306,8 @@ struct App_State{
     Mesh hole_mesh;
     Mesh half_sphere_mesh;
 
-    Material material_enemy_tank;
-    Material material_player_tank;
+    Material[2] material_enemy_tank;
+    Material[2] material_player_tank;
     Material material_block;
     Material material_ground;
     Material material_eraser;
@@ -620,6 +620,8 @@ Mesh obj_to_mesh(Obj_Data* obj_data, Allocator* allocator){
     foreach(part_index, ref part; result.parts){
         part.vertices = alloc_array!Vertex(allocator, model.faces.length*3);
 
+        part.material_index = model.material_index;
+
         foreach(face_index, ref face; model.faces){
             auto v0 = &part.vertices[0 + face_index*3];
             auto v1 = &part.vertices[1 + face_index*3];
@@ -911,10 +913,10 @@ bool ray_vs_plane(Vec3 ray_start, Vec3 ray_dir, Vec3 plane_p, Vec3 plane_n, Vec3
     return result;
 }
 
-void setup_basic_material(Material* m, Texture diffuse_texture, Vec3 tint = Vec3(0, 0, 0)){
+void setup_basic_material(Material* m, Texture diffuse_texture, Vec3 tint = Vec3(0, 0, 0), float shininess = 2.0f){
     m.diffuse_texture = diffuse_texture;
     m.specular        = Vec3(1, 1, 1); // TODO: Use a specular texture?
-    m.shininess       = 2.0f;
+    m.shininess       = shininess;
     m.tint            = tint;
 }
 
@@ -1246,9 +1248,9 @@ Material[] choose_materials(App_State* s, Entity* e, bool highlighted){
 
             case Entity_Type.Tank: {
                 if(is_tank_player(e))
-                    result = (&s.material_player_tank)[0..1];
+                    result = s.material_player_tank[];
                 else
-                    result = (&s.material_enemy_tank)[0..1];
+                    result = s.material_enemy_tank[];
             } break;
 
             case Entity_Type.Block: {
@@ -2090,10 +2092,10 @@ extern(C) int main(int args_count, char** args){
     light.specular = light_color;
 
     setup_basic_material(&s.material_ground, s.img_wood);
-    setup_basic_material(&s.material_enemy_tank, s.img_blank_mesh, Vec3(0.2f, 0.2f, 0.4f));
-    s.material_enemy_tank.shininess = 256;
-    setup_basic_material(&s.material_player_tank, s.img_blank_mesh, Vec3(0.2f, 0.2f, 0.8f));
-    s.material_player_tank.shininess = 256;
+    setup_basic_material(&s.material_enemy_tank[0], s.img_blank_mesh, Vec3(0.2f, 0.2f, 0.4f), 256);
+    setup_basic_material(&s.material_enemy_tank[1], s.img_blank_mesh, Vec3(0.6f, 0.5f, 0.3f));
+    setup_basic_material(&s.material_player_tank[0], s.img_blank_mesh, Vec3(0.2f, 0.2f, 0.8f), 256);
+    setup_basic_material(&s.material_player_tank[1], s.img_blank_mesh, Vec3(1.0f, 1.0f, 0.8f), 256);
     setup_basic_material(&s.material_block, s.img_blank_mesh, Vec3(0.46f, 0.72f, 0.46f));
     setup_basic_material(&s.material_eraser, s.img_blank_mesh, Vec3(0.8f, 0.2f, 0.2f));
     setup_basic_material(&s.material_breakable_block, s.img_blank_mesh, Vec3(0.92f, 0.42f, 0.20f));

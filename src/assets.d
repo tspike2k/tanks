@@ -242,6 +242,7 @@ struct Obj_Face{
 struct Obj_Model{
     Obj_Model* next;
     Obj_Face[] faces;
+    uint material_index;
 }
 
 struct Obj_Data{
@@ -340,6 +341,14 @@ Obj_Data parse_obj_file(String source, Allocator* allocator){
                     else
                         model = model.next;
                     f_index = 0;
+                } break;
+
+                case "usemtl":{
+                    auto c = get_last_char(line, '.');
+                    if(c){
+                        auto index_string = line[c - line.ptr .. $];
+                        to_int(&model.material_index, index_string);
+                    }
                 } break;
 
                 case "v":{
