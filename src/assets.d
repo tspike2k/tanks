@@ -178,8 +178,8 @@ struct Enemy_Tank{
 
 // Tank params based on "Wii Tanks AI Parameter Sheet" by BigKitty1011
 struct Tank_Type{
-    Vec4  body_color;
-    Vec4  turret_color;
+    Vec3  main_color;
+    Vec3  alt_color;
     bool  invisible;
     float speed;
     uint  bullet_limit;

@@ -11,8 +11,6 @@ Credits:
 
 TODO:
     - Particles (Explosions, smoke, etc)
-    - Enemy AI
-    - Different enemy types (there are 8 in the main campaign)
     - High score tracking
     - Better scoring
     - Multiplayer
@@ -306,7 +304,7 @@ struct App_State{
     Mesh hole_mesh;
     Mesh half_sphere_mesh;
 
-    Material[2] material_enemy_tank;
+    Tank_Materials[] materials_enemy_tank;
     Material[2] material_player_tank;
     Material material_block;
     Material material_ground;
@@ -413,6 +411,12 @@ struct World{
     Rect        bounds;
 }
 
+enum Enemy_Tank_Main_Color = Vec3(0.6f, 0.5f, 0.3f);
+
+struct Tank_Materials{
+    Material[2] materials;
+}
+
 // TODO: These are debug values. Final values should be stored in the mission file itself.
 Tank_Type[] g_tank_types = [
     {
@@ -428,6 +432,8 @@ Tank_Type[] g_tank_types = [
         // Brown
         invisible: false,
         speed: 0,
+        main_color: Enemy_Tank_Main_Color,
+        alt_color: Vec3(0.45f, 0.22f, 0.13f),
 
         bullet_limit:     1,
         bullet_ricochets: 1,
@@ -444,6 +450,8 @@ Tank_Type[] g_tank_types = [
         // Ash
         invisible: false,
         speed: 1.2f,
+        main_color: Enemy_Tank_Main_Color,
+        alt_color: Vec3(0.38f, 0.35f, 0.35f),
 
         bullet_limit:     1,
         bullet_ricochets: 1,
@@ -460,6 +468,8 @@ Tank_Type[] g_tank_types = [
         // Teal
         invisible: false,
         speed: 1.0f,
+        main_color: Enemy_Tank_Main_Color,
+        alt_color: Vec3(0.10f, 0.45f, 0.43f),
 
         bullet_limit:     1,
         bullet_ricochets: 0,
@@ -476,6 +486,8 @@ Tank_Type[] g_tank_types = [
         // Pink
         invisible: false,
         speed: 1.2f,
+        main_color: Enemy_Tank_Main_Color,
+        alt_color: Vec3(0.72f, 0.26f, 0.54f),
 
         bullet_limit:     3,
         bullet_ricochets: 1,
@@ -492,6 +504,8 @@ Tank_Type[] g_tank_types = [
         // Yellow
         invisible: false,
         speed: 1.8f,
+        main_color: Enemy_Tank_Main_Color,
+        alt_color: Vec3(0.73f, 0.60f, 0.15f),
 
         bullet_limit:     1,
         bullet_ricochets: 1,
@@ -508,6 +522,8 @@ Tank_Type[] g_tank_types = [
         // Purple
         invisible: false,
         speed: 1.8f,
+        main_color: Enemy_Tank_Main_Color,
+        alt_color: Vec3(0.42f, 0.16f, 0.82f),
 
         bullet_limit:     5,
         bullet_ricochets: 1,
@@ -524,6 +540,8 @@ Tank_Type[] g_tank_types = [
         // Green
         invisible: false,
         speed: 0,
+        main_color: Enemy_Tank_Main_Color,
+        alt_color: Vec3(0.21f, 0.36f, 0.06f),
 
         bullet_limit:     2,
         bullet_ricochets: 2,
@@ -540,6 +558,8 @@ Tank_Type[] g_tank_types = [
         // White
         invisible: true,
         speed: 1.2f,
+        main_color: Enemy_Tank_Main_Color,
+        alt_color: Vec3(0.68f, 0.70f, 0.73f),
 
         bullet_limit:     5,
         bullet_ricochets: 1,
@@ -556,6 +576,8 @@ Tank_Type[] g_tank_types = [
         // Black
         invisible: false,
         speed: 2.4f,
+        main_color: Enemy_Tank_Main_Color,
+        alt_color: Vec3(0.15f, 0.18f, 0.20f),
 
         bullet_limit:     3,
         bullet_ricochets: 0,
@@ -1249,8 +1271,11 @@ Material[] choose_materials(App_State* s, Entity* e, bool highlighted){
             case Entity_Type.Tank: {
                 if(is_tank_player(e))
                     result = s.material_player_tank[];
-                else
-                    result = s.material_enemy_tank[];
+                else{
+                    auto entry = &s.materials_enemy_tank[e.tank_type_index];
+                    result = entry.materials[];
+                }
+
             } break;
 
             case Entity_Type.Block: {
@@ -2092,10 +2117,8 @@ extern(C) int main(int args_count, char** args){
     light.specular = light_color;
 
     setup_basic_material(&s.material_ground, s.img_wood);
-    setup_basic_material(&s.material_enemy_tank[0], s.img_blank_mesh, Vec3(0.2f, 0.2f, 0.4f), 256);
-    setup_basic_material(&s.material_enemy_tank[1], s.img_blank_mesh, Vec3(0.6f, 0.5f, 0.3f));
-    setup_basic_material(&s.material_player_tank[0], s.img_blank_mesh, Vec3(0.2f, 0.2f, 0.8f), 256);
-    setup_basic_material(&s.material_player_tank[1], s.img_blank_mesh, Vec3(1.0f, 1.0f, 0.8f), 256);
+    setup_basic_material(&s.material_player_tank[0], s.img_blank_mesh, Vec3(0.1f, 0.1f, 0.6f), 256);
+    setup_basic_material(&s.material_player_tank[1], s.img_blank_mesh, Vec3(0.2f, 0.2f, 0.8f), 256);
     setup_basic_material(&s.material_block, s.img_blank_mesh, Vec3(0.46f, 0.72f, 0.46f));
     setup_basic_material(&s.material_eraser, s.img_blank_mesh, Vec3(0.8f, 0.2f, 0.2f));
     setup_basic_material(&s.material_breakable_block, s.img_blank_mesh, Vec3(0.92f, 0.42f, 0.20f));
@@ -2129,6 +2152,14 @@ extern(C) int main(int args_count, char** args){
     s.world.next_entity_id = Null_Entity_ID+1;
     s.campaign.tank_types = g_tank_types[];
     if(load_campaign_from_file(&s.campaign, Campaign_File_Name, &s.main_memory)){
+        // Setup enemy tank colors based on tank params
+        auto tank_types = s.campaign.tank_types;
+        s.materials_enemy_tank = alloc_array!Tank_Materials(&s.main_memory, tank_types.length);
+        foreach(i, ref entry; tank_types){
+            auto tank_mats = &s.materials_enemy_tank[i];
+            setup_basic_material(&tank_mats.materials[0], s.img_blank_mesh, entry.main_color);
+            setup_basic_material(&tank_mats.materials[1], s.img_blank_mesh, entry.alt_color, 256);
+        }
     }
     else{
         generate_test_level(s);
