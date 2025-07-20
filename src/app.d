@@ -610,121 +610,108 @@ Entity* add_entity(World* world, Vec2 pos, Entity_Type type){
     return e;
 }
 
-Mesh obj_to_mesh(Obj_Data* obj, Allocator* allocator){
+Mesh obj_to_mesh(Obj_Data* obj_data, Allocator* allocator){
     push_frame(allocator.scratch);
     scope(exit) pop_frame(allocator.scratch);
 
-    Vec3[3] get_points_on_face(Obj_Face* face){
-        auto i0 = face.points[0].v-1;
-        auto i1 = face.points[1].v-1;
-        auto i2 = face.points[2].v-1;
+    Mesh result;
+    result.parts = alloc_array!Mesh_Part(allocator, obj_data.models_count);
+    auto model = obj_data.model_first;
+    foreach(part_index, ref part; result.parts){
+        part.vertices = alloc_array!Vertex(allocator, model.faces.length*3);
 
-        Vec3[3] result = void;
-        result[0] = obj.vertices[i0];
-        result[1] = obj.vertices[i1];
-        result[2] = obj.vertices[i2];
-        return result;
-    }
+        foreach(face_index, ref face; model.faces){
+            auto v0 = &part.vertices[0 + face_index*3];
+            auto v1 = &part.vertices[1 + face_index*3];
+            auto v2 = &part.vertices[2 + face_index*3];
 
-    Mesh mesh;
-    mesh.vertices = alloc_array!Vertex(allocator, obj.faces.length*3);
-    ulong mesh_vertices_count;
+            v0.pos = model.vertices[face.points[0].v-1];
+            v1.pos = model.vertices[face.points[1].v-1];
+            v2.pos = model.vertices[face.points[2].v-1];
 
-    foreach(i, ref face; obj.faces){
-        auto p = get_points_on_face(&face);
+            if(model.normals.length){
+                v0.normal = model.normals[face.points[0].n-1];
+                v1.normal = model.normals[face.points[1].n-1];
+                v2.normal = model.normals[face.points[2].n-1];
+            }
 
-        auto v0 = &mesh.vertices[mesh_vertices_count++];
-        auto v1 = &mesh.vertices[mesh_vertices_count++];
-        auto v2 = &mesh.vertices[mesh_vertices_count++];
-
-        v0.pos = p[0];
-        v1.pos = p[1];
-        v2.pos = p[2];
-
-        if(obj.normals.length > 0){
-            auto i0 = face.points[0].n-1;
-            auto i1 = face.points[1].n-1;
-            auto i2 = face.points[2].n-1;
-
-            v0.normal = obj.normals[i0];
-            v1.normal = obj.normals[i1];
-            v2.normal = obj.normals[i2];
+            if(model.uvs.length){
+                v0.uv = model.uvs[face.points[0].uv-1];
+                v1.uv = model.uvs[face.points[1].uv-1];
+                v2.uv = model.uvs[face.points[2].uv-1];
+            }
         }
 
-        if(obj.uvs.length > 0){
-            auto i0 = face.points[0].uv-1;
-            auto i1 = face.points[1].uv-1;
-            auto i2 = face.points[2].uv-1;
+        if(model.normals.length == 0){
+            // If the Obj file doesn't supply us with vertex normals, we need to calculate them.
+            // We do that by finding the normal of each face on the mesh and adding the result
+            // to each connected vertex. Once all the normals are summed, we then normalize
+            // the result. Concept found here:
+            // https://stackoverflow.com/a/33978584
 
-            v0.uv = obj.uvs[i0];
-            v1.uv = obj.uvs[i1];
-            v2.uv = obj.uvs[i2];
-        }
-    }
+            struct Normal_Entry{
+                Vec3 pos;
+                Vec3 normal;
+            }
 
-    if(obj.normals.length == 0){
-        // If the Obj file doesn't supply us with vertex normals, we need to calculate them.
-        // We do that by finding the normal of each face on the mesh and adding the result
-        // to each connected vertex. Once all the normals are summed, we then normalize
-        // the result. Concept found here:
-        // https://stackoverflow.com/a/33978584
+            // TODO: Use a hash table instead? This does work, though.
+            uint normals_count;
+            auto normals = alloc_array!Normal_Entry(allocator.scratch, model.faces.length*3);
 
-        struct Normal_Entry{
-            Vec3 pos;
-            Vec3 normal;
-        }
-
-        // TODO: Use a hash table instead? This does work, though.
-        uint normals_count;
-        auto normals = alloc_array!Normal_Entry(allocator.scratch, obj.faces.length*3);
-
-        Vec3* find_normal(Vec3 pos){
-            Vec3* result;
-            foreach(ref entry; normals[0 .. normals_count]){
-                if(entry.pos.x == pos.x && entry.pos.y == pos.y && entry.pos.z == pos.z){
-                    result = &entry.normal;
-                    break;
+            Vec3* find_normal(Vec3 pos){
+                Vec3* result;
+                foreach(ref entry; normals[0 .. normals_count]){
+                    if(entry.pos.x == pos.x && entry.pos.y == pos.y && entry.pos.z == pos.z){
+                        result = &entry.normal;
+                        break;
+                    }
                 }
+                return result;
             }
-            return result;
-        }
 
-        Vec3 *find_or_add_normal(Vec3 pos){
-            auto result = find_normal(pos);
+            Vec3 *find_or_add_normal(Vec3 pos){
+                auto result = find_normal(pos);
 
-            if(!result){
-                auto entry = &normals[normals_count++];
-                entry.pos = pos;
-                result = &entry.normal;
+                if(!result){
+                    auto entry = &normals[normals_count++];
+                    entry.pos = pos;
+                    result = &entry.normal;
+                }
+                return result;
             }
-            return result;
+
+            foreach(ref face; model.faces){
+                // Thanks to Inigo Quilez for the suggestion to use the cross product directly
+                // without normalizing the result. We only need to normalize when we're finished
+                // accumulating all the normals.
+                // https://iquilezles.org/articles/normals/
+
+                Vec3[3] p = void;
+                p[0] = model.vertices[face.points[0].v-1];
+                p[1] = model.vertices[face.points[1].v-1];
+                p[2] = model.vertices[face.points[2].v-1];
+
+                auto n = cross(p[1] - p[0], p[2] - p[0]);
+
+                auto n0 = find_or_add_normal(p[0]);
+                auto n1 = find_or_add_normal(p[1]);
+                auto n2 = find_or_add_normal(p[1]);
+
+                *n0 += n;
+                *n1 += n;
+                *n2 += n;
+            }
+
+            foreach(ref v; part.vertices){
+                auto n = *find_normal(v.pos);
+                v.normal = normalize(n);
+            }
         }
 
-        foreach(ref face; obj.faces){
-            // Thanks to Inigo Quilez for the suggestion to use the cross product directly
-            // without normalizing the result. We only need to normalize when we're finished
-            // accumulating all the normals.
-            // https://iquilezles.org/articles/normals/
-
-            auto p = get_points_on_face(&face);
-            auto n = cross(p[1] - p[0], p[2] - p[0]);
-
-            auto n0 = find_or_add_normal(p[0]);
-            auto n1 = find_or_add_normal(p[1]);
-            auto n2 = find_or_add_normal(p[1]);
-
-            *n0 += n;
-            *n1 += n;
-            *n2 += n;
-        }
-
-        foreach(ref v; mesh.vertices){
-            auto n = *find_normal(v.pos);
-            v.normal = normalize(n);
-        }
+        model = model.next;
     }
 
-    return mesh;
+    return result;
 }
 
 Mesh load_mesh_from_obj(String file_path, Allocator* allocator){

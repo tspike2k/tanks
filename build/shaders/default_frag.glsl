@@ -57,11 +57,26 @@ void main(){
 
     Material material = materials[f_material_index];
 
+    // NOTE: Hack for GLSL 330. This version of GLSL doesn't allow one to index into an array of
+    // samplers. Idea adapted from the following:
+    // https://gamedev.net/forums/topic/659836-glsl-330-sampler2d-array-access-via-vertex-attribute/
+    // https://stackoverflow.com/questions/45167538/error-sampler-arrays-indexed-with-non-constant-expressions-are-forbidden-in-gl
+    vec4 texture_color = vec4(0);
+    switch(f_material_index){
+        case 0:
+            texture_color = texture(texture_diffuse[0], f_uv); break;
+
+        case 1:
+            texture_color = texture(texture_diffuse[1], f_uv); break;
+    }
+
     //vec3 ambient = light_ambient * material_ambient;
-    vec3 ambient = light_ambient * vec3(texture(texture_diffuse, f_uv));
+    vec3 ambient = light_ambient * texture_color.rgb;
 
     float diffuse_intensity = max(dot(normal, -light_dir), 0.0);
-    vec3 material_diffuse = blend_additive(vec3(texture(texture_diffuse[0], f_uv)), material.tint);
+
+
+    vec3 material_diffuse = blend_additive(texture_color.rgb, material.tint);
     vec3 diffuse = light_diffuse * diffuse_intensity * material_diffuse;
 
     // Fixed issue with specular passing through objects by multiplying the diffuse and

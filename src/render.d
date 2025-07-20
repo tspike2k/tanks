@@ -66,11 +66,15 @@ struct Vertex{
     }
     Vec3 pos;
     Vec2 uv;
-    uint material_index;
+}
+
+struct Mesh_Part{
+    Vertex[] vertices;
+    uint     material_index;
 }
 
 struct Mesh{
-    Vertex[] vertices;
+    Mesh_Part[] parts;
 }
 
 struct Render_Pass{
@@ -594,7 +598,6 @@ version(opengl){
         Vertex_Attribute_ID_Pos,
         Vertex_Attribute_ID_Common,
         Vertex_Attribute_ID_UV,
-        Vertex_Attribute_ID_Material_Index,
     }
 
     alias Quad_Index_Type = GLuint;
@@ -699,9 +702,6 @@ version(opengl){
 
         glEnableVertexAttribArray(Vertex_Attribute_ID_UV);
         glVertexAttribPointer(Vertex_Attribute_ID_UV, 2, GL_FLOAT, GL_FALSE, Vertex.sizeof, cast(GLvoid*)Vertex.uv.offsetof);
-
-        glEnableVertexAttribArray(Vertex_Attribute_ID_Material_Index);
-        glVertexAttribPointer(Vertex_Attribute_ID_Material_Index, 1, GL_INT, GL_FALSE, Vertex.sizeof, cast(GLvoid*)Vertex.material_index.offsetof);
 
         // TODO: If we use glDrawElementsBaseVertex, we can use an index buffer with smaller precision (say GL_UNSIGNED_BYTE).
         // Then we tell call glDrawElementsBaseVertex rather than glDrawElements and pass the stride. OpenGL will add the
@@ -808,7 +808,7 @@ version(opengl){
                 glDisable(GL_DEPTH_TEST);
             }
 
-            Material[] materials;
+            Material* material;
             Shader* shader;
             Shader_Light* light;
             bool scissor_enabled = false;
@@ -842,7 +842,7 @@ version(opengl){
 
                     case Command.Render_Rect:{
                         auto cmd = cast(Render_Rect*)cmd_node;
-                        materials = null;
+                        material = null;
 
                         // TODO: Push quads into a vertex buffer. Flush on state change.
                         Vertex[4] v = void;
@@ -853,7 +853,7 @@ version(opengl){
 
                     case Command.Render_Particle:{
                         auto cmd = cast(Render_Particle*)cmd_node;
-                        materials = null;
+                        material = null;
 
                         assert(0);
 
@@ -896,7 +896,7 @@ version(opengl){
                     } break;
 
                     case Command.Render_Ground_Decal:{
-                        materials = null;
+                        material = null;
                         // TODO: Decal rendering that doesn't have z-fighting!
                         auto cmd = cast(Render_Ground_Decal*)cmd_node;
 
@@ -945,21 +945,22 @@ version(opengl){
                         assert(shader.uniform_loc_model != -1);
                         set_uniform(shader.uniform_loc_model, &cmd.transform);
 
-                        if(materials.ptr != cmd.materials.ptr || materials.length < cmd.materials.length){
-                            set_materials(cmd.materials);
-                            materials = cmd.materials;
+                        foreach(ref part; cmd.mesh.parts){
+                            auto next_material = &cmd.materials[part.material_index];
+                            if(material != next_material){
+                                set_material(next_material);
+                                material = next_material;
+                            }
+
+                            glBindBuffer(GL_ARRAY_BUFFER, g_quad_vbo);
+                            glBufferData(GL_ARRAY_BUFFER, cast(GLsizeiptr)(part.vertices.length * Vertex.sizeof), &part.vertices[0], GL_DYNAMIC_DRAW);
+                            glDrawArrays(GL_TRIANGLES, 0, cast(uint)part.vertices.length);
                         }
-
-                        auto mesh = cmd.mesh;
-
-                        glBindBuffer(GL_ARRAY_BUFFER, g_quad_vbo);
-                        glBufferData(GL_ARRAY_BUFFER, cast(GLsizeiptr)(mesh.vertices.length * Vertex.sizeof), &mesh.vertices[0], GL_DYNAMIC_DRAW);
-                        glDrawArrays(GL_TRIANGLES, 0, cast(uint)mesh.vertices.length);
                     } break;
 
                     case Command.Render_Text:{
                         auto cmd = cast(Render_Text*)cmd_node;
-                        materials = null;
+                        material = null;
 
                         auto p = cmd.pos;
                         switch(cmd.text_align){
@@ -1035,7 +1036,6 @@ version(opengl){
         glBindAttribLocation(program, Vertex_Attribute_ID_Pos,            "v_pos");
         glBindAttribLocation(program, Vertex_Attribute_ID_Common,         "v_common");
         glBindAttribLocation(program, Vertex_Attribute_ID_UV,             "v_uv");
-        glBindAttribLocation(program, Vertex_Attribute_ID_Material_Index, "v_material_index");
 
         GLuint vertex_shader = compile_shader_pass(GL_VERTEX_SHADER, "Vertex Shader", vertex_source.ptr);
         if(!vertex_shader){
@@ -1126,24 +1126,17 @@ version(opengl){
         float shininess;
     }
 
-    void set_materials(Material[] materials){
-        push_frame(g_allocator.scratch);
-        scope(exit) pop_frame(g_allocator.scratch);
+    void set_material(Material* source){
+        Shader_Material dest;
+        dest.specular  = source.specular;
+        dest.shininess = source.shininess;
+        dest.tint      = source.tint;
 
-        auto dest = alloc_array!Shader_Material(g_allocator.scratch, materials.length);
-        foreach(i, ref entry; dest){
-            auto source = &materials[i];
-
-            entry.specular  = source.specular;
-            entry.shininess = source.shininess;
-            entry.tint      = source.tint;
-
-            glActiveTexture(GL_TEXTURE0 + cast(uint)i);
-            set_texture(source.diffuse_texture);
-        }
+        glActiveTexture(GL_TEXTURE0 + 0);
+        set_texture(source.diffuse_texture);
 
         glBindBuffer(GL_UNIFORM_BUFFER, g_shader_material_buffer);
-        glBufferSubData(GL_UNIFORM_BUFFER, 0, Shader_Material.sizeof*dest.length, dest.ptr);
+        glBufferSubData(GL_UNIFORM_BUFFER, 0, Shader_Material.sizeof, &dest);
     }
 
     void shader_light_source(Shader_Light* light){
