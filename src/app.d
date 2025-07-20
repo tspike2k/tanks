@@ -625,24 +625,24 @@ Mesh obj_to_mesh(Obj_Data* obj_data, Allocator* allocator){
             auto v1 = &part.vertices[1 + face_index*3];
             auto v2 = &part.vertices[2 + face_index*3];
 
-            v0.pos = model.vertices[face.points[0].v-1];
-            v1.pos = model.vertices[face.points[1].v-1];
-            v2.pos = model.vertices[face.points[2].v-1];
+            v0.pos = obj_data.vertices[face.points[0].v-1];
+            v1.pos = obj_data.vertices[face.points[1].v-1];
+            v2.pos = obj_data.vertices[face.points[2].v-1];
 
-            if(model.normals.length){
-                v0.normal = model.normals[face.points[0].n-1];
-                v1.normal = model.normals[face.points[1].n-1];
-                v2.normal = model.normals[face.points[2].n-1];
+            if(obj_data.normals.length){
+                v0.normal = obj_data.normals[face.points[0].n-1];
+                v1.normal = obj_data.normals[face.points[1].n-1];
+                v2.normal = obj_data.normals[face.points[2].n-1];
             }
 
-            if(model.uvs.length){
-                v0.uv = model.uvs[face.points[0].uv-1];
-                v1.uv = model.uvs[face.points[1].uv-1];
-                v2.uv = model.uvs[face.points[2].uv-1];
+            if(obj_data.uvs.length){
+                v0.uv = obj_data.uvs[face.points[0].uv-1];
+                v1.uv = obj_data.uvs[face.points[1].uv-1];
+                v2.uv = obj_data.uvs[face.points[2].uv-1];
             }
         }
 
-        if(model.normals.length == 0){
+        if(obj_data.normals.length == 0){
             // If the Obj file doesn't supply us with vertex normals, we need to calculate them.
             // We do that by finding the normal of each face on the mesh and adding the result
             // to each connected vertex. Once all the normals are summed, we then normalize
@@ -687,9 +687,9 @@ Mesh obj_to_mesh(Obj_Data* obj_data, Allocator* allocator){
                 // https://iquilezles.org/articles/normals/
 
                 Vec3[3] p = void;
-                p[0] = model.vertices[face.points[0].v-1];
-                p[1] = model.vertices[face.points[1].v-1];
-                p[2] = model.vertices[face.points[2].v-1];
+                p[0] = obj_data.vertices[face.points[0].v-1];
+                p[1] = obj_data.vertices[face.points[1].v-1];
+                p[2] = obj_data.vertices[face.points[2].v-1];
 
                 auto n = cross(p[1] - p[0], p[2] - p[0]);
 

@@ -241,17 +241,17 @@ struct Obj_Face{
 
 struct Obj_Model{
     Obj_Model* next;
-
-    Vec3[]     vertices; // TODO: Rename this positions/ or something like that.
-    Vec3[]     normals;
-    Vec4[]     colors;
-    Vec2[]     uvs;
     Obj_Face[] faces;
 }
 
 struct Obj_Data{
     Obj_Model* model_first;
     uint models_count;
+
+    Vec3[] vertices; // TODO: Rename this positions/ or something like that.
+    Vec3[] normals;
+    Vec4[] colors;
+    Vec2[] uvs;
 }
 
 String eat_obj_line_command(ref String reader){
@@ -268,59 +268,65 @@ String eat_obj_line_command(ref String reader){
     return result;
 }
 
-Obj_Model* parse_obj_model(ref String reader, Allocator* allocator){
-    Obj_Model* result;
+Obj_Data parse_obj_file(String source, Allocator* allocator){
+    Obj_Data result;
 
-    auto source = reader;
-    while(reader.length){
+    auto reader = source;
+    uint vertex_count, normals_count, uvs_count, faces_count;
+
+    //
+    // First-pass counts all the elements.
+    // TODO: Should we use an expandable array instead?
+    //
+    Obj_Model* model;
+    while(reader.length > 0){
         auto line = eat_line(reader);
-        if(begins_with(line, "o ")){
-            result = alloc_type!Obj_Model(allocator);
-            break;
+        auto cmd = eat_obj_line_command(line);
+        switch(cmd){
+            default: break;
+
+            case "o":{
+                auto next = alloc_type!Obj_Model(allocator);
+                if(!result.model_first){
+                    result.model_first = next;
+                }
+
+                if(model){
+                    model.faces = alloc_array!Obj_Face(allocator, faces_count);
+                    model.next = next;
+                }
+                model = next;
+                result.models_count++;
+                faces_count = 0;
+            } break;
+
+            case "v":{
+                vertex_count++;
+            } break;
+
+            case "vn":{
+                normals_count++;
+            } break;
+
+            case "vt":{
+                uvs_count++;
+            } break;
+
+            case "f":{
+                faces_count++;
+            } break;
         }
     }
+    assert(model.faces.length == 0);
+    model.faces = alloc_array!Obj_Face(allocator, faces_count);
 
-    if(result){
-        uint vertex_count, normals_count, uvs_count, faces_count;
+    result.vertices = alloc_array!Vec3(allocator, vertex_count);
+    result.normals  = alloc_array!Vec3(allocator, normals_count);
+    result.uvs      = alloc_array!Vec2(allocator, uvs_count);
 
-        //
-        // First-pass counts all the elements.
-        // TODO: Should we use an expandable array instead?
-        //
-        auto scanner = reader;
-        first_pass: while(scanner.length > 0){
-            auto line = eat_line(scanner);
-            auto cmd = eat_obj_line_command(line);
-            switch(cmd){
-                default: break;
-
-                case "o":{
-                    break first_pass;
-                } break;
-
-                case "v":{
-                    vertex_count++;
-                } break;
-
-                case "vn":{
-                    normals_count++;
-                } break;
-
-                case "vt":{
-                    uvs_count++;
-                } break;
-
-                case "f":{
-                    faces_count++;
-                } break;
-            }
-        }
-
-        result.vertices = alloc_array!Vec3(allocator, vertex_count);
-        result.faces    = alloc_array!Obj_Face(allocator, faces_count);
-        result.normals  = alloc_array!Vec3(allocator, normals_count);
-        result.uvs      = alloc_array!Vec2(allocator, uvs_count);
-
+    reader = source;
+    model = null;
+    while(reader.length > 0){
         uint v_index, n_index, vt_index, f_index;
         second_pass: while(reader.length > 0){
             auto line = eat_line(reader);
@@ -329,10 +335,11 @@ Obj_Model* parse_obj_model(ref String reader, Allocator* allocator){
                 default: break;
 
                 case "o":{
-                    // Reset the reader to the start of the line. This way the next call
-                    // to parse_obj_model will begin with the "o" (object) command.
-                    reader = source[line.ptr - source.ptr .. $];
-                    break second_pass;
+                    if(!model)
+                        model = result.model_first;
+                    else
+                        model = model.next;
+                    f_index = 0;
                 } break;
 
                 case "v":{
@@ -356,7 +363,7 @@ Obj_Model* parse_obj_model(ref String reader, Allocator* allocator){
                 } break;
 
                 case "f":{
-                    auto f = &result.faces[f_index++];
+                    auto f = &model.faces[f_index++];
                     if(result.normals.length == 0 && result.uvs.length == 0){
                         to_int(&f.points[0].v, eat_between_whitespace(line));
                         to_int(&f.points[1].v, eat_between_whitespace(line));
@@ -374,22 +381,6 @@ Obj_Model* parse_obj_model(ref String reader, Allocator* allocator){
                     }
                 } break;
             }
-        }
-    }
-    return result;
-}
-
-Obj_Data parse_obj_file(String source, Allocator* allocator){
-    Obj_Data result;
-    auto reader = source;
-    result.model_first = parse_obj_model(reader, allocator);
-    if(result.model_first){
-        result.models_count++;
-        auto model = result.model_first;
-        while(auto next = parse_obj_model(reader, allocator)){
-            model.next = next;
-            model = next;
-            result.models_count++;
         }
     }
 
