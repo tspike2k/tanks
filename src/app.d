@@ -10,9 +10,11 @@ Credits:
     TheGoldfishKing for the equally helpful "Tanks_Documentation"
 
 TODO:
+    - Levels seem to spawn the wrong enemies
     - Particles (Explosions, smoke, etc)
     - High score tracking
     - Better scoring
+    - Better mine behavior. Should only activate after parent exits placement radius.
     - Multiplayer
     - Temp saves
     - More editor features (tank params, level size, etc)

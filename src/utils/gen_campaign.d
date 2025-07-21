@@ -23,7 +23,7 @@ struct Map{
     uint[] cells;
 }
 
-struct Tank_Def{
+/+struct Tank_Def{
     uint  invisibility,
     float mine_escape_offset,
     uint  mine_limit,
@@ -66,7 +66,7 @@ struct Tank_Def{
     uint  turret_target_timer,
     float dist_hold_shell,
     uint  shell_stun_timer,
-}
+}+/
 
 // NOTE: Mission definitions retrieved from "Map/Parameter File Guide for Wii Play: Tanks!"
 // by TheGoldfishKing.
@@ -319,8 +319,12 @@ void make_map(Campaign_Map* map, Map* source, uint width, uint height, Allocator
     map.width  = width;
     map.height = height;
     map.cells  = alloc_array!Map_Cell(allocator, width*height);
-    foreach(i, ref cell; map.cells){
-        cell = convert_cell_to_custom_encoding(source.cells[i]);
+
+    foreach(y; 0 .. height){
+        foreach(x; 0 .. width){
+            auto encoded = convert_cell_to_custom_encoding(source.cells[x + (height-1 - y)*width]);
+            map.cells[x + y*width] = encoded;
+        }
     }
 }
 
