@@ -360,6 +360,7 @@ Mission_Def[] missions, uint mission_offset, Allocator* allocator){
                     enemy.type_max = tank_type % 10;
                     assert(enemy.type_min < enemy.type_max);
                 }
+                enemy.spawn_index = cast(uint)spawn_index;
             }
         }
         mission.enemies = enemies[0 .. enemies_count];
