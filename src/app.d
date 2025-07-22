@@ -10,7 +10,6 @@ Credits:
     TheGoldfishKing for the equally helpful "Tanks_Documentation"
 
 TODO:
-    - Levels seem to spawn the wrong enemies
     - Particles (Explosions, smoke, etc)
     - High score tracking
     - Better scoring
@@ -794,13 +793,19 @@ void spawn_mine(World* world, Vec2 p, Entity_ID id){
     e.parent_id = id;
 }
 
-Entity* spawn_bullet(World* world, Entity_ID parent_id, Vec2 p, float angle, Tank_Type* tank_info){
-    auto dir    = vec2_from_angle(angle);
-    auto e      = add_entity(world, p + dir*1.01f, Entity_Type.Bullet);
-    e.angle     = angle;
+Vec2 get_bullet_spawn_pos(Vec2 tank_center, Vec2 turret_dir){
+    auto result = tank_center + turret_dir*1.01f;
+    return result;
+}
+
+Entity* spawn_bullet(World* world, Entity_ID parent_id, Vec2 tank_center, float turret_angle, Tank_Type* tank_info){
+    auto turret_dir = vec2_from_angle(turret_angle);
+    auto p      = get_bullet_spawn_pos(tank_center, turret_dir);
+    auto e      = add_entity(world, p, Entity_Type.Bullet);
+    e.angle     = turret_angle;
     e.parent_id = parent_id;
     e.health    = tank_info.bullet_ricochets+1;
-    e.vel       = dir*tank_info.bullet_speed;
+    e.vel       = turret_dir*tank_info.bullet_speed;
     return e;
 }
 
@@ -1131,58 +1136,75 @@ void add_to_score_if_killed_by_player(App_State* s, Entity* tank, Entity_ID atta
     }
 }
 
-void resolve_collision(App_State* s, Entity* e, Entity* target, Vec2 normal, float depth){
-    if(should_seperate(e.type, target.type) && is_dynamic_entity(e.type)){
+void resolve_collision(App_State* s, Entity* a, Entity* b, Vec2 normal, float depth){
+    if(should_seperate(a.type, b.type)){
         // TODO: Handle energy transfer here somehow
         // Use this as a resource?
         // https://erikonarheim.com/posts/understanding-collision-constraint-solvers/
-        e.pos += depth*normal;
-        e.vel = reflect(e.vel, normal);
+
+        if(is_dynamic_entity(a.type)){
+            a.pos += depth*normal;
+            a.vel = reflect(a.vel, normal);
+        }
+        if(is_dynamic_entity(b.type)){
+            b.pos += depth*normal*-1.0f;
+            b.vel = reflect(b.vel, normal*-1.0f);
+        }
     }
 
-    switch(e.type){
+    if(a.type > b.type)
+        swap(a, b);
+
+    auto collision_id = make_collision_id(a.type, b.type);
+    switch(collision_id){
         default: break;
 
-        case Entity_Type.Bullet:{
-            if(target.type == Entity_Type.Tank){
-                // TODO: Show explosion
-                destroy_entity(e);
-                destroy_entity(target);
-                add_to_score_if_killed_by_player(s, target, e.parent_id);
-            }
-            else if(target.type == Entity_Type.Bullet){
+        case make_collision_id(Entity_Type.Tank, Entity_Type.Bullet):{
+            // TODO: Show explosion
+            destroy_entity(a);
+            destroy_entity(b);
+            add_to_score_if_killed_by_player(s, a, b.parent_id);
+        } break;
+
+        case make_collision_id(Entity_Type.Bullet, Entity_Type.Bullet):{
+            // HACK: For now we use discrete collision tests. This means that we step entity A
+            // and then check it's position against the position of all other entities before
+            // we simulate entity B. In the case of two rapidly fired bullets, if the second
+            // bullet is simulated first it could "catch up" to the first and cause a collision
+            // before A has had a chance to move. This shouldn't happen. This hack should prevent
+            // that case.
+            auto d = dot(a.vel, b.vel);
+            if(d < 0 || d > deg_to_rad(25)){ // TODO: This still didn't work.
                 // TODO: Show minor explosion
-                destroy_entity(e);
-            }
-            else if(target.type == Entity_Type.Mine){
-                destroy_entity(e);
-            }
-            else{
-                if(e.health > 0)
-                    e.health--;
-                e.angle = atan2(e.vel.y, e.vel.x);
+                destroy_entity(a);
+                destroy_entity(b);
             }
         } break;
 
-        case Entity_Type.Tank:{
-            if(target.type == Entity_Type.Mine){
-                if(is_exploding(target)){
-                    destroy_entity(e);
-                    add_to_score_if_killed_by_player(s, e, target.parent_id);
-                    // TODO: Show explosion? Or is the mine explosion enough?
-                }
+        case make_collision_id(Entity_Type.None, Entity_Type.Bullet): // HACK: Reflect off syntetic entities. For use against world bounds.
+        case make_collision_id(Entity_Type.Block, Entity_Type.Bullet):{
+            if(b.health > 0)
+                b.health--;
+            b.angle = atan2(b.vel.y, b.vel.x);
+        } break;
+
+        case make_collision_id(Entity_Type.Bullet, Entity_Type.Mine):{
+            destroy_entity(a);
+            if(!is_exploding(b))
+                detonate(b);
+        } break;
+
+        case make_collision_id(Entity_Type.Block, Entity_Type.Mine):{
+            if(is_breakable(a) && is_exploding(b)){
+                destroy_entity(a);
             }
         } break;
 
-        case Entity_Type.Mine:{
-            if(target.type == Entity_Type.Bullet){
-                if(target.type == Entity_Type.Tank || target.type == Entity_Type.Bullet){
-                    detonate(e);
-                }
-            }
-            else if(target.type == Entity_Type.Block){
-                assert(is_exploding(e));
-                destroy_entity(target);
+        case make_collision_id(Entity_Type.Tank, Entity_Type.Mine):{
+            if(is_exploding(b)){
+                destroy_entity(a);
+                add_to_score_if_killed_by_player(s, a, b.parent_id);
+                // TODO: Show explosion? Or is the mine explosion enough?
             }
         } break;
     }
@@ -1543,6 +1565,78 @@ Tank_Type* get_tank_info(Campaign* campaign, Entity* e){
     return result;
 }
 
+bool circle_overlaps_obb(Vec2 circle_center, float circle_radius,
+Vec2 obb_center, Vec2 obb_extents, float obb_angle){
+    // Adapted from the following:
+    // https://yal.cc/rot-rect-vs-circle-intersection/
+    auto rel = circle_center - obb_center;
+    auto c = cos(-obb_angle);
+    auto s = sin(-obb_angle);
+
+    auto local = Vec2(c*rel.x - s*rel.y, s*rel.x + c*rel.y);
+    auto delta = Vec2(
+        clamp(local.x, -obb_extents.x, obb_extents.x),
+        clamp(local.y, -obb_extents.y, obb_extents.y),
+    );
+
+    bool result = squared(delta) < squared(circle_radius);
+    return result;
+}
+
+bool fire_direction_is_clear(World* world, Entity* e, Tank_Type* tank_info){
+    auto ray_dir   = vec2_from_angle(e.turret_angle);
+    auto ray_start = get_bullet_spawn_pos(e.pos, ray_dir);
+
+    Vec2 collision_normal = void;
+    auto result = false;
+    uint iterations = tank_info.bullet_ricochets+1;
+    outer: while(iterations){
+        float t_min = 1.0f;
+
+        auto ray_delta = ray_dir*2000.0f;
+        foreach(ref target; iterate_entities(world)){
+            if(target.type == Entity_Type.Block && !is_hole(&target)){
+                auto bounds = Rect(target.pos, target.extents);
+                ray_vs_rect(ray_start, ray_delta, bounds, &t_min, &collision_normal);
+            }
+        }
+        ray_vs_world_bounds(ray_start, ray_delta, world.bounds, &t_min, &collision_normal);
+
+        if(t_min < 1.0f){
+            auto ray_end = ray_start + ray_delta*t_min;
+
+            auto obb_center  = ray_end - ray_start;
+            auto obb_extents = Vec2(0.25f, length(ray_delta*t_min)*0.5f);
+            auto obb_angle   = get_angle(ray_dir);
+
+            foreach(ref target; world.entities){
+                if(target.type == Entity_Type.Tank){
+                    auto tank_radius = target.extents.x;
+                    if(circle_overlaps_obb(target.pos, tank_radius, obb_center, obb_extents, obb_angle)){
+                        if(is_player(&target)){
+                            result = true;
+                        }
+                        else{
+                            result = false;
+                            break outer;
+                        }
+                    }
+                }
+            }
+
+            ray_dir   = reflect(ray_dir, collision_normal);
+            ray_start = ray_end;
+        }
+        else{
+            // Sanity check. The ray should always at the very least hit the world bounds.
+            // However, if it doesn't, we'll just abort.
+            break;
+        }
+        iterations--;
+    }
+    return result;
+}
+
 void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
     // TODO: A LOT of work needs to be done here. Here's just a few features we need:
     // - Random turning
@@ -1593,21 +1687,9 @@ void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
 
     auto sight_range = 8.0f;           // TODO: Get this from tank params
     auto sight_angle = deg_to_rad(65); // TODO: Get this from tank params
-    if(has_opportunity(&e.fire_timer, e.ai_time)){
-        float min_aim_angle = deg_to_rad(25); // TODO: Get this from the tank params
-
-        // TODO: Rather than fixate on a specific target, we only care if a valid target
-        // is within the range of fire and no ally is in the range.
-        auto target = get_entity_by_id(&s.world, s.player_entity_id);
-
-        // TODO: Perform raycasts to make sure the player is in the range of fire and
-        // allies are not
-        log("Has fire opportunity\n");
-        if(target){//&& abs(get_angle(target.pos - e.pos)) < min_aim_angle
-        //&& is_point_in_sight(&s.world, e, sight_angle, sight_range, target.pos)){
-            cmd.fire_bullet = true;
-            timer_reset(&e.fire_timer, e.ai_time, &s.rng);
-        }
+    if(has_opportunity(&e.fire_timer, e.ai_time) && fire_direction_is_clear(&s.world, e, tank_info)){
+        cmd.fire_bullet = true;
+        timer_reset(&e.fire_timer, e.ai_time, &s.rng);
     }
 
     e.aim_timer -= dt;
@@ -1706,7 +1788,7 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
             }
 
             // Since no objects accelerate in this game, we can simplify integration.
-            // TODO: This isn't true: tanks do accelerate, though it's barely noticable.
+            // TODO: This isn't true: tanks do accelerate in the original game, though it's barely noticable.
             e.pos += e.vel*dt;
 
             // TODO: Broadphase, Spatial partitioning to limit the number of entitites
@@ -1725,7 +1807,6 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
                     // This will destroy the bullet before it can be reflected properly.
                     // This is a HUGE problem and must be fixed.
                     resolve_collision(s, &e, &target, hit_normal, hit_depth + epsilon);
-                    resolve_collision(s, &target, &e, hit_normal*-1.0f, hit_depth + epsilon);
                 }
             }
             entity_vs_world_bounds(s, &e);
@@ -2275,16 +2356,6 @@ extern(C) int main(int args_count, char** args){
 
         audio_update();
 
-        // TODO: Sometimes the game becomes a stuttering mess, and the only way to fix it is
-        // to minimize the window and restore it. Figure out what's causing this.
-        current_timestamp = ns_timestamp();
-        ulong frame_time = cast(ulong)(dt*1000000000.0f);
-        ulong elapsed_time = current_timestamp - prev_timestamp;
-        if(elapsed_time < frame_time){
-            ns_sleep(frame_time - elapsed_time); // TODO: Better sleep time.
-        }
-        prev_timestamp = current_timestamp;
-
         render_begin_frame(window.width, window.height, Vec4(0, 0.05f, 0.12f, 1), &s.frame_memory);
 
         Render_Passes render_passes;
@@ -2418,6 +2489,17 @@ extern(C) int main(int args_count, char** args){
         }
 
         render_gui(&s.gui, &hud_camera, &s.rect_shader, &s.text_shader);
+
+        // TODO: Sometimes the game becomes a stuttering mess, and the only way to fix it is
+        // to minimize the window and restore it. Figure out what's causing this.
+        current_timestamp = ns_timestamp();
+        ulong frame_time = cast(ulong)(dt*1000000000.0f);
+        ulong elapsed_time = current_timestamp - prev_timestamp;
+        if(elapsed_time < frame_time){
+            ns_sleep(frame_time - elapsed_time); // TODO: Better sleep time.
+        }
+
+        prev_timestamp = current_timestamp;
 
         render_end_frame();
         end_frame();
