@@ -10,7 +10,7 @@ Credits:
     TheGoldfishKing for the equally helpful "Tanks_Documentation"
 
 TODO:
-    - Particles (Explosions, smoke, etc)
+    - Billboard particles (Explosions, smoke, etc)
     - High score tracking
     - Better scoring
     - Better mine behavior. Should only activate after parent exits placement radius.
@@ -19,6 +19,7 @@ TODO:
     - More editor features (tank params, level size, etc)
     - Debug collision volume display?
     - Bullet can get lodged between two blocks, destroying it before the player sees it reflected.
+    - Improved collision handling
 
 Sound effects:
     - Firing missile
@@ -282,12 +283,16 @@ struct App_State{
     Game_Mode mode;
     Campaign  campaign;
     Session   session;
+    Vec3      world_camera_polar;
 
     Menu      menu;
     Menu_ID   next_menu_id;
     Gui_State gui;
     Font font_main;
     Font font_editor_small;
+
+    bool debug_mode;
+    bool moving_camera;
 
     Xorshift32 rng;
 
@@ -1173,8 +1178,7 @@ void resolve_collision(App_State* s, Entity* a, Entity* b, Vec2 normal, float de
             // bullet is simulated first it could "catch up" to the first and cause a collision
             // before A has had a chance to move. This shouldn't happen. This hack should prevent
             // that case.
-            auto d = dot(a.vel, b.vel);
-            if(d < 0 || d > deg_to_rad(25)){ // TODO: This still didn't work.
+            if(dot(a.vel, b.vel) < 0){
                 // TODO: Show minor explosion
                 destroy_entity(a);
                 destroy_entity(b);
@@ -1983,24 +1987,39 @@ void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
 
                 case Event_Type.Button:{
                     auto btn = &evt.button;
-                    if(btn.pressed){
-                        switch(btn.id){
-                            default: break;
+                    switch(btn.id){
+                        default: break;
 
-                            // TODO: Buffer player inputs (other than movement)?
-                            case Button_ID.Mouse_Right:{
+                        // TODO: Buffer player inputs (other than movement)?
+                        case Button_ID.Mouse_Right:{
+                            if(s.debug_mode){
+                                s.moving_camera = btn.pressed;
+                            }
+                            else if(btn.pressed){
                                 player_input.place_mine = true;
-                            } break;
+                            }
+                        } break;
 
-                            case Button_ID.Mouse_Left:{
+                        case Button_ID.Mouse_Left:{
+                            if(btn.pressed){
                                 player_input.fire_bullet = true;
-                            } break;
-                        }
+                            }
+                        } break;
                     }
                 } break;
 
                 case Event_Type.Mouse_Motion:{
                     auto motion = &evt.mouse_motion;
+                    if(s.moving_camera){
+                        auto delta = Vec2(motion.pixel_x, -motion.pixel_y);
+                        float cam_speed = 0.2f;
+
+                        s.world_camera_polar.x += delta.x*cam_speed*dt;
+                        s.world_camera_polar.y += delta.y*cam_speed*dt;
+
+                        //s->camera_polar.y = clamp_f32(s->camera_polar.y, -78.75f, -1.0f);
+                    }
+
                     s.mouse_pixel = Vec2(motion.pixel_x, motion.pixel_y);
                 } break;
 
@@ -2042,8 +2061,8 @@ void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
 
                         case Key_ID_F2:
                             if(!key.is_repeat && key.pressed){
-                                editor_toggle(s);
-                                s.mode = Game_Mode.Editor;
+                                //editor_toggle(s);
+                                s.debug_mode = !s.debug_mode;
                             }
                             break;
                     }
@@ -2266,6 +2285,9 @@ extern(C) int main(int args_count, char** args){
     ulong current_timestamp = ns_timestamp();
     ulong prev_timestamp    = current_timestamp;
 
+    // TODO: Z value doesn't seem to have any affect?
+    s.world_camera_polar = Vec3(90, -45, 1); // TODO: Make these in radian eventually
+
     while(s.running){
         begin_frame();
 
@@ -2290,7 +2312,8 @@ extern(C) int main(int args_count, char** args){
         if(s.mode == Game_Mode.Editor)
             world_camera_angle = g_editor_camera_angle;
 
-        set_world_view(&world_camera, grid_center, world_camera_angle);
+        //set_world_view(&world_camera, grid_center, world_camera_angle);
+        set_world_view(&world_camera, s.world_camera_polar, grid_center, Vec3(0, 1, 0));
         auto mouse_world_3d = camera_ray_vs_plane(&world_camera, s.mouse_pixel, window.width, window.height);
         s.mouse_world = Vec2(mouse_world_3d.x, -mouse_world_3d.z);
 

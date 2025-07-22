@@ -231,6 +231,13 @@ void set_world_projection(Camera* camera, float target_w, float target_h, float 
     camera.proj = orthographic_projection(camera_bounds);
 }
 
+void set_world_view(Camera* camera, Vec3 camera_polar, Vec3 camera_target, Vec3 up){
+    auto camera_world = polar_to_world(camera_polar, camera_target);
+    camera.view.mat = make_lookat_matrix(camera_world, camera_target, up);
+    camera.view.inv = invert_view_matrix(camera.view.mat);
+    camera.center   = camera_world;
+}
+
 void set_world_view(Camera* camera, Vec3 camera_center, float camera_x_rot){
     camera.view.mat = mat4_rot_x(camera_x_rot*(PI/180.0f))*mat4_translate(-1.0f*camera_center);
     camera.view.inv = invert_view_matrix(camera.view.mat);

@@ -276,25 +276,7 @@ Mat4 mat4_rot_z(float angle_rad){
     return result;
 }
 
-Mat4 make_lookat_matrix(Vec3 camera_pos, Vec3 look_pos, Vec3 up_pos){
-    Vec3 look_dir = normalize(look_pos - camera_pos);
-    Vec3 up_dir   = normalize(up_pos); // TODO: Do we really need to normalize the up direction?
-
-    Vec3 right_dir   = normalize(cross(look_dir, up_dir));
-    Vec3 perp_up_dir = cross(right_dir, look_dir);
-
-    auto result = Mat4([
-        right_dir.x, perp_up_dir.x, -look_dir.x, 0,
-        right_dir.y, perp_up_dir.y, -look_dir.y, 0,
-        right_dir.z, perp_up_dir.z, -look_dir.z, 0,
-        0,           0,             0,           1,
-    ]);
-
-    result = transpose(result)*mat4_translate(camera_pos*-1.0f);
-    return result;
-}
-
-Mat4 make_inverse_lookat_matrix(Mat4 m){ // TODO: Where did we get this from?
+version(none) Mat4 make_inverse_lookat_matrix(Mat4 m){ // TODO: Where did we get this from?
     Mat4 result = void;
 
     result.c[0 + 0*4] = m.c[0 + 0*4];
