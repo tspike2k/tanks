@@ -32,8 +32,6 @@ enum Button_Prev_Map          = gui_id(Window_ID_Main);
 enum Button_Next_Map          = gui_id(Window_ID_Main);
 enum Button_New_Map           = gui_id(Window_ID_Main);
 
-float g_editor_camera_angle;
-
 private:
 
 enum Place_Type : uint{
@@ -207,10 +205,15 @@ public bool editor_simulate(App_State* s, float dt){
     bool mouse_left_pressed  = false;
     bool mouse_right_pressed = false;
 
+    auto map = &g_current_map.map;
+    auto grid_extents = Vec2(map.width, map.height)*0.5f;
+    auto grid_center  = world_to_render_pos(grid_extents);
+    s.world_camera_target_pos = get_map_center(map);
+
     Event evt;
     bool text_buffer_updated = false;
     while(next_event(&evt)){
-        if(!handle_event(&s.gui, &evt)){
+        if(!handle_event_common(s, &evt, dt)){
             switch(evt.type){
                 default: break;
 
@@ -373,7 +376,6 @@ public bool editor_simulate(App_State* s, float dt){
         default: break;
 
         case Cursor_Mode.Place:{
-            auto map = &g_current_map.map;
             if(inside_grid(map, s.mouse_world) && !is_cell_occupied(map, s.mouse_world)){
                 bool is_tank = g_place_type == Place_Type.Tank;
                 if((is_tank && mouse_left_pressed) || (!is_tank && g_mouse_left_is_down)){
@@ -385,7 +387,6 @@ public bool editor_simulate(App_State* s, float dt){
         } break;
 
         case Cursor_Mode.Select:{
-            auto map = &g_current_map.map;
             if(mouse_left_pressed){
                 if(inside_grid(map, s.mouse_world) && is_cell_occupied(map, s.mouse_world)){
                     auto x = cast(int)s.mouse_world.x;
@@ -530,12 +531,8 @@ public void editor_render(App_State* s, Render_Passes rp){
     );
 
     auto map = &g_current_map.map;
+    render_ground(s, rp.world, rect_from_min_max(Vec2(0, 0), Vec2(map.width, map.height)));
 
-    auto grid_extents = Vec2(map.width, map.height)*0.5f;
-    auto grid_center  = world_to_render_pos(grid_extents);
-
-    auto ground_xform = mat4_translate(grid_center)*mat4_scale(Vec3(grid_extents.x, 1.0f, grid_extents.y));
-    render_mesh(rp.world, &s.ground_mesh, (&s.material_ground)[0..1], ground_xform);
     foreach(y; 0 .. map.height){
         foreach(x; 0 .. map.width){
             auto cell = &map.cells[x + y * map.width];
@@ -699,6 +696,12 @@ void editor_load_maps_file(String name){
     }
 }+/
 
+Vec3 get_map_center(Campaign_Map* map){
+    auto grid_extents = Vec2(map.width, map.height)*0.5f;
+    auto result = world_to_render_pos(grid_extents);
+    return result;
+}
+
 public void editor_toggle(App_State* s){
     // TODO: Don't use malloc and free. Have a free list of window memory.
     import core.stdc.stdlib : malloc, free;
@@ -708,8 +711,6 @@ public void editor_toggle(App_State* s){
         g_allocator       = &s.editor_memory;
         g_frame_allocator = &s.frame_memory;
 
-        g_editor_camera_angle = 90.0f;
-
         g_mouse_left_is_down  = false;
         g_mouse_right_is_down = false;
 
@@ -717,6 +718,8 @@ public void editor_toggle(App_State* s){
             editor_new_campaign();
             //editor_load_maps_file("./build/wii_16x9.maps");
         }
+
+        s.world_camera_target_pos = get_map_center(&g_current_map.map);
 
         auto memory = (malloc(4086)[0 .. 4086]);
         begin_window(gui, Window_ID_Main, "Test Window", rect_from_min_wh(Vec2(20, 20), 200, 80), memory);

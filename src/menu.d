@@ -36,6 +36,7 @@ enum Menu_Action : uint{
     None,
     Change_Menu,
     Begin_Campaign,
+    Open_Editor,
     Quit_Game,
 }
 

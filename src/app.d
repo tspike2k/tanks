@@ -175,6 +175,12 @@ Entity* spawn_tank(App_State* s, Vec2 pos, Vec2 map_center, ubyte cell_info, uin
     return e;
 }
 
+void render_ground(App_State* s, Render_Pass* pass, Rect bounds){
+    auto p = world_to_render_pos(bounds.center);
+    auto ground_xform = mat4_translate(p)*mat4_scale(Vec3(bounds.extents.x, 1.0f, bounds.extents.y));
+    render_mesh(pass, &s.ground_mesh, (&s.material_ground)[0..1], ground_xform);
+}
+
 void load_campaign_level(App_State* s, Campaign* campaign, uint mission_index){
     auto world = &s.world;
     world.entities_count = 0;
@@ -192,8 +198,9 @@ void load_campaign_level(App_State* s, Campaign* campaign, uint mission_index){
     s.session.map_index = next_map_index; // TODO: Clamp the mission index to variant.maps.length?
 
     auto map = &campaign.maps[s.session.map_index];
-    auto map_center = Vec2(map.width, map.height)*0.5f;
     s.world.bounds = rect_from_min_max(Vec2(0, 0), Vec2(map.width, map.height));
+    auto map_center = s.world.bounds.center;
+    s.world_camera_target_pos = world_to_render_pos(map_center);
 
     foreach(y; 0 .. map.height){
         foreach(x; 0 .. map.width){
@@ -286,6 +293,7 @@ struct App_State{
     Campaign  campaign;
     Session   session;
     Vec3      world_camera_polar;
+    Vec3      world_camera_target_pos;
 
     Menu      menu;
     Menu_ID   next_menu_id;
@@ -831,8 +839,8 @@ bool is_dynamic_entity(Entity_Type type){
 }
 
 Campaign_Map* get_current_map(App_State* s){
-    auto map = &s.campaign.maps[s.session.map_index];
-    return map;
+    auto result = &s.campaign.maps[s.session.map_index];
+    return result;
 }
 
 void entity_vs_world_bounds(App_State* s, Entity* e){
@@ -1893,6 +1901,7 @@ void menu_simulate(App_State* s, float dt){
                 end_block(menu);
                 begin_block(menu, 0.60f);
                 add_button(menu, "Campaign", Menu_Action.Change_Menu, Menu_ID.Campaign);
+                add_button(menu, "Editor", Menu_Action.Open_Editor, Menu_ID.None);
                 add_button(menu, "Quit", Menu_Action.Quit_Game, Menu_ID.None);
                 end_block(menu);
                 end_menu_def(menu);
@@ -1930,6 +1939,49 @@ void menu_simulate(App_State* s, float dt){
             set_text(menu, &menu.items[Variant_Label_Index], variant.name);
         } break;
     }
+}
+
+bool handle_event_common(App_State* s, Event* evt, float dt){
+    bool consumed = handle_event(&s.gui, evt);
+    if(!consumed){
+        switch(evt.type){
+            default: break;
+
+            case Event_Type.Window_Close:{
+                // TODO: If the game is running, make a temp save.
+                // TODO: If the editor is running, make a temp save?
+                s.running = false;
+                consumed  = true;
+            } break;
+
+            case Event_Type.Button:{
+                auto btn = &evt.button;
+                if(btn.id == Button_ID.Mouse_Right){
+                    if(can_move_camera(s) && btn.pressed){
+                        s.moving_camera = true;
+                        consumed = true;
+                    }
+                    else
+                        s.moving_camera = false;
+                }
+            } break;
+
+            case Event_Type.Mouse_Motion:{
+                auto motion = &evt.mouse_motion;
+                if(s.moving_camera){
+                    auto delta = Vec2(motion.rel_x, motion.rel_y);
+                    float cam_speed = 4.0f;
+
+                    s.world_camera_polar.x += delta.x*cam_speed*dt;
+                    s.world_camera_polar.y += delta.y*cam_speed*dt;
+                    s.world_camera_polar.y = clamp(s.world_camera_polar.y, -78.75f, 0.0f);
+                }
+
+                s.mouse_pixel = Vec2(motion.pixel_x, motion.pixel_y);
+            } break;
+        }
+    }
+    return consumed;
 }
 
 void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
@@ -1978,50 +2030,26 @@ void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
 
     Event evt;
     while(next_event(&evt)){
-        if(!handle_event(&s.gui, &evt)){
+        if(!handle_event_common(s, &evt, dt)){
             switch(evt.type){
                 default: break;
 
-                case Event_Type.Window_Close:{
-                    // TODO: Save state before exit in a temp/suspend file. Only in single player?
-                    s.running = false;
-                } break;
-
                 case Event_Type.Button:{
                     auto btn = &evt.button;
-                    switch(btn.id){
-                        default: break;
+                    if(btn.pressed){
+                        switch(btn.id){
+                            default: break;
 
-                        // TODO: Buffer player inputs (other than movement)?
-                        case Button_ID.Mouse_Right:{
-                            if(s.debug_mode){
-                                s.moving_camera = btn.pressed;
-                            }
-                            else if(btn.pressed){
+                            // TODO: Buffer player inputs (other than movement)?
+                            case Button_ID.Mouse_Right:{
                                 player_input.place_mine = true;
-                            }
-                        } break;
+                            } break;
 
-                        case Button_ID.Mouse_Left:{
-                            if(btn.pressed){
+                            case Button_ID.Mouse_Left:{
                                 player_input.fire_bullet = true;
-                            }
-                        } break;
+                            } break;
+                        }
                     }
-                } break;
-
-                case Event_Type.Mouse_Motion:{
-                    auto motion = &evt.mouse_motion;
-                    if(s.moving_camera){
-                        auto delta = Vec2(motion.rel_x, motion.rel_y);
-                        float cam_speed = 8.0f;
-
-                        s.world_camera_polar.x += delta.x*cam_speed*dt;
-                        s.world_camera_polar.y += delta.y*cam_speed*dt;
-                        s.world_camera_polar.y = clamp(s.world_camera_polar.y, -78.75f, 0.0f);
-                    }
-
-                    s.mouse_pixel = Vec2(motion.pixel_x, motion.pixel_y);
                 } break;
 
                 case Event_Type.Key:{
@@ -2134,6 +2162,11 @@ Texture load_texture_from_file(String file_name, uint flags, Allocator* allocato
     auto pixels = load_tga_file(file_name, allocator);
     premultiply_alpha(pixels.data);
     auto result = create_texture(pixels.data, pixels.width, pixels.height, flags);
+    return result;
+}
+
+bool can_move_camera(App_State* s){
+    bool result = s.debug_mode || s.mode == Game_Mode.Editor;
     return result;
 }
 
@@ -2300,27 +2333,6 @@ extern(C) int main(int args_count, char** args){
 
         auto window = get_window_info();
         auto dt = target_dt;
-
-        Camera hud_camera = void;
-        set_hud_camera(&hud_camera, window.width, window.height);
-
-        auto map = get_current_map(s);
-        auto grid_extents = Vec2(map.width, map.height)*0.5f;
-        auto grid_center  = world_to_render_pos(grid_extents);
-        auto window_aspect_ratio = (cast(float)window.width)/(cast(float)window.height);
-
-        Camera world_camera = void;
-        set_world_projection(&world_camera, map.width+2, map.height+2, window_aspect_ratio);
-
-        float world_camera_angle = 45.0f;
-        if(s.mode == Game_Mode.Editor)
-            world_camera_angle = g_editor_camera_angle;
-
-        //set_world_view(&world_camera, grid_center, world_camera_angle);
-        set_world_view(&world_camera, s.world_camera_polar, grid_center, Vec3(0, 1, 0));
-        auto mouse_world_3d = camera_ray_vs_plane(&world_camera, s.mouse_pixel, window.width, window.height);
-        s.mouse_world = Vec2(mouse_world_3d.x, -mouse_world_3d.z);
-
         s.t += dt;
 
         auto next_game_mode = s.mode;
@@ -2339,13 +2351,14 @@ extern(C) int main(int args_count, char** args){
                 auto window_bounds = rect_from_min_max(Vec2(0, 0), Vec2(window.width, window.height));
                 Event evt;
                 while(next_event(&evt)){
-                    if(evt.type == Event_Type.Window_Close){
-                        s.running = false;
-                    }
-                    else{
+                    if(!handle_event_common(s, &evt, dt)){
                         auto menu_evt = menu_handle_event(&s.menu, &evt);
                         switch(menu_evt.action){
                             default: break;
+
+                            case Menu_Action.Open_Editor:{
+                                next_game_mode = Game_Mode.Editor;
+                            } break;
 
                             case Menu_Action.Change_Menu:{
                                 change_to_menu(s, &s.menu, menu_evt.target_menu);
@@ -2374,6 +2387,10 @@ extern(C) int main(int args_count, char** args){
             switch(next_game_mode){
                 default: assert(0);
 
+                case Game_Mode.Editor:{
+                    editor_toggle(s);
+                } break;
+
                 case Game_Mode.Campaign:{
                     start_play_session(s, s.session.variant_index);
                 } break;
@@ -2382,6 +2399,20 @@ extern(C) int main(int args_count, char** args){
         }
 
         audio_update();
+
+        Camera hud_camera = void;
+        set_hud_camera(&hud_camera, window.width, window.height);
+
+        auto map = get_current_map(s);
+
+        Camera world_camera = void;
+        auto window_aspect_ratio = (cast(float)window.width)/(cast(float)window.height);
+        set_world_projection(&world_camera, map.width+2, map.height+2, window_aspect_ratio);
+
+        //set_world_view(&world_camera, map_bounds.center, 45.0f);
+        set_world_view(&world_camera, s.world_camera_polar, s.world_camera_target_pos, Vec3(0, 1, 0));
+        auto mouse_world_3d = camera_ray_vs_plane(&world_camera, s.mouse_pixel, window.width, window.height);
+        s.mouse_world = Vec2(mouse_world_3d.x, -mouse_world_3d.z);
 
         render_begin_frame(window.width, window.height, Vec4(0, 0.05f, 0.12f, 1), &s.frame_memory);
 
@@ -2419,8 +2450,7 @@ extern(C) int main(int args_count, char** args){
 
             case Game_Mode.Campaign:{
                 if(s.session.state != Session_State.Mission_Intro){
-                    auto ground_xform = mat4_translate(grid_center)*mat4_scale(Vec3(grid_extents.x, 1.0f, grid_extents.y));
-                    render_mesh(render_passes.world, &s.ground_mesh, (&s.material_ground)[0..1], ground_xform);
+                    render_ground(s, render_passes.world, s.world.bounds);
 
                     foreach(ref e; iterate_entities(&s.world)){
                         render_entity(s, &e, render_passes);
