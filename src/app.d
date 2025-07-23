@@ -79,6 +79,8 @@ enum Max_Players = 4;
 
 enum Meters_Per_Treadmark = 0.25f;
 
+enum Default_World_Camera_Polar = Vec3(90, -45, 1);
+
 enum Skip_Level_Intros = true; // TODO: We should make this based on if we're in the debug mode.
 
 enum Game_Mode : uint{
@@ -2011,13 +2013,12 @@ void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
                 case Event_Type.Mouse_Motion:{
                     auto motion = &evt.mouse_motion;
                     if(s.moving_camera){
-                        auto delta = Vec2(motion.pixel_x, -motion.pixel_y);
-                        float cam_speed = 0.2f;
+                        auto delta = Vec2(motion.rel_x, motion.rel_y);
+                        float cam_speed = 8.0f;
 
                         s.world_camera_polar.x += delta.x*cam_speed*dt;
                         s.world_camera_polar.y += delta.y*cam_speed*dt;
-
-                        //s->camera_polar.y = clamp_f32(s->camera_polar.y, -78.75f, -1.0f);
+                        s.world_camera_polar.y = clamp(s.world_camera_polar.y, -78.75f, 0.0f);
                     }
 
                     s.mouse_pixel = Vec2(motion.pixel_x, motion.pixel_y);
@@ -2063,6 +2064,9 @@ void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
                             if(!key.is_repeat && key.pressed){
                                 //editor_toggle(s);
                                 s.debug_mode = !s.debug_mode;
+                                if(!s.debug_mode){
+                                    s.world_camera_polar = Default_World_Camera_Polar;
+                                }
                             }
                             break;
                     }
@@ -2286,7 +2290,7 @@ extern(C) int main(int args_count, char** args){
     ulong prev_timestamp    = current_timestamp;
 
     // TODO: Z value doesn't seem to have any affect?
-    s.world_camera_polar = Vec3(90, -45, 1); // TODO: Make these in radian eventually
+    s.world_camera_polar = Default_World_Camera_Polar; // TODO: Make these in radian eventually
 
     while(s.running){
         begin_frame();
