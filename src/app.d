@@ -20,6 +20,7 @@ TODO:
     - Debug collision volume display?
     - Bullet can get lodged between two blocks, destroying it before the player sees it reflected.
     - Improved collision handling
+    - X-marks from defeated enemies penetrate the base of other tanks? Why does that not happen with treadmarks?
 
 Sound effects:
     - Firing missile
@@ -82,6 +83,7 @@ enum Meters_Per_Treadmark = 0.25f;
 enum Default_World_Camera_Polar = Vec3(90, -45, 1);
 
 enum Skip_Level_Intros = true; // TODO: We should make this based on if we're in the debug mode.
+//enum Skip_Level_Intros = false;
 
 enum Game_Mode : uint{
     None,
@@ -185,6 +187,10 @@ void load_campaign_level(App_State* s, Campaign* campaign, uint mission_index){
     auto world = &s.world;
     world.entities_count = 0;
 
+    s.tread_particles_cursor = 0;
+    s.tread_particles_full   = false;
+
+    clear_to_zero(s.session.enemies_defeated);
     s.session.mission_index = mission_index;
     auto variant = &campaign.variants[s.session.variant_index];
     auto mission = &variant.missions[s.session.mission_index];
@@ -249,6 +255,7 @@ enum Session_State : uint{
     Mission_Start,
     Mission_End,
     Playing_Mission,
+    Restart_Mission,
     Game_Over,
 }
 
@@ -276,35 +283,29 @@ struct App_State{
     Allocator editor_memory;
     //Allocator campaign_memory; // TODO: Implement this?
 
-    bool      running;
-    float     t;
-    Entity_ID player_entity_id;
-
-    uint test_index;
-
-    World world;
-    Vec2 mouse_pixel;
-    Vec2 mouse_world;
-
-    // TODO: These could be moved to the editor now.
-    Entity_ID highlight_entity_id;
-
-    Game_Mode mode;
-    Campaign  campaign;
-    Session   session;
-    Vec3      world_camera_polar;
-    Vec3      world_camera_target_pos;
-
-    Menu      menu;
-    Menu_ID   next_menu_id;
-    Gui_State gui;
-    Font font_main;
-    Font font_editor_small;
+    bool       running;
+    float      t;
+    Entity_ID  player_entity_id;
+    Vec2       mouse_pixel;
+    Vec2       mouse_world;
+    World      world;
+    Game_Mode  mode;
+    Game_Mode  next_mode;
+    Campaign   campaign;
+    Session    session;
+    Vec3       world_camera_polar;
+    Vec3       world_camera_target_pos;
+    Xorshift32 rng;
 
     bool debug_mode;
     bool moving_camera;
 
-    Xorshift32 rng;
+    Menu      menu;
+    Menu_ID   next_menu_id;
+    Gui_State gui;
+
+    Font font_main;
+    Font font_editor_small;
 
     Sound sfx_fire_bullet;
 
@@ -375,6 +376,16 @@ void timer_update(AI_Timer* timer, float ai_time, Xorshift32* rng){
 
 bool has_opportunity(AI_Timer* timer, float ai_time){
     bool result = ai_time > timer.start && ai_time < timer.start + timer.window;
+    return result;
+}
+
+bool players_defeated(App_State* s){
+    bool result = true;
+    // TODO: Check the status of all player tanks!
+    auto player = get_entity_by_id(&s.world, s.player_entity_id);
+    if(player && player.health > 0){
+        result = false;
+    }
     return result;
 }
 
@@ -1289,7 +1300,7 @@ Mat4_Pair make_hud_camera(uint window_width, uint window_height){
 
 Material[] choose_materials(App_State* s, Entity* e, bool highlighted){
     Material[] result;
-    if(e.id != s.highlight_entity_id && !highlighted){
+    if(!highlighted){
         switch(e.type){
             default: {
                 result = (&s.material_block)[0..1];
@@ -1446,7 +1457,8 @@ void start_play_session(App_State* s, uint variant_index){
 
     clear_to_zero(s.session);
     s.session.state = Session_State.Mission_Intro;
-    s.session.lives = variant.lives;
+    //s.session.lives = variant.lives;
+    s.session.lives = 0;
     s.session.variant_index = variant_index;
 
     load_campaign_level(s, &s.campaign, s.session.mission_index);
@@ -1834,6 +1846,20 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
         s.session.state = Session_State.Mission_End;
         s.session.timer = 0.0f;
     }
+    else if(players_defeated(s)){
+        // TODO: Play defeat song
+        if(s.session.lives > 0){
+            s.session.state = Session_State.Restart_Mission;
+            s.session.timer = 0.0f;
+
+            s.session.lives = s.session.lives-1;
+            log("lives: {0}\n", s.session.lives);
+        }
+        else{
+            s.session.state = Session_State.Game_Over;
+            s.session.timer = 0.0f;
+        }
+    }
 }
 
 struct Tank_Commands{
@@ -2106,7 +2132,6 @@ void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
 
     s.session.timer += dt;
     final switch(s.session.state){
-        case Session_State.Game_Over:
         case Session_State.Inactive:
             break;
 
@@ -2138,14 +2163,25 @@ void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
                 s.session.state = Session_State.Mission_Intro;
                 s.session.mission_index++;
 
-                s.tread_particles_cursor = 0;
-                s.tread_particles_full   = false;
-
                 foreach(i; 0 .. Max_Players){
                     s.session.total_enemies_defeated[i] += s.session.enemies_defeated[i];
                 }
-                clear_to_zero(s.session.enemies_defeated);
 
+                load_campaign_level(s, &s.campaign, s.session.mission_index);
+            }
+        } break;
+
+        case Session_State.Game_Over:{
+            if(s.session.timer >= Mission_End_Max_Time){
+                // TODO: Jump to high score list instead?
+                change_mode(s, Game_Mode.Menu);
+            }
+        } break;
+
+        case Session_State.Restart_Mission:{
+            if(s.session.timer >= Mission_End_Max_Time){
+                reset_timer(&s.session.timer, Mission_End_Max_Time);
+                s.session.state = Session_State.Mission_Intro;
                 load_campaign_level(s, &s.campaign, s.session.mission_index);
             }
         } break;
@@ -2174,6 +2210,10 @@ Texture generate_solid_texture(uint color, uint flags){
     uint[4] pixels = color;
     auto result = create_texture(pixels[], 2, 2, flags);
     return result;
+}
+
+void change_mode(App_State* s, Game_Mode mode){
+    s.next_mode = mode;
 }
 
 extern(C) int main(int args_count, char** args){
@@ -2313,6 +2353,7 @@ extern(C) int main(int args_count, char** args){
 
     //s.mode = Game_Mode.Campaign;
     s.mode = Game_Mode.Menu;
+    s.next_mode = s.mode;
     s.menu.heading_font = &s.font_main;
     s.menu.title_font   = &s.font_main;
     s.menu.button_font  = &s.font_editor_small;
@@ -2335,7 +2376,21 @@ extern(C) int main(int args_count, char** args){
         auto dt = target_dt;
         s.t += dt;
 
-        auto next_game_mode = s.mode;
+        if(s.mode != s.next_mode){
+            switch(s.next_mode){
+                default: break;
+
+                case Game_Mode.Editor:{
+                    editor_toggle(s);
+                } break;
+
+                case Game_Mode.Campaign:{
+                    start_play_session(s, s.session.variant_index);
+                } break;
+            }
+            s.mode = s.next_mode;
+        }
+
         final switch(s.mode){
             case Game_Mode.None:
                 assert(0); break;
@@ -2357,7 +2412,7 @@ extern(C) int main(int args_count, char** args){
                             default: break;
 
                             case Menu_Action.Open_Editor:{
-                                next_game_mode = Game_Mode.Editor;
+                                change_mode(s, Game_Mode.Editor);
                             } break;
 
                             case Menu_Action.Change_Menu:{
@@ -2365,7 +2420,7 @@ extern(C) int main(int args_count, char** args){
                             } break;
 
                             case Menu_Action.Begin_Campaign:{
-                                next_game_mode = Game_Mode.Campaign;
+                                change_mode(s, Game_Mode.Campaign);
                             } break;
 
                             case Menu_Action.Quit_Game:{
@@ -2381,21 +2436,6 @@ extern(C) int main(int args_count, char** args){
             case Game_Mode.Campaign:{
                 campaign_simulate(s, &player_input, target_dt);
             } break;
-        }
-
-        if(next_game_mode != s.mode){
-            switch(next_game_mode){
-                default: assert(0);
-
-                case Game_Mode.Editor:{
-                    editor_toggle(s);
-                } break;
-
-                case Game_Mode.Campaign:{
-                    start_play_session(s, s.session.variant_index);
-                } break;
-            }
-            s.mode = next_game_mode;
         }
 
         audio_update();
