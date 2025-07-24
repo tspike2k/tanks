@@ -1457,11 +1457,11 @@ void start_play_session(App_State* s, uint variant_index){
 
     clear_to_zero(s.session);
     s.session.state = Session_State.Mission_Intro;
-    //s.session.lives = variant.lives;
-    s.session.lives = 0;
+    s.session.lives = variant.lives;
     s.session.variant_index = variant_index;
 
-    load_campaign_level(s, &s.campaign, s.session.mission_index);
+    //load_campaign_level(s, &s.campaign, s.session.mission_index);
+    load_campaign_level(s, &s.campaign, 3);
 }
 
 float rotate_tank_part(float target_rot, float speed, float* rot_remaining){
@@ -2497,6 +2497,14 @@ extern(C) int main(int args_count, char** args){
                     }
                 }
 
+                set_shader(render_passes.world, &s.text_shader);
+                foreach(ref p; get_visible_tread_particles(s)){
+                    render_ground_decal(
+                        render_passes.world, Rect(p.pos, Vec2(0.25f, 0.10f)), Vec4(1, 1, 1, 1),
+                        p.angle, s.img_tread_marks
+                    );
+                }
+
                 switch(s.session.state){
                     default: break;
 
@@ -2573,14 +2581,6 @@ extern(C) int main(int args_count, char** args){
                             Text_White, Text_Align.Center_X
                         );
                     } break;
-                }
-
-                set_shader(render_passes.world, &s.text_shader);
-                foreach(ref p; get_visible_tread_particles(s)){
-                    render_ground_decal(
-                        render_passes.world, Rect(p.pos, Vec2(0.25f, 0.10f)), Vec4(1, 1, 1, 1),
-                        p.angle, s.img_tread_marks
-                    );
                 }
             } break;
         }
