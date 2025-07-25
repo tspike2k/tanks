@@ -2594,7 +2594,7 @@ extern(C) int main(int args_count, char** args){
             set_shader(render_passes.world, &s.text_shader);
             render_particle(
                 render_passes.world, p, Vec2(1, 0.25f),
-                Vec4(1, 0, 1, 0.5f), s.img_blank_rect
+                Vec4(1, 0, 1, 0.5f), s.img_blank_rect, s.t
             );
         }
 
