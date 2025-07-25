@@ -350,28 +350,19 @@ Vec4 color = Vec4(1, 1, 1, 1), Text_Align text_align = Text_Align.Left){
     cmd.text_align = text_align;
 }
 
-void render_particle(Render_Pass* pass, Vec3 start, Vec3 end, Vec4 color, float thickness){
-    auto cmd       = push_command!Render_Particle(pass);
-    cmd.start      = start;
-    cmd.end        = end;
-    cmd.color      = color;
-    cmd.thickness  = thickness;
-}
-
 void render_rect(Render_Pass* pass, Rect bounds, Vec4 color){
     auto cmd   = push_command!Render_Rect(pass);
     cmd.bounds = bounds;
     cmd.color  = color;
 }
 
-/+
-void render_particle(Render_Pass* pass, Vec3 pos, Vec2 extents, Vec3 normal, Vec4 color, Texture texture){
+void render_particle(Render_Pass* pass, Vec3 pos, Vec2 extents, Vec4 color, Texture texture){
     auto cmd    = push_command!Render_Particle(pass);
     cmd.pos     = pos;
     cmd.extents = extents;
-    cmd.normal  = normal;
     cmd.texture = texture;
-}+/
+    cmd.color   = color;
+}
 
 void render_ground_decal(Render_Pass* pass, Rect bounds, Vec4 color, float angle, Texture texture){
     auto cmd    = push_command!Render_Ground_Decal(pass);
@@ -493,10 +484,10 @@ struct Render_Particle{
     Render_Cmd header;
     alias header this;
 
-    Vec3  start;
-    Vec3  end;
-    float thickness;
-    Vec4  color;
+    Vec3 pos;
+    Vec2 extents;
+    Vec4 color;
+    Texture texture;
 }
 
 struct Set_Light{
@@ -531,19 +522,6 @@ struct Render_Rect{
     Rect bounds;
     Vec4 color;
 }
-
-/+
-struct Render_Particle{
-    enum Type = Command.Render_Particle;
-    Render_Cmd header;
-    alias header this;
-
-    Vec3 pos;
-    Vec2 extents;
-    Vec3 normal;
-    Vec4 color;
-    Texture texture;
-}+/
 
 struct Render_Ground_Decal{
     enum Type = Command.Render_Ground_Decal;
@@ -953,11 +931,11 @@ version(opengl){
                         // 4: "Cheating - Faster but not so easy."
                         // https://www.lighthouse3d.com/opengl/billboarding/
 
-                        auto size = (cmd.thickness*0.5f);
-                        auto p_right = size*Vec3(view.m[0][0], view.m[0][1], view.m[0][2]);
-                        auto p_up    = size*Vec3(view.m[1][0], view.m[1][1], view.m[1][2]);
+                        auto size = cmd.extents;
+                        auto p_right = size.x*Vec3(view.m[0][0], view.m[0][1], view.m[0][2]);
+                        auto p_up    = size.y*Vec3(view.m[1][0], view.m[1][1], view.m[1][2]);
 
-                        auto center = cmd.start + (cmd.end - cmd.start)*0.5f;
+                        auto center = cmd.pos;
                         auto p0 = center + p_up + p_right;
                         auto p1 = center + p_up - p_right;
                         auto p2 = center - p_up - p_right;
@@ -982,6 +960,7 @@ version(opengl){
                         v[3].uv = Vec2(right(uvs), top(uvs));
                         v[3].color = cmd.color;
 
+                        set_texture(cmd.texture);
                         draw_quads(v[]);
                     } break;
 
