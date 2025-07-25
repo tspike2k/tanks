@@ -2587,6 +2587,13 @@ extern(C) int main(int args_count, char** args){
 
         render_gui(&s.gui, &hud_camera, &s.rect_shader, &s.text_shader);
 
+        set_texture(render_passes.world, s.img_blank_rect);
+        set_shader(render_passes.world, &s.text_shader);
+        render_particle(
+            render_passes.world, Vec3(-10, 0.1f, -10), Vec3(10, 0.1f, 10),
+            Vec4(1, 0, 1, 1), 2.0f
+        );
+
         // TODO: Sometimes the game becomes a stuttering mess, and the only way to fix it is
         // to minimize the window and restore it. Figure out what's causing this.
         current_timestamp = ns_timestamp();

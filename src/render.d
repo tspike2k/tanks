@@ -350,19 +350,28 @@ Vec4 color = Vec4(1, 1, 1, 1), Text_Align text_align = Text_Align.Left){
     cmd.text_align = text_align;
 }
 
+void render_particle(Render_Pass* pass, Vec3 start, Vec3 end, Vec4 color, float thickness){
+    auto cmd       = push_command!Render_Particle(pass);
+    cmd.start      = start;
+    cmd.end        = end;
+    cmd.color      = color;
+    cmd.thickness  = thickness;
+}
+
 void render_rect(Render_Pass* pass, Rect bounds, Vec4 color){
     auto cmd   = push_command!Render_Rect(pass);
     cmd.bounds = bounds;
     cmd.color  = color;
 }
 
+/+
 void render_particle(Render_Pass* pass, Vec3 pos, Vec2 extents, Vec3 normal, Vec4 color, Texture texture){
     auto cmd    = push_command!Render_Particle(pass);
     cmd.pos     = pos;
     cmd.extents = extents;
     cmd.normal  = normal;
     cmd.texture = texture;
-}
+}+/
 
 void render_ground_decal(Render_Pass* pass, Rect bounds, Vec4 color, float angle, Texture texture){
     auto cmd    = push_command!Render_Ground_Decal(pass);
@@ -479,6 +488,17 @@ struct Render_Text{
     Text_Align text_align;
 }
 
+struct Render_Particle{
+    enum Type = Command.Render_Particle;
+    Render_Cmd header;
+    alias header this;
+
+    Vec3  start;
+    Vec3  end;
+    float thickness;
+    Vec4  color;
+}
+
 struct Set_Light{
     enum Type = Command.Set_Light;
     Render_Cmd header;
@@ -512,6 +532,7 @@ struct Render_Rect{
     Vec4 color;
 }
 
+/+
 struct Render_Particle{
     enum Type = Command.Render_Particle;
     Render_Cmd header;
@@ -522,7 +543,7 @@ struct Render_Particle{
     Vec3 normal;
     Vec4 color;
     Texture texture;
-}
+}+/
 
 struct Render_Ground_Decal{
     enum Type = Command.Render_Ground_Decal;
@@ -858,50 +879,6 @@ version(opengl){
                         draw_quads(v[]);
                     } break;
 
-                    case Command.Render_Particle:{
-                        auto cmd = cast(Render_Particle*)cmd_node;
-                        material = null;
-
-                        assert(0);
-
-                        // TODO: Push quads into a vertex buffer. Flush on state change.
-                        Vertex[4] v = void;
-                        auto uvs = rect_from_min_max(Vec2(0, 0), Vec2(1, 1));
-                        /+
-                            auto perp = cross(cmd.normal, Vec3(0, -1, 0));
-                            auto a = perp*Vec3(2, 2, 2);
-                            auto x = normalize(a - cmd.pos);
-                            auto y = cross(x, cmd.normal);
-
-
-                            auto p0 = cmd.pos + x;
-                            auto p1 = cmd.pos + y;
-                            auto p2 = cmd.pos - x;
-                            auto p3 = cmd.pos - y;
-+/
-                        /+
-                            auto p0 = Vec2(right(r), top(r));
-                            auto p1 = Vec2(left(r),  top(r));
-                            auto p2 = Vec2(left(r),  bottom(r));
-                            auto p3 = Vec2(right(r), bottom(r));
-
-                            v[0].pos = v2_to_v3(p0, 0);
-                            v[0].uv = Vec2(right(uvs), bottom(uvs));
-
-                            v[1].pos = v2_to_v3(p1, 0);
-                            v[1].uv = Vec2(left(uvs), bottom(uvs));
-
-                            v[2].pos = v2_to_v3(p2, 0);
-                            v[2].uv = Vec2(left(uvs), top(uvs));
-
-                            v[3].pos = v2_to_v3(p3, 0);
-                            v[3].uv = Vec2(right(uvs), top(uvs));
-
-                        +/
-                        //set_texture(cmd.texture);
-                        //draw_quads(v[]);
-                    } break;
-
                     case Command.Render_Ground_Decal:{
                         material = null;
                         // TODO: Decal rendering that doesn't have z-fighting!
@@ -963,6 +940,49 @@ version(opengl){
                             glBufferData(GL_ARRAY_BUFFER, cast(GLsizeiptr)(part.vertices.length * Vertex.sizeof), &part.vertices[0], GL_DYNAMIC_DRAW);
                             glDrawArrays(GL_TRIANGLES, 0, cast(uint)part.vertices.length);
                         }
+                    } break;
+
+                    case Command.Render_Particle:{
+                        auto cmd = cast(Render_Particle*)cmd_node;
+                        material = null;
+
+                        auto camera = pass.camera;
+                        auto view  = &camera.view.mat;
+
+                        // Based on "Billboarding Tutorial" by António Ramires Fernandes, section
+                        // 4: "Cheating - Faster but not so easy."
+                        // https://www.lighthouse3d.com/opengl/billboarding/
+
+                        auto size = (cmd.thickness*0.5f);
+                        auto p_right = size*Vec3(view.m[0][0], view.m[0][1], view.m[0][2]);
+                        auto p_up    = size*Vec3(view.m[1][0], view.m[1][1], view.m[1][2]);
+
+                        auto center = cmd.start + (cmd.end - cmd.start)*0.5f;
+                        auto p0 = center + p_up + p_right;
+                        auto p1 = center + p_up - p_right;
+                        auto p2 = center - p_up - p_right;
+                        auto p3 = center - p_up + p_right;
+
+                        auto uvs = rect_from_min_max(Vec2(0, 0), Vec2(1, 1));
+
+                        Vertex[4] v = void;
+                        v[0].pos = p0;
+                        v[0].uv = Vec2(right(uvs), bottom(uvs));
+                        v[0].color = cmd.color;
+
+                        v[1].pos = p1;
+                        v[1].uv = Vec2(left(uvs), bottom(uvs));
+                        v[1].color = cmd.color;
+
+                        v[2].pos = p2;
+                        v[2].uv = Vec2(left(uvs), top(uvs));
+                        v[2].color = cmd.color;
+
+                        v[3].pos = p3;
+                        v[3].uv = Vec2(right(uvs), top(uvs));
+                        v[3].color = cmd.color;
+
+                        draw_quads(v[]);
                     } break;
 
                     case Command.Render_Text:{
