@@ -394,6 +394,14 @@ void render_debug_line(Render_Pass* pass, Vec2 start, Vec2 end, Vec4 color, floa
     cmd.thickness = thickness;
 }
 
+void render_debug_obb(Render_Pass* pass, Vec2 center, Vec2 extents, Vec4 color, float angle){
+    auto cmd      = push_command!Render_Debug_OBB(pass);
+    cmd.center    = center;
+    cmd.extents   = extents;
+    cmd.color     = color;
+    cmd.angle = angle;
+}
+
 void set_light(Render_Pass* pass, Shader_Light* light){
     auto cmd   = push_command!Set_Light(pass);
     cmd.light = light;
@@ -444,6 +452,7 @@ enum Command : uint{
     Render_Ground_Decal,
     Set_Texture,
     Render_Debug_Line,
+    Render_Debug_OBB,
 }
 
 struct Render_Cmd{
@@ -554,6 +563,17 @@ struct Render_Debug_Line{
     Vec2  end;
     Vec4  color;
     float thickness;
+}
+
+struct Render_Debug_OBB{
+    enum Type = Command.Render_Debug_OBB;
+    Render_Cmd header;
+    alias header this;
+
+    Vec2  center;
+    Vec2  extents;
+    Vec4  color;
+    float angle;
 }
 
 struct Shader_Camera{
@@ -1015,6 +1035,40 @@ version(opengl){
                             world_to_render_pos(p3) + offset,
                             Default_UVs,
                             cmd.color
+                        );
+
+                        draw_quads(v[]);
+                    } break;
+
+                    case Command.Render_Debug_OBB:{
+                        auto cmd = cast(Render_Debug_OBB*)cmd_node;
+                        material = null;
+
+                        // Drawing rotated rects adapted from this answer:
+                        // https://gamedev.stackexchange.com/a/121313
+                        auto c = cos(cmd.angle);
+                        auto s = sin(cmd.angle);
+
+                        auto extents = cmd.extents;
+                        auto p_up    = Vec2(-extents.y*s, extents.y*c);
+                        auto p_right = Vec2(extents.x*c, extents.x*s);
+
+                        auto center = cmd.center;
+                        auto p0 = center + p_up + p_right;
+                        auto p1 = center + p_up - p_right;
+                        auto p2 = center - p_up - p_right;
+                        auto p3 = center - p_up + p_right;
+
+                        auto offset = Vec3(0, 0.1f, 0);
+                        Vertex[4] v = void;
+                        set_quad(
+                            v[],
+                            world_to_render_pos(p0) + offset,
+                            world_to_render_pos(p1) + offset,
+                            world_to_render_pos(p2) + offset,
+                            world_to_render_pos(p3) + offset,
+                            Default_UVs,
+                            cmd.color,
                         );
 
                         draw_quads(v[]);

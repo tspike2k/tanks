@@ -1648,6 +1648,8 @@ bool handle_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info, bool
             auto obb_extents = Vec2(length(ray_delta*t_min)*0.5f, 0.25f);
             auto obb_angle   = get_angle(ray_dir);
 
+            render_debug_obb(g_debug_render_pass, obb_center, obb_extents, Vec4(1, 1, 1, 0.5f), obb_angle);
+
             foreach(ref target; world.entities){
                 if(target.type == Entity_Type.Tank){
                     auto tank_radius = target.extents.x;
