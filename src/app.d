@@ -1462,8 +1462,8 @@ void start_play_session(App_State* s, uint variant_index){
     s.session.lives = variant.lives;
     s.session.variant_index = variant_index;
 
-    //load_campaign_level(s, &s.campaign, s.session.mission_index);
-    load_campaign_level(s, &s.campaign, 3);
+    load_campaign_level(s, &s.campaign, s.session.mission_index);
+    //load_campaign_level(s, &s.campaign, 3);
 }
 
 float rotate_tank_part(float target_rot, float speed, float* rot_remaining){
@@ -1611,9 +1611,14 @@ Vec2 obb_center, Vec2 obb_extents, float obb_angle){
     return result;
 }
 
-bool fire_direction_is_clear(World* world, Entity* e, Tank_Type* tank_info){
+bool handle_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info, bool has_opportunity){
     auto ray_dir   = vec2_from_angle(e.turret_angle);
     auto ray_start = get_bullet_spawn_pos(e.pos, ray_dir);
+
+    auto line_color = Vec4(1, 1, 1, 1);
+    if(has_opportunity){
+        line_color = Vec4(1, 0, 0, 1);
+    }
 
     Vec2 collision_normal = void;
     auto result = false;
@@ -1621,7 +1626,12 @@ bool fire_direction_is_clear(World* world, Entity* e, Tank_Type* tank_info){
     outer: while(iterations){
         float t_min = 1.0f;
 
-        auto ray_delta = ray_dir*2000.0f;
+        // TODO: The higher the ray delta, the less accurate the hit location can be calculated.
+        // Using 100 is safe, since none of the maps from the original game are that large. However,
+        // custom should be able to support that. A less hackey way of doing this would be to use a
+        // different style of ray test altogether. We should probably use functions that perform an
+        // infinite ray cast and return a hit position and a normal.
+        auto ray_delta = ray_dir*100.0f;
         foreach(ref target; iterate_entities(world)){
             if(target.type == Entity_Type.Block && !is_hole(&target)){
                 auto bounds = Rect(target.pos, target.extents);
@@ -1632,6 +1642,7 @@ bool fire_direction_is_clear(World* world, Entity* e, Tank_Type* tank_info){
 
         if(t_min < 1.0f){
             auto ray_end = ray_start + ray_delta*t_min;
+            render_debug_line(g_debug_render_pass, ray_start, ray_end, line_color);
 
             auto obb_center  = ray_start + (ray_end - ray_start)*0.5f;
             auto obb_extents = Vec2(length(ray_delta*t_min)*0.5f, 0.25f);
@@ -1662,7 +1673,7 @@ bool fire_direction_is_clear(World* world, Entity* e, Tank_Type* tank_info){
         }
         iterations--;
     }
-    return result;
+    return result && has_opportunity;
 }
 
 void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
@@ -1715,7 +1726,8 @@ void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
 
     auto sight_range = 8.0f;           // TODO: Get this from tank params
     auto sight_angle = deg_to_rad(65); // TODO: Get this from tank params
-    if(has_opportunity(&e.fire_timer, e.ai_time) && fire_direction_is_clear(&s.world, e, tank_info)){
+    bool fire_opportunity = has_opportunity(&e.fire_timer, e.ai_time);
+    if(handle_fire_opportunity(&s.world, e, tank_info, fire_opportunity)){
         cmd.fire_bullet = true;
         timer_reset(&e.fire_timer, e.ai_time, &s.rng);
     }
@@ -2434,10 +2446,6 @@ extern(C) int main(int args_count, char** args){
         set_shader(render_passes.hud_text, &s.text_shader);
         render_passes.hud_text.flags = Render_Flag_Disable_Depth_Test;
 
-        auto map_bounds = rect_from_min_max(Vec2(0, 0), Vec2(map.width, map.height));
-        render_debug_line(g_debug_render_pass, min(map_bounds), max(map_bounds), Vec4(0, 1, 0, 1), 0.1f);
-        render_debug_line(g_debug_render_pass, Vec2(0, map.height), Vec2(map.width, 0), Vec4(0, 1, 0, 1), 0.1f);
-
         final switch(s.mode){
             case Game_Mode.None:
                 assert(0); break;
@@ -2597,6 +2605,7 @@ extern(C) int main(int args_count, char** args){
 
         render_gui(&s.gui, &hud_camera, &s.rect_shader, &s.text_shader);
 
+        /+
         // Particle test
         auto player = get_entity_by_id(&s.world, s.player_entity_id);
         if(player){
@@ -2606,7 +2615,7 @@ extern(C) int main(int args_count, char** args){
                 render_passes.world, p, Vec2(1, 0.25f),
                 Vec4(1, 0, 1, 0.5f), s.img_blank_rect, deg_to_rad(45)
             );
-        }
+        }+/
 
         // TODO: Sometimes the game becomes a stuttering mess, and the only way to fix it is
         // to minimize the window and restore it. Figure out what's causing this.
