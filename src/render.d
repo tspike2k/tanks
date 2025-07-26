@@ -386,6 +386,14 @@ void render_rect_outline(Render_Pass* pass, Rect r, Vec4 color, float thickness)
     render_rect(pass, right, color);
 }
 
+void render_debug_line(Render_Pass* pass, Vec2 start, Vec2 end, Vec4 color, float thickness = 0.1f){
+    auto cmd      = push_command!Render_Debug_Line(pass);
+    cmd.start     = start;
+    cmd.end       = end;
+    cmd.color     = color;
+    cmd.thickness = thickness;
+}
+
 void set_light(Render_Pass* pass, Shader_Light* light){
     auto cmd   = push_command!Set_Light(pass);
     cmd.light = light;
@@ -435,6 +443,7 @@ enum Command : uint{
     Render_Particle,
     Render_Ground_Decal,
     Set_Texture,
+    Render_Debug_Line,
 }
 
 struct Render_Cmd{
@@ -536,6 +545,17 @@ struct Render_Ground_Decal{
     float angle;
 }
 
+struct Render_Debug_Line{
+    enum Type = Command.Render_Debug_Line;
+    Render_Cmd header;
+    alias header this;
+
+    Vec2  start;
+    Vec2  end;
+    Vec4  color;
+    float thickness;
+}
+
 struct Shader_Camera{
     Mat4 mat;
     Vec3 pos;
@@ -561,7 +581,7 @@ T* push_command(T)(Render_Pass* pass){
     return result;
 }
 
-void set_quad(Vertex[] v, Rect r, Rect uvs){
+void set_quad(Vertex[] v, Rect r, Rect uvs, Vec4 color){
     auto p0 = Vec2(right(r), top(r));
     auto p1 = Vec2(left(r),  top(r));
     auto p2 = Vec2(left(r),  bottom(r));
@@ -569,22 +589,36 @@ void set_quad(Vertex[] v, Rect r, Rect uvs){
 
     v[0].pos = v2_to_v3(p0, 0);
     v[0].uv = Vec2(right(uvs), bottom(uvs));
+    v[0].color = color;
 
     v[1].pos = v2_to_v3(p1, 0);
     v[1].uv = Vec2(left(uvs), bottom(uvs));
+    v[1].color = color;
 
     v[2].pos = v2_to_v3(p2, 0);
     v[2].uv = Vec2(left(uvs), top(uvs));
+    v[2].color = color;
 
     v[3].pos = v2_to_v3(p3, 0);
     v[3].uv = Vec2(right(uvs), top(uvs));
+    v[3].color = color;
 }
 
-void set_quad(Vertex[] v, Rect r, Rect uvs, Vec4 color){
-    set_quad(v, r, uvs);
+void set_quad(Vertex[] v, Vec3 p0, Vec3 p1, Vec3 p2, Vec3 p3, Rect uvs, Vec4 color){
+    v[0].pos = p0;
+    v[0].uv = Vec2(right(uvs), bottom(uvs));
     v[0].color = color;
+
+    v[1].pos = p1;
+    v[1].uv = Vec2(left(uvs), bottom(uvs));
     v[1].color = color;
+
+    v[2].pos = p2;
+    v[2].uv = Vec2(left(uvs), top(uvs));
     v[2].color = color;
+
+    v[3].pos = p3;
+    v[3].uv = Vec2(right(uvs), top(uvs));
     v[3].color = color;
 }
 
@@ -611,6 +645,8 @@ version(opengl){
     alias Quad_Index_Type = GLuint;
     enum Vertex_Indeces_Per_Quad = 6;
     enum Default_Texture_Filter = GL_LINEAR;
+
+    enum Default_UVs = rect_from_min_max(Vec2(0, 0), Vec2(1, 1));
 
     __gshared GLuint        g_shader_constants_buffer;
     __gshared GLuint        g_shader_material_buffer;
@@ -854,8 +890,7 @@ version(opengl){
 
                         // TODO: Push quads into a vertex buffer. Flush on state change.
                         Vertex[4] v = void;
-                        auto uvs = rect_from_min_max(Vec2(0, 0), Vec2(1, 1));
-                        set_quad(v[], cmd.bounds, uvs, cmd.color);
+                        set_quad(v[], cmd.bounds, Default_UVs, cmd.color);
                         draw_quads(v[]);
                     } break;
 
@@ -879,25 +914,17 @@ version(opengl){
                         auto p2 = center - p_up - p_right;
                         auto p3 = center - p_up + p_right;
 
-                        auto uvs = rect_from_min_max(Vec2(0, 0), Vec2(1, 1));
-
                         auto offset = Vec3(0, 0.1f, 0);
                         Vertex[4] v = void;
-                        v[0].pos = world_to_render_pos(p0) + offset;
-                        v[0].uv = Vec2(right(uvs), bottom(uvs));
-                        v[0].color = cmd.color;
-
-                        v[1].pos = world_to_render_pos(p1) + offset;
-                        v[1].uv = Vec2(left(uvs), bottom(uvs));
-                        v[1].color = cmd.color;
-
-                        v[2].pos = world_to_render_pos(p2) + offset;
-                        v[2].uv = Vec2(left(uvs), top(uvs));
-                        v[2].color = cmd.color;
-
-                        v[3].pos = world_to_render_pos(p3) + offset;
-                        v[3].uv = Vec2(right(uvs), top(uvs));
-                        v[3].color = cmd.color;
+                        set_quad(
+                            v[],
+                            world_to_render_pos(p0) + offset,
+                            world_to_render_pos(p1) + offset,
+                            world_to_render_pos(p2) + offset,
+                            world_to_render_pos(p3) + offset,
+                            Default_UVs,
+                            cmd.color,
+                        );
 
                         set_texture(cmd.texture);
                         draw_quads(v[]);
@@ -932,42 +959,64 @@ version(opengl){
                         // Based on "Billboarding Tutorial" by António Ramires Fernandes, section
                         // 4: "Cheating - Faster but not so easy."
                         // https://www.lighthouse3d.com/opengl/billboarding/
-
-                        auto size = cmd.extents;
+                        auto size    = cmd.extents;
                         auto p_right = size.x*Vec3(view.m[0][0], view.m[0][1], view.m[0][2]);
                         auto p_up    = size.y*Vec3(view.m[1][0], view.m[1][1], view.m[1][2]);
+                        auto center = cmd.pos;
 
+                        /+
+                        // TODO: In the future we would like to support particles with rotation.
+                        // Right now my 3D math knowledge is not good enough to work this out.
+                        // It's possible we could use a quaternian to rotate around the vector
+                        // from the camera to the particle.
+                        //
+                        // Perhaps the easiest way would instead be to do particles in screen-
+                        // space and that way all rotations would in fact be 2D (which is easy
+                        // as pie).
                         auto c = cos(cmd.angle);
                         auto s = sin(cmd.angle);
-                        p_right = Vec3(p_right.x*c, p_right.y*s, p_right.z);
-                        p_up    = Vec3(-p_up.x*c, p_up.y*s, p_up.z);
+                        auto p0 = center + p_up*s + p_right*c;
+                        auto p1 = center + p_up*c - p_right*s;
+                        auto p2 = center - p_up*s - p_right*c;
+                        auto p3 = center - p_up*c + p_right*s;
+                        +/
 
-                        auto center = cmd.pos;
                         auto p0 = center + p_up + p_right;
                         auto p1 = center + p_up - p_right;
                         auto p2 = center - p_up - p_right;
                         auto p3 = center - p_up + p_right;
 
-                        auto uvs = rect_from_min_max(Vec2(0, 0), Vec2(1, 1));
-
                         Vertex[4] v = void;
-                        v[0].pos = p0;
-                        v[0].uv = Vec2(right(uvs), bottom(uvs));
-                        v[0].color = cmd.color;
-
-                        v[1].pos = p1;
-                        v[1].uv = Vec2(left(uvs), bottom(uvs));
-                        v[1].color = cmd.color;
-
-                        v[2].pos = p2;
-                        v[2].uv = Vec2(left(uvs), top(uvs));
-                        v[2].color = cmd.color;
-
-                        v[3].pos = p3;
-                        v[3].uv = Vec2(right(uvs), top(uvs));
-                        v[3].color = cmd.color;
+                        set_quad(v[], p0, p1, p2, p3, Default_UVs, cmd.color);
 
                         set_texture(cmd.texture);
+                        draw_quads(v[]);
+                    } break;
+
+                    case Command.Render_Debug_Line:{
+                        auto cmd = cast(Render_Debug_Line*)cmd_node;
+                        material = null;
+
+                        auto line_dir = normalize(cmd.start - cmd.end);
+                        auto line_perp = Vec2(-line_dir.y, line_dir.x);
+
+                        auto p0 = cmd.start - line_perp*cmd.thickness*0.5f;
+                        auto p1 = cmd.start + line_perp*cmd.thickness*0.5f;
+                        auto p2 = cmd.end   + line_perp*cmd.thickness*0.5f;
+                        auto p3 = cmd.end   - line_perp*cmd.thickness*0.5f;
+
+                        auto offset = Vec3(0, 0.1f, 0);
+                        Vertex[4] v = void;
+                        set_quad(
+                            v[],
+                            world_to_render_pos(p0) + offset,
+                            world_to_render_pos(p1) + offset,
+                            world_to_render_pos(p2) + offset,
+                            world_to_render_pos(p3) + offset,
+                            Default_UVs,
+                            cmd.color
+                        );
+
                         draw_quads(v[]);
                     } break;
 

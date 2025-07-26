@@ -42,6 +42,18 @@ union Vec2{
     struct{float u; float v;};
     float[2] c;
 
+    nothrow @nogc this(float px, float py){
+        // NOTE: This is just to get past an error when initializing when used with CTFE.
+        // It's possible this is a compiler bug. If we stick with the default initializer,
+        // the following code can't be compiled when used in a function called under CTFE:
+        //      Vec2 extents = (max - min)*0.5f
+        // This gives the following error when using ldc:
+        //      `this.c[0]` is used before initialized
+        // Using this particular explicit initializer fixes the issue.
+        c[0] = px;
+        c[1] = py;
+    }
+
     mixin Vec_Ops;
 }
 

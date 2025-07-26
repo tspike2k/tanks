@@ -444,8 +444,10 @@ struct Tank_Materials{
     Material[2] materials;
 }
 
+__gshared Render_Pass* g_debug_render_pass;
+
 // TODO: These are debug values. Final values should be stored in the mission file itself.
-Tank_Type[] g_tank_types = [
+__gshared Tank_Type[] g_tank_types = [
     {
         // Player
         invisible: false,
@@ -1631,8 +1633,8 @@ bool fire_direction_is_clear(World* world, Entity* e, Tank_Type* tank_info){
         if(t_min < 1.0f){
             auto ray_end = ray_start + ray_delta*t_min;
 
-            auto obb_center  = ray_end - ray_start;
-            auto obb_extents = Vec2(0.25f, length(ray_delta*t_min)*0.5f);
+            auto obb_center  = ray_start + (ray_end - ray_start)*0.5f;
+            auto obb_extents = Vec2(length(ray_delta*t_min)*0.5f, 0.25f);
             auto obb_angle   = get_angle(ray_dir);
 
             foreach(ref target; world.entities){
@@ -2391,6 +2393,51 @@ extern(C) int main(int args_count, char** args){
             s.mode = s.next_mode;
         }
 
+        Camera hud_camera = void;
+        set_hud_camera(&hud_camera, window.width, window.height);
+
+        auto map = get_current_map(s);
+
+        Camera world_camera = void;
+        auto window_aspect_ratio = (cast(float)window.width)/(cast(float)window.height);
+        set_world_projection(&world_camera, map.width+2, map.height+2, window_aspect_ratio);
+
+        //set_world_view(&world_camera, map_bounds.center, 45.0f);
+        set_world_view(&world_camera, s.world_camera_polar, s.world_camera_target_pos, Vec3(0, 1, 0));
+        auto mouse_world_3d = camera_ray_vs_plane(&world_camera, s.mouse_pixel, window.width, window.height);
+        s.mouse_world = Vec2(mouse_world_3d.x, -mouse_world_3d.z);
+
+        render_begin_frame(window.width, window.height, Vec4(0, 0.05f, 0.12f, 1), &s.frame_memory);
+
+        Render_Passes render_passes;
+        render_passes.holes = add_render_pass(&world_camera);
+        set_shader(render_passes.holes, &s.shader);
+
+        render_passes.hole_cutouts = add_render_pass(&world_camera);
+        set_shader(render_passes.hole_cutouts, &s.shader); // TODO: We should use a more stripped-down shader for this. We don't need lighting!
+        render_passes.hole_cutouts.flags = Render_Flag_Disable_Culling|Render_Flag_Disable_Color;
+
+        render_passes.world = add_render_pass(&world_camera);
+        set_shader(render_passes.world, &s.shader);
+        set_light(render_passes.world, &light);
+
+        g_debug_render_pass = add_render_pass(&world_camera);
+        set_shader(g_debug_render_pass, &s.text_shader);
+        set_texture(g_debug_render_pass, s.img_blank_rect);
+
+        render_passes.hud_rects = add_render_pass(&hud_camera);
+        set_shader(render_passes.hud_rects, &s.text_shader);
+        set_texture(render_passes.hud_rects, s.img_blank_rect);
+        render_passes.hud_rects.flags = Render_Flag_Disable_Depth_Test;
+
+        render_passes.hud_text  = add_render_pass(&hud_camera);
+        set_shader(render_passes.hud_text, &s.text_shader);
+        render_passes.hud_text.flags = Render_Flag_Disable_Depth_Test;
+
+        auto map_bounds = rect_from_min_max(Vec2(0, 0), Vec2(map.width, map.height));
+        render_debug_line(g_debug_render_pass, min(map_bounds), max(map_bounds), Vec4(0, 1, 0, 1), 0.1f);
+        render_debug_line(g_debug_render_pass, Vec2(0, map.height), Vec2(map.width, 0), Vec4(0, 1, 0, 1), 0.1f);
+
         final switch(s.mode){
             case Game_Mode.None:
                 assert(0); break;
@@ -2439,43 +2486,6 @@ extern(C) int main(int args_count, char** args){
         }
 
         audio_update();
-
-        Camera hud_camera = void;
-        set_hud_camera(&hud_camera, window.width, window.height);
-
-        auto map = get_current_map(s);
-
-        Camera world_camera = void;
-        auto window_aspect_ratio = (cast(float)window.width)/(cast(float)window.height);
-        set_world_projection(&world_camera, map.width+2, map.height+2, window_aspect_ratio);
-
-        //set_world_view(&world_camera, map_bounds.center, 45.0f);
-        set_world_view(&world_camera, s.world_camera_polar, s.world_camera_target_pos, Vec3(0, 1, 0));
-        auto mouse_world_3d = camera_ray_vs_plane(&world_camera, s.mouse_pixel, window.width, window.height);
-        s.mouse_world = Vec2(mouse_world_3d.x, -mouse_world_3d.z);
-
-        render_begin_frame(window.width, window.height, Vec4(0, 0.05f, 0.12f, 1), &s.frame_memory);
-
-        Render_Passes render_passes;
-        render_passes.holes = add_render_pass(&world_camera);
-        set_shader(render_passes.holes, &s.shader);
-
-        render_passes.hole_cutouts = add_render_pass(&world_camera);
-        set_shader(render_passes.hole_cutouts, &s.shader); // TODO: We should use a more stripped-down shader for this. We don't need lighting!
-        render_passes.hole_cutouts.flags = Render_Flag_Disable_Culling|Render_Flag_Disable_Color;
-
-        render_passes.world = add_render_pass(&world_camera);
-        set_shader(render_passes.world, &s.shader);
-        set_light(render_passes.world, &light);
-
-        render_passes.hud_rects = add_render_pass(&hud_camera);
-        set_shader(render_passes.hud_rects, &s.text_shader);
-        set_texture(render_passes.hud_rects, s.img_blank_rect);
-        render_passes.hud_rects.flags = Render_Flag_Disable_Depth_Test;
-
-        render_passes.hud_text  = add_render_pass(&hud_camera);
-        set_shader(render_passes.hud_text, &s.text_shader);
-        render_passes.hud_text.flags = Render_Flag_Disable_Depth_Test;
 
         final switch(s.mode){
             case Game_Mode.None: assert(0);
@@ -2590,11 +2600,11 @@ extern(C) int main(int args_count, char** args){
         // Particle test
         auto player = get_entity_by_id(&s.world, s.player_entity_id);
         if(player){
-            auto p = world_to_render_pos(player.pos) + Vec3(0, 1, 0)*abs(cos(s.t));
+            auto p = world_to_render_pos(player.pos) + Vec3(0, 1, 0);
             set_shader(render_passes.world, &s.text_shader);
             render_particle(
                 render_passes.world, p, Vec2(1, 0.25f),
-                Vec4(1, 0, 1, 0.5f), s.img_blank_rect, s.t
+                Vec4(1, 0, 1, 0.5f), s.img_blank_rect, deg_to_rad(45)
             );
         }
 
