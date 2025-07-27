@@ -1139,6 +1139,9 @@ version(opengl){
             pass = pass.next;
         }
 
+    }
+
+    public void render_submit_frame(){
         swap_render_backbuffer();
     }
 

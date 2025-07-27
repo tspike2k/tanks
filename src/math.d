@@ -460,6 +460,53 @@ struct OBB{
     float angle;
 }
 
+
+bool circle_overlaps_obb(Vec2 circle_center, float circle_radius,
+Vec2 obb_center, Vec2 obb_extents, float obb_angle){
+    // Based on information hobbled from the following sources:
+    // https://yal.cc/rot-rect-vs-circle-intersection/
+    // https://2dengine.com/doc/intersections.html
+    // https://web.archive.org/web/20190206234842/http://www.migapro.com/circle-and-rotated-rectangle-collision-detection/
+    auto c = cos(-obb_angle);
+    auto s = sin(-obb_angle);
+    auto rel = circle_center - obb_center;
+    Vec2 p = Vec2(
+        rel.x*c - rel.y*s + obb_center.x,
+        rel.x*s + rel.y*c + obb_center.y,
+    );
+
+    auto delta = Vec2(abs(obb_center.x - p.x), abs(obb_center.y - p.y));
+    delta.x = max(delta.x - obb_extents.x, 0.0f);
+    delta.y = max(delta.y - obb_extents.y, 0.0f);
+
+    bool result = squared(delta) <= squared(circle_radius);
+    return result;
+}
+
+bool circle_vs_circle(Vec2 a_center, float a_radius, Vec2 b_center, float b_radius, Vec2* hit_normal, float* hit_depth){
+    bool result = false;
+    if(dist_sq(a_center, b_center) < squared(a_radius + b_radius)){
+        result      = true;
+        *hit_depth  = a_radius + b_radius - length(a_center - b_center);
+        *hit_normal = normalize(a_center - b_center);
+    }
+    return result;
+}
+
+bool rect_vs_circle(Vec2 a_center, Vec2 a_extents, Vec2 b_center, float b_radius, Vec2* hit_normal, float* hit_depth){
+    auto diff      = b_center - a_center;
+    auto closest_p = clamp(diff, -1.0f*a_extents, a_extents);
+    auto rel_p     = diff - closest_p;
+
+    bool result = false;
+    if(squared(rel_p) < squared(b_radius)){
+        *hit_normal = normalize(rel_p);
+        *hit_depth  = b_radius - length(rel_p);
+        result      = true;
+    }
+    return result;
+}
+
 T round_up_power_of_two(T)(T n)
 if(isIntegral!T){
     // NOTE: Adapted from here:

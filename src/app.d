@@ -444,6 +444,8 @@ struct Tank_Materials{
     Material[2] materials;
 }
 
+__gshared bool g_debug_pause;
+__gshared bool g_debug_pause_next;
 __gshared Render_Pass* g_debug_render_pass;
 
 // TODO: These are debug values. Final values should be stored in the mission file itself.
@@ -1593,22 +1595,8 @@ Tank_Type* get_tank_info(Campaign* campaign, Entity* e){
     return result;
 }
 
-bool circle_overlaps_obb(Vec2 circle_center, float circle_radius,
-Vec2 obb_center, Vec2 obb_extents, float obb_angle){
-    // Adapted from the following:
-    // https://yal.cc/rot-rect-vs-circle-intersection/
-    auto rel = circle_center - obb_center;
-    auto c = cos(-obb_angle);
-    auto s = sin(-obb_angle);
-
-    auto local = Vec2(c*rel.x - s*rel.y, s*rel.x + c*rel.y);
-    auto delta = Vec2(
-        clamp(local.x, -obb_extents.x, obb_extents.x),
-        clamp(local.y, -obb_extents.y, obb_extents.y),
-    );
-
-    bool result = squared(delta) < squared(circle_radius);
-    return result;
+void debug_pause(bool should_pause){
+    g_debug_pause_next = should_pause;
 }
 
 bool handle_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info, bool has_opportunity){
@@ -1642,13 +1630,10 @@ bool handle_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info, bool
 
         if(t_min < 1.0f){
             auto ray_end = ray_start + ray_delta*t_min;
-            render_debug_line(g_debug_render_pass, ray_start, ray_end, line_color);
 
             auto obb_center  = ray_start + (ray_end - ray_start)*0.5f;
             auto obb_extents = Vec2(length(ray_delta*t_min)*0.5f, 0.25f);
             auto obb_angle   = get_angle(ray_dir);
-
-            render_debug_obb(g_debug_render_pass, obb_center, obb_extents, Vec4(1, 1, 1, 0.5f), obb_angle);
 
             foreach(ref target; world.entities){
                 if(target.type == Entity_Type.Tank){
@@ -1664,6 +1649,13 @@ bool handle_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info, bool
                     }
                 }
             }
+
+            if(result){
+                //debug_pause(true);
+                line_color = Vec4(0, 1, 0, 1);
+            }
+            render_debug_line(g_debug_render_pass, ray_start, ray_end, line_color);
+            render_debug_obb(g_debug_render_pass, obb_center, obb_extents, Vec4(1, 1, 1, 0.5f), obb_angle);
 
             ray_dir   = reflect(ray_dir, collision_normal);
             ray_start = ray_end;
@@ -1729,7 +1721,7 @@ void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
     auto sight_range = 8.0f;           // TODO: Get this from tank params
     auto sight_angle = deg_to_rad(65); // TODO: Get this from tank params
     bool fire_opportunity = has_opportunity(&e.fire_timer, e.ai_time);
-    if(handle_fire_opportunity(&s.world, e, tank_info, fire_opportunity)){
+    if(handle_fire_opportunity(&s.world, e, tank_info, true)){
         cmd.fire_bullet = true;
         timer_reset(&e.fire_timer, e.ai_time, &s.rng);
     }
@@ -2152,7 +2144,9 @@ void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
             break;
 
         case Session_State.Playing_Mission:{
-            simulate_world(s, player_input, dt);
+            if(!g_debug_pause){
+                simulate_world(s, player_input, dt);
+            }
         } break;
 
         case Session_State.Mission_Intro:{
@@ -2392,6 +2386,7 @@ extern(C) int main(int args_count, char** args){
         auto dt = target_dt;
         s.t += dt;
 
+        g_debug_pause = g_debug_pause_next;
         if(s.mode != s.next_mode){
             switch(s.next_mode){
                 default: break;
@@ -2607,6 +2602,27 @@ extern(C) int main(int args_count, char** args){
 
         render_gui(&s.gui, &hud_camera, &s.rect_shader, &s.text_shader);
 
+        // Circle vs OBB test
+        /+
+        {
+            auto test_p = s.mouse_world;
+            auto test_r = 0.25f;
+
+            auto target_p = Vec2(4, 2);
+            auto target_extents = Vec2(0.1, 6);
+            //auto target_angle = deg_to_rad(45);
+            auto target_angle = s.t*0.5f;
+            //auto target_angle = 0;
+
+            auto color = Vec4(1, 1, 1, 1);
+            if(circle_overlaps_obb(test_p, test_r, target_p, target_extents, target_angle)){
+                color = Vec4(1, 0, 0, 1);
+            }
+
+            render_debug_obb(g_debug_render_pass, test_p, Vec2(test_r, test_r), color, 0);
+            render_debug_obb(g_debug_render_pass, target_p, target_extents, color, target_angle);
+        }+/
+
         /+
         // Particle test
         auto player = get_entity_by_id(&s.world, s.player_entity_id);
@@ -2631,6 +2647,8 @@ extern(C) int main(int args_count, char** args){
         prev_timestamp = current_timestamp;
 
         render_end_frame();
+        if(!g_debug_pause)
+            render_submit_frame();
         end_frame();
     }
 
