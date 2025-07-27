@@ -297,7 +297,6 @@ struct App_State{
     Vec3       world_camera_target_pos;
     Xorshift32 rng;
 
-    bool debug_mode;
     bool moving_camera;
 
     Menu      menu;
@@ -444,6 +443,7 @@ struct Tank_Materials{
     Material[2] materials;
 }
 
+__gshared bool g_debug_mode;
 __gshared bool g_debug_pause;
 __gshared bool g_debug_pause_next;
 __gshared Render_Pass* g_debug_render_pass;
@@ -630,6 +630,8 @@ bool is_valid_block(Entity* e){
     return result;
 }
 
+enum Bullet_Radius = 0.25f*0.5f;
+
 void make_entity(Entity* e, Entity_ID id, Vec2 pos, Entity_Type type){
     clear_to_zero(*e);
     e.health = 1;
@@ -650,7 +652,7 @@ void make_entity(Entity* e, Entity_ID id, Vec2 pos, Entity_Type type){
             break;
 
         case Entity_Type.Bullet:
-            e.extents = Vec2(0.25f, 0.25f)*0.5f; break;
+            e.extents = Vec2(Bullet_Radius, Bullet_Radius); break;
 
         case Entity_Type.Mine:
             e.extents = Vec2(0.25f, 0.25f); break;
@@ -1603,11 +1605,6 @@ bool handle_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info, bool
     auto ray_dir   = vec2_from_angle(e.turret_angle);
     auto ray_start = get_bullet_spawn_pos(e.pos, ray_dir);
 
-    auto line_color = Vec4(1, 1, 1, 1);
-    if(has_opportunity){
-        line_color = Vec4(1, 0, 0, 1);
-    }
-
     Vec2 collision_normal = void;
     auto result = false;
     uint iterations = tank_info.bullet_ricochets+1;
@@ -1650,12 +1647,18 @@ bool handle_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info, bool
                 }
             }
 
-            if(result){
-                //debug_pause(true);
-                line_color = Vec4(0, 1, 0, 1);
+            if(g_debug_mode){
+                auto line_color = Vec4(1, 1, 1, 1);
+                if(has_opportunity){
+                    line_color = Vec4(1, 0, 0, 1);
+                }
+                if(result){
+                    //debug_pause(true);
+                    line_color = Vec4(0, 1, 0, 1);
+                }
+                render_debug_line(g_debug_render_pass, ray_start, ray_end, line_color);
+                render_debug_obb(g_debug_render_pass, obb_center, obb_extents, Vec4(1, 1, 1, 0.5f), obb_angle);
             }
-            render_debug_line(g_debug_render_pass, ray_start, ray_end, line_color);
-            render_debug_obb(g_debug_render_pass, obb_center, obb_extents, Vec4(1, 1, 1, 0.5f), obb_angle);
 
             ray_dir   = reflect(ray_dir, collision_normal);
             ray_start = ray_end;
@@ -2125,8 +2128,8 @@ void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
                         case Key_ID_F2:
                             if(!key.is_repeat && key.pressed){
                                 //editor_toggle(s);
-                                s.debug_mode = !s.debug_mode;
-                                if(!s.debug_mode){
+                                g_debug_mode = !g_debug_mode;
+                                if(!g_debug_mode){
                                     s.world_camera_polar = Default_World_Camera_Polar;
                                 }
                             }
@@ -2212,7 +2215,7 @@ Texture load_texture_from_file(String file_name, uint flags, Allocator* allocato
 }
 
 bool can_move_camera(App_State* s){
-    bool result = s.debug_mode || s.mode == Game_Mode.Editor;
+    bool result = g_debug_mode || s.mode == Game_Mode.Editor;
     return result;
 }
 
