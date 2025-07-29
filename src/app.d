@@ -20,7 +20,6 @@ TODO:
     - Debug collision volume display?
     - Bullet can get lodged between two blocks, destroying it before the player sees it reflected.
     - Improved collision handling
-    - X-marks from defeated enemies penetrate the base of other tanks? Why does that not happen with treadmarks?
 
 Sound effects:
     - Firing missile
@@ -52,6 +51,7 @@ import gui;
 import audio;
 import menu;
 import random;
+import testing;
 
 enum Main_Memory_Size    =  4*1024*1024;
 enum Frame_Memory_Size   =  8*1024*1024;
@@ -187,8 +187,8 @@ void load_campaign_level(App_State* s, Campaign* campaign, uint mission_index){
     auto world = &s.world;
     world.entities_count = 0;
 
-    s.tread_particles_cursor = 0;
-    s.tread_particles_full   = false;
+    reset_particles(&s.emitter_treadmarks);
+    reset_particles(&s.emitter_bullet_contrails);
 
     clear_to_zero(s.session.enemies_defeated);
     s.session.mission_index = mission_index;
@@ -272,9 +272,20 @@ struct Session{
     uint[Max_Players] total_enemies_defeated;
 }
 
-struct Tread_Particle{
+struct Particle{
     Vec2  pos;
     float angle;
+    float life;
+}
+
+// NOTE: The watermark member provides a fast way to "clear" all the particles in the ring buffer.
+// When iterating particles, all particles after the watermark are ignored. The watermark rises
+// as particles are added. We can set this field to zero to ignore all particles, avoiding the
+// need to clear the life field of each particle or call memset on the entire ring buffer.
+struct Particle_Emitter{
+    Particle[] particles;
+    uint       cursor;
+    uint       watermark;
 }
 
 struct App_State{
@@ -308,6 +319,9 @@ struct App_State{
 
     Sound sfx_fire_bullet;
 
+    Particle_Emitter emitter_treadmarks;
+    Particle_Emitter emitter_bullet_contrails;
+
     Shader shader;
     Shader text_shader;
     Shader rect_shader;
@@ -333,10 +347,7 @@ struct App_State{
     Texture img_x_mark;
     Texture img_tread_marks;
     Texture img_wood;
-
-    bool tread_particles_full;
-    uint tread_particles_cursor;
-    Tread_Particle[2048] tread_particles;
+    Texture img_smoke;
 }
 
 alias Entity_ID = ulong;
@@ -442,11 +453,6 @@ enum Enemy_Tank_Main_Color = Vec3(0.6f, 0.5f, 0.3f);
 struct Tank_Materials{
     Material[2] materials;
 }
-
-__gshared bool g_debug_mode;
-__gshared bool g_debug_pause;
-__gshared bool g_debug_pause_next;
-__gshared Render_Pass* g_debug_render_pass;
 
 // TODO: These are debug values. Final values should be stored in the mission file itself.
 __gshared Tank_Type[] g_tank_types = [
@@ -1597,10 +1603,6 @@ Tank_Type* get_tank_info(Campaign* campaign, Entity* e){
     return result;
 }
 
-void debug_pause(bool should_pause){
-    g_debug_pause_next = should_pause;
-}
-
 bool handle_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info, bool has_opportunity){
     auto ray_dir   = vec2_from_angle(e.turret_angle);
     auto ray_start = get_bullet_spawn_pos(e.pos, ray_dir);
@@ -1608,6 +1610,11 @@ bool handle_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info, bool
     Vec2 collision_normal = void;
     auto result = false;
     uint iterations = tank_info.bullet_ricochets+1;
+
+    // TODO: When test_radius is set to the bullet radius, shots are usually accurate. Figure out
+    // why some shots miss.
+    float test_radius = Bullet_Radius;
+    auto world_bounds = world.bounds;
     outer: while(iterations){
         float t_min = 1.0f;
 
@@ -1619,23 +1626,23 @@ bool handle_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info, bool
         auto ray_delta = ray_dir*100.0f;
         foreach(ref target; iterate_entities(world)){
             if(target.type == Entity_Type.Block && !is_hole(&target)){
-                auto bounds = Rect(target.pos, target.extents);
+                auto bounds = Rect(target.pos, target.extents + Vec2(Bullet_Radius, Bullet_Radius));
                 ray_vs_rect(ray_start, ray_delta, bounds, &t_min, &collision_normal);
             }
         }
-        ray_vs_world_bounds(ray_start, ray_delta, world.bounds, &t_min, &collision_normal);
+        ray_vs_world_bounds(ray_start, ray_delta, world_bounds, &t_min, &collision_normal);
 
         if(t_min < 1.0f){
             auto ray_end = ray_start + ray_delta*t_min;
 
             auto obb_center  = ray_start + (ray_end - ray_start)*0.5f;
-            auto obb_extents = Vec2(length(ray_delta*t_min)*0.5f, 0.25f);
+            auto obb_extents = Vec2(length(ray_delta*t_min)*0.5f, test_radius);
             auto obb_angle   = get_angle(ray_dir);
 
             foreach(ref target; world.entities){
                 if(target.type == Entity_Type.Tank){
                     auto tank_radius = target.extents.x;
-                    if(circle_overlaps_obb(target.pos, tank_radius, obb_center, obb_extents, obb_angle)){
+                    if(circle_overlaps_obb(target.pos, tank_radius + Bullet_Radius, obb_center, obb_extents, obb_angle)){
                         if(is_player(&target)){
                             result = true;
                         }
@@ -1799,15 +1806,7 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
                     }
 
                     if(passed_range(meters_moved_prev, e.total_meters_moved, Meters_Per_Treadmark)){
-                        auto p = &s.tread_particles[s.tread_particles_cursor];
-                        p.pos = e.pos;
-                        p.angle = e.angle + deg_to_rad(90);
-
-                        s.tread_particles_cursor++;
-                        if(s.tread_particles_cursor >= s.tread_particles.length){
-                            s.tread_particles_cursor = 0;
-                            s.tread_particles_full   = true;
-                        }
+                        add_particle(&s.emitter_treadmarks, 1.0f, e.pos, e.angle + deg_to_rad(90));
                     }
                 } break;
 
@@ -1901,18 +1900,34 @@ void reset_timer(float* timer, float threshold){
     *timer = *timer - threshold;
 }
 
-Tread_Particle[] get_visible_tread_particles(App_State* s){
-    Tread_Particle[] result;
+void reset_particles(Particle_Emitter* emitter){
+    emitter.cursor    = 0;
+    emitter.watermark = 0;
+}
 
-    if(!s.tread_particles_full){
-        result = s.tread_particles[0 .. s.tread_particles_cursor];
+Particle[] iterate_particles(Particle_Emitter* emitter){
+    auto result = emitter.particles[0 .. emitter.watermark];
+    return result;
+}
+
+void add_particle(Particle_Emitter* emitter, float life, Vec2 pos, float angle){
+    auto p = &emitter.particles[emitter.cursor];
+    p.life  = life;
+    p.pos   = pos;
+    p.angle = angle;
+
+    emitter.cursor++;
+    if(emitter.cursor >= emitter.particles.length){
+        emitter.cursor = 0;
+        emitter.watermark = cast(uint)emitter.particles.length;
     }
     else{
-        result = s.tread_particles[0 .. $];
+        emitter.watermark = max(emitter.watermark, emitter.cursor);
     }
+}
 
-    return result;
-
+void init_particles(Particle_Emitter* emitter, uint count, Allocator* allocator){
+    emitter.particles = alloc_array!Particle(allocator, count);
 }
 
 void change_to_menu(App_State* s, Menu* menu, Menu_ID menu_id){
@@ -2301,6 +2316,7 @@ extern(C) int main(int args_count, char** args){
     s.img_x_mark      = load_texture_from_file("./build/x_mark.tga", 0, &s.frame_memory);
     s.img_tread_marks = load_texture_from_file("./build/tread_marks.tga", 0, &s.frame_memory);
     s.img_wood        = load_texture_from_file("./build/wood.tga", 0, &s.frame_memory);
+    s.img_smoke       = load_texture_from_file("./build/smoke.tga", 0, &s.frame_memory);
 
     Shader_Light light = void;
     Vec3 light_color = Vec3(1.0f, 1.0f, 1.0f);
@@ -2315,6 +2331,9 @@ extern(C) int main(int args_count, char** args){
     setup_basic_material(&s.material_eraser, s.img_blank_mesh, Vec3(0.8f, 0.2f, 0.2f));
     setup_basic_material(&s.material_breakable_block, s.img_blank_mesh, Vec3(0.92f, 0.42f, 0.20f));
     s.running = true;
+
+    init_particles(&s.emitter_treadmarks, 2048, &s.main_memory);
+    init_particles(&s.emitter_bullet_contrails, 2048, &s.main_memory);
 
     auto player_input = zero_type!Tank_Commands;
     bool send_broadcast;
@@ -2516,7 +2535,7 @@ extern(C) int main(int args_count, char** args){
                 }
 
                 set_shader(render_passes.world, &s.text_shader);
-                foreach(ref p; get_visible_tread_particles(s)){
+                foreach(ref p; iterate_particles(&s.emitter_treadmarks)){
                     render_ground_decal(
                         render_passes.world, Rect(p.pos, Vec2(0.25f, 0.10f)), Vec4(1, 1, 1, 1),
                         p.angle, s.img_tread_marks
