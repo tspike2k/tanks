@@ -82,6 +82,7 @@ enum Meters_Per_Treadmark = 0.25f;
 
 enum Bullet_Smoke_Lifetime = 2.0f;
 enum Bullet_Ground_Offset = Vec3(0, 0.5f, 0);
+enum Meters_Per_Bullet_Smoke = 0.14f;
 
 enum Default_World_Camera_Polar = Vec3(90, -45, 1);
 
@@ -1829,7 +1830,7 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
                     // TODO: Is there a better way to get the speed than getting the length of the
                     // bulelt velocity?
                     e.total_meters_moved += length(e.vel)*dt;
-                    if(passed_range(meters_moved_prev, e.total_meters_moved, Meters_Per_Treadmark)){
+                    if(passed_range(meters_moved_prev, e.total_meters_moved, Meters_Per_Bullet_Smoke)){
                         add_particle(&s.emitter_bullet_contrails, Bullet_Smoke_Lifetime, e.pos, 0);
                     }
                 } break;
