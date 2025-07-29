@@ -26,9 +26,17 @@ void[] to_void(T)(T* t){
 }
 
 void swap(T)(ref T a, ref T b){
-    auto temp = b;
-    b = a;
-    a = temp;
+    static if(__traits(hasMember, T, "swap")){
+        static assert(0);
+        // TODO: Figure out how to ensure we're actually calling the swap method of T rather than
+        // the UFCS version of this function (which would lead to infinite recursion).
+        a.swap(b);
+    }
+    else{
+        auto temp = b;
+        b = a;
+        a = temp;
+    }
 }
 
 T zero_type(T)(){
@@ -643,4 +651,55 @@ private void serialize(Serialize_Mode Mode, T)(Serializer* serializer, ref T t){
     else{
         static assert("Unable to serialize type " ~ T.stringof ~ ".\n");
     }
+}
+
+////
+//
+// Sorting
+//
+////
+
+// TODO: For sorting functions, it may be useful to also take an optional swap function/callable.
+
+// TODO: Do we also want to support string literals for comparators? The D standard library does
+// that.
+
+void quick_sort(alias Compare, T)(T[] t)
+if(isCallable!Compare || is(typeof(Compare) == string)){
+    if(t.length == 0) return;
+
+    static if(is(typeof(Compare) == string)){
+        bool compare(ref T a, ref T b){
+            auto result = mixin(Compare);
+            return result;
+        }
+    }
+    else{
+        alias compare = Compare;
+    }
+
+    ptrdiff_t partition(T[] array, ptrdiff_t start, ptrdiff_t end){
+        // TODO: Better quicksort? Pivot from the middle?
+        auto pivot_value = &array[end];
+        ptrdiff_t i = start - 1;
+
+        foreach(ref entry; array[start .. end]){
+            if(compare(entry, *pivot_value)){
+                i++;
+                swap(array[i], entry);
+            }
+        }
+        swap(array[i + 1], array[end]);
+        return i + 1;
+    }
+
+    void sort(T[] array, ptrdiff_t start, ptrdiff_t end){
+        if(start < end){
+            auto partition_index = partition(array, start, end);
+            sort(array, start, partition_index - 1);
+            sort(array, partition_index + 1, end);
+        }
+    }
+
+    sort(t, 0, t.length-1);
 }

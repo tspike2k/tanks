@@ -80,6 +80,9 @@ enum Max_Players = 4;
 
 enum Meters_Per_Treadmark = 0.25f;
 
+enum Bullet_Smoke_Lifetime = 2.0f;
+enum Bullet_Ground_Offset = Vec3(0, 0.5f, 0);
+
 enum Default_World_Camera_Polar = Vec3(90, -45, 1);
 
 enum Skip_Level_Intros = true; // TODO: We should make this based on if we're in the debug mode.
@@ -1432,7 +1435,7 @@ void render_entity(App_State* s, Entity* e, Render_Passes rp, bool highlighted =
 
         case Entity_Type.Bullet:{
             //auto mat_tran = mat4_translate(p);
-            auto mat_tran = mat4_translate(p + Vec3(0, 0.5f, 0)); // TODO: Use this offset when we're done testing the camera
+            auto mat_tran = mat4_translate(p + Bullet_Ground_Offset); // TODO: Use this offset when we're done testing the camera
             render_mesh(rp.world, &s.bullet_mesh, materials, mat_tran*mat4_rot_y(e.angle));
         } break;
 
@@ -1821,6 +1824,15 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
                         e.extents = Vec2(radius, radius);
                     }
                 } break;
+
+                case Entity_Type.Bullet:{
+                    // TODO: Is there a better way to get the speed than getting the length of the
+                    // bulelt velocity?
+                    e.total_meters_moved += length(e.vel)*dt;
+                    if(passed_range(meters_moved_prev, e.total_meters_moved, Meters_Per_Treadmark)){
+                        add_particle(&s.emitter_bullet_contrails, Bullet_Smoke_Lifetime, e.pos, 0);
+                    }
+                } break;
             }
 
             // Since no objects accelerate in this game, we can simplify integration.
@@ -1848,6 +1860,8 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
             entity_vs_world_bounds(s, &e);
         }
     }
+
+    update_particles(&s.emitter_bullet_contrails, dt);
 
     remove_destroyed_entities(&s.world);
 
@@ -1905,9 +1919,15 @@ void reset_particles(Particle_Emitter* emitter){
     emitter.watermark = 0;
 }
 
-Particle[] iterate_particles(Particle_Emitter* emitter){
+Particle[] get_particles(Particle_Emitter* emitter){
     auto result = emitter.particles[0 .. emitter.watermark];
     return result;
+}
+
+void update_particles(Particle_Emitter* emitter, float dt){
+    foreach(ref p; get_particles(emitter)){
+        p.life -= dt;
+    }
 }
 
 void add_particle(Particle_Emitter* emitter, float life, Vec2 pos, float angle){
@@ -2244,6 +2264,24 @@ void change_mode(App_State* s, Game_Mode mode){
     s.next_mode = mode;
 }
 
+struct Particle_Sort{
+    Vec3 camera_pos;
+
+    this(Vec3 p){
+        camera_pos = p;
+    }
+
+    bool opCall(ref Particle a, ref Particle b){
+        // TODO: For some reason, sorting by distance from camera center doesn't seem to work at
+        // all. Fix this.
+        //auto a_pos = world_to_render_pos(a.pos);
+        //auto b_pos = world_to_render_pos(b.pos);
+        //auto result = dist_sq(a_pos, camera_pos) > dist_sq(b_pos, camera_pos);
+        auto result = a.pos.y > b.pos.y;
+        return result;
+    }
+}
+
 extern(C) int main(int args_count, char** args){
     auto app_memory = os_alloc(Total_Memory_Size, 0);
     scope(exit) os_dealloc(app_memory);
@@ -2512,8 +2550,6 @@ extern(C) int main(int args_count, char** args){
             } break;
         }
 
-        audio_update();
-
         final switch(s.mode){
             case Game_Mode.None: assert(0);
 
@@ -2535,11 +2571,35 @@ extern(C) int main(int args_count, char** args){
                 }
 
                 set_shader(render_passes.world, &s.text_shader);
-                foreach(ref p; iterate_particles(&s.emitter_treadmarks)){
+                foreach(ref p; get_particles(&s.emitter_treadmarks)){
                     render_ground_decal(
                         render_passes.world, Rect(p.pos, Vec2(0.25f, 0.10f)), Vec4(1, 1, 1, 1),
                         p.angle, s.img_tread_marks
                     );
+                }
+
+                auto bullet_particles = get_particles(&s.emitter_bullet_contrails);
+                auto particle_sort = Particle_Sort(world_camera.center);
+                quick_sort!(particle_sort)(bullet_particles);
+                foreach(ref p; bullet_particles){
+                    if(p.life > 0){
+                        auto t = 1.0f-normalized_range_clamp(p.life, 0, Bullet_Smoke_Lifetime);
+                        auto alpha = 0.0f;
+                        if(t < 0.15f){
+                            alpha = normalized_range_clamp(t, 0, 0.15f);
+                        }
+                        else{
+                            alpha = 1.0f-normalized_range_clamp(t, 0.15f, 1);
+                            //alpha = 0;
+                        }
+
+                        auto pos = world_to_render_pos(p.pos) + Bullet_Ground_Offset;
+                        render_particle(
+                            render_passes.world, pos, Vec2(0.25f, 0.25f), Vec4(1, 1, 1, alpha),
+                            s.img_smoke, p.angle
+                        );
+                    }
+
                 }
 
                 switch(s.session.state){
@@ -2657,6 +2717,9 @@ extern(C) int main(int args_count, char** args){
             );
         }+/
 
+        render_end_frame();
+        audio_update();
+
         // TODO: Sometimes the game becomes a stuttering mess, and the only way to fix it is
         // to minimize the window and restore it. Figure out what's causing this.
         current_timestamp = ns_timestamp();
@@ -2665,10 +2728,8 @@ extern(C) int main(int args_count, char** args){
         if(elapsed_time < frame_time){
             ns_sleep(frame_time - elapsed_time); // TODO: Better sleep time.
         }
-
         prev_timestamp = current_timestamp;
 
-        render_end_frame();
         if(!g_debug_pause)
             render_submit_frame();
         end_frame();

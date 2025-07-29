@@ -236,6 +236,12 @@ void set_world_view(Camera* camera, Vec3 camera_polar, Vec3 camera_target, Vec3 
     camera.view.mat = make_lookat_matrix(camera_world, camera_target, up);
     camera.view.inv = invert_view_matrix(camera.view.mat);
     camera.center   = camera_world;
+    /+
+    camera.center = Vec3(
+        camera.view.mat.m[0][3],
+        camera.view.mat.m[1][3],
+        camera.view.mat.m[2][3]
+    );+/
 }
 
 void set_world_view(Camera* camera, Vec3 camera_center, float camera_x_rot){
@@ -299,6 +305,11 @@ Vec3 unproject(Camera* camera, Vec2 screen_p, float screen_w, float screen_h){
 
 Vec3 world_to_render_pos(Vec2 p){
     auto result = Vec3(p.x, 0, -p.y);
+    return result;
+}
+
+Vec2 render_to_world_pos(Vec3 p){
+    auto result = Vec2(p.x, -p.z);
     return result;
 }
 

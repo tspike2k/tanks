@@ -762,6 +762,12 @@ float dist_sq(Vec2 a, Vec2 b){
     return result;
 }
 
+float dist_sq(Vec3 a, Vec3 b){
+    auto c = b - a;
+    auto result = dot(c, c);
+    return result;
+}
+
 Vec4 lerp(Vec4 a, Vec4 b, float t){
     Vec4 result = void;
     static foreach(i; 0 .. 4){
