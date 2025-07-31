@@ -20,6 +20,7 @@ TODO:
     - Debug collision volume display?
     - Bullet can get lodged between two blocks, destroying it before the player sees it reflected.
     - Improved collision handling
+    - After losing a mission, once the mission begins again none of the tanks the player destroyed respawn.
 
 Sound effects:
     - Firing missile
@@ -27,7 +28,6 @@ Sound effects:
     - Mine activating
     - Mine exploding
     - Block being destroyed
-    - Blowing up tank
     - Bullets colliding with each other
     - Bullets colliding with wall
     - Tanks moving
@@ -82,7 +82,7 @@ enum Meters_Per_Treadmark = 0.25f;
 
 enum Bullet_Smoke_Lifetime = 2.0f;
 enum Bullet_Ground_Offset = Vec3(0, 0.5f, 0);
-enum Meters_Per_Bullet_Smoke = 0.14f;
+enum Meters_Per_Bullet_Smoke = 0.20f;
 
 enum Default_World_Camera_Polar = Vec3(90, -45, 1);
 
@@ -322,6 +322,8 @@ struct App_State{
     Font font_editor_small;
 
     Sound sfx_fire_bullet;
+    Sound sfx_explosion;
+    Sound sfx_treads;
 
     Particle_Emitter emitter_treadmarks;
     Particle_Emitter emitter_bullet_contrails;
@@ -1203,6 +1205,8 @@ void resolve_collision(App_State* s, Entity* a, Entity* b, Vec2 normal, float de
 
         case make_collision_id(Entity_Type.Tank, Entity_Type.Bullet):{
             // TODO: Show explosion
+            auto sfx = &s.sfx_explosion;
+            audio_play(sfx.samples, sfx.channels, 0);
             destroy_entity(a);
             destroy_entity(b);
             add_to_score_if_killed_by_player(s, a, b.parent_id);
@@ -1810,6 +1814,8 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
                     }
 
                     if(passed_range(meters_moved_prev, e.total_meters_moved, Meters_Per_Treadmark)){
+                        auto sfx = s.sfx_treads;
+                        audio_play(sfx.samples, sfx.channels, 0);
                         add_particle(&s.emitter_treadmarks, 1.0f, e.pos, e.angle + deg_to_rad(90));
                     }
                 } break;
@@ -2349,6 +2355,8 @@ extern(C) int main(int args_count, char** args){
     load_shader(&s.rect_shader, "rect", shaders_dir, &s.frame_memory);
 
     s.sfx_fire_bullet = load_wave_file("./build/fire_bullet.wav", Audio_Frames_Per_Sec, &s.main_memory);
+    s.sfx_explosion   = load_wave_file("./build/explosion.wav", Audio_Frames_Per_Sec, &s.main_memory);
+    s.sfx_treads      = load_wave_file("./build/treads.wav", Audio_Frames_Per_Sec, &s.main_memory);
 
     s.img_blank_mesh  = generate_solid_texture(0xff000000, 0);
     s.img_blank_rect  = generate_solid_texture(0xffffffff, 0);

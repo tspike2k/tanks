@@ -23,6 +23,7 @@ enum {
     Sound_Flag_Looped     = (1 << 0),
 };
 
+// TODO: Also include pitch parameter. (And possibly pan as well?)
 Sound_ID audio_play(short[] samples, uint channels, uint flags){
     Sound_ID result = Null_Sound_ID;
     if(g_has_audio){
@@ -82,8 +83,8 @@ void audio_update(){
                     foreach(sample_index, sample_value; source){
                         short value = cast(short)(master_volume*cast(float)sample_value);
 
-                        mixer_samples[samples_written++] = value;
-                        mixer_samples[samples_written++] = value;
+                        mixer_samples[samples_written++] += value;
+                        mixer_samples[samples_written++] += value;
                     }
 
                     samples_cursor = 0;
