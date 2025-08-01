@@ -27,10 +27,8 @@ TODO:
     - Improve enemy tank aim detection. They occasionally miss or hit their own. Not true to the original at all.
 
 Sound effects:
-    - Firing bullets (re-do)
-    - Firing missile
+    - Firing missile (Can we just up-pitch the normal shot sound?)
     - Mine exploding
-    - Bullets being destroyed (by colliding with another bullet or their final wall collision)
 
     Interesting article on frequency of packet transmission in multiplayer games
     used in Source games.
@@ -326,6 +324,7 @@ struct App_State{
     Sound sfx_treads;
     Sound sfx_ricochet;
     Sound sfx_mine_click;
+    Sound sfx_pop;
 
     Particle_Emitter emitter_treadmarks;
     Particle_Emitter emitter_bullet_contrails;
@@ -1224,14 +1223,20 @@ void resolve_collision(App_State* s, Entity* a, Entity* b, Vec2 normal, float de
                 // TODO: Show minor explosion
                 destroy_entity(a);
                 destroy_entity(b);
+                play_sfx(&s.sfx_pop, 0, 0.75f);
             }
         } break;
 
         case make_collision_id(Entity_Type.None, Entity_Type.Bullet): // HACK: Reflect off syntetic entities. For use against world bounds.
         case make_collision_id(Entity_Type.Block, Entity_Type.Bullet):{
-            play_sfx(&s.sfx_ricochet, 0, 0.75f);
-            if(b.health > 0)
+            if(b.health > 1){
                 b.health--;
+                play_sfx(&s.sfx_ricochet, 0, 0.75f);
+            }
+            else{
+                b.health = 0;
+                play_sfx(&s.sfx_pop, 0, 0.75f);
+            }
             b.angle = atan2(b.vel.y, b.vel.x);
         } break;
 
@@ -1816,7 +1821,7 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
                     }
 
                     if(passed_range(meters_moved_prev, e.total_meters_moved, Meters_Per_Treadmark)){
-                        play_sfx(&s.sfx_treads, 0, 0.25f);
+                        play_sfx(&s.sfx_treads, 0, 0.10f);
                         add_particle(&s.emitter_treadmarks, 1.0f, e.pos, e.angle + deg_to_rad(90));
                     }
                 } break;
@@ -2360,6 +2365,7 @@ extern(C) int main(int args_count, char** args){
     s.sfx_treads      = load_wave_file("./build/treads.wav", Audio_Frames_Per_Sec, &s.main_memory);
     s.sfx_ricochet    = load_wave_file("./build/ricochet.wav", Audio_Frames_Per_Sec, &s.main_memory);
     s.sfx_mine_click  = load_wave_file("./build/mine_click.wav", Audio_Frames_Per_Sec, &s.main_memory);
+    s.sfx_pop         = load_wave_file("./build/pop.wav", Audio_Frames_Per_Sec, &s.main_memory);
 
     s.img_blank_mesh  = generate_solid_texture(0xff000000, 0);
     s.img_blank_rect  = generate_solid_texture(0xffffffff, 0);
