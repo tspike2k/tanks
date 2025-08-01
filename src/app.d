@@ -21,16 +21,16 @@ TODO:
     - Bullet can get lodged between two blocks, destroying it before the player sees it reflected.
     - Improved collision handling
     - After losing a mission, once the mission begins again none of the tanks the player destroyed respawn.
+    - Switch to high-score list on game over. Highlight you're current score if it's been added.
+    - When billboards (such as smoke) are placed exactly horizontally, they do not sort properly; they stay in the order they were spawned. Sorting by life would probably be the right call in that situation.
+    - Finish porting over tank params
+    - Improve enemy tank aim detection. They occasionally miss or hit their own. Not true to the original at all.
 
 Sound effects:
+    - Firing bullets (re-do)
     - Firing missile
-    - Dropping mine
-    - Mine activating
     - Mine exploding
-    - Block being destroyed
-    - Bullets colliding with each other
-    - Bullets colliding with wall
-    - Tanks moving
+    - Bullets being destroyed (by colliding with another bullet or their final wall collision)
 
     Interesting article on frequency of packet transmission in multiplayer games
     used in Source games.
@@ -324,6 +324,8 @@ struct App_State{
     Sound sfx_fire_bullet;
     Sound sfx_explosion;
     Sound sfx_treads;
+    Sound sfx_ricochet;
+    Sound sfx_mine_click;
 
     Particle_Emitter emitter_treadmarks;
     Particle_Emitter emitter_bullet_contrails;
@@ -1205,8 +1207,7 @@ void resolve_collision(App_State* s, Entity* a, Entity* b, Vec2 normal, float de
 
         case make_collision_id(Entity_Type.Tank, Entity_Type.Bullet):{
             // TODO: Show explosion
-            auto sfx = &s.sfx_explosion;
-            audio_play(sfx.samples, sfx.channels, 0);
+            play_sfx(&s.sfx_explosion, 0, 1.0f);
             destroy_entity(a);
             destroy_entity(b);
             add_to_score_if_killed_by_player(s, a, b.parent_id);
@@ -1228,6 +1229,7 @@ void resolve_collision(App_State* s, Entity* a, Entity* b, Vec2 normal, float de
 
         case make_collision_id(Entity_Type.None, Entity_Type.Bullet): // HACK: Reflect off syntetic entities. For use against world bounds.
         case make_collision_id(Entity_Type.Block, Entity_Type.Bullet):{
+            play_sfx(&s.sfx_ricochet, 0, 0.75f);
             if(b.health > 0)
                 b.health--;
             b.angle = atan2(b.vel.y, b.vel.x);
@@ -1555,6 +1557,7 @@ void apply_tank_commands(App_State* s, Entity* e, Tank_Commands* input, float dt
     if(input.place_mine){
         auto count = get_child_entity_count(&s.world, e.id, Entity_Type.Mine);
         if(count < Max_Mines_Per_Tank){
+            play_sfx(&s.sfx_mine_click, 0, 2.0f);
             spawn_mine(&s.world, e.pos, e.id);
         }
     }
@@ -1563,8 +1566,7 @@ void apply_tank_commands(App_State* s, Entity* e, Tank_Commands* input, float dt
         auto count = get_child_entity_count(&s.world, e.id, Entity_Type.Bullet);
         if(count < tank_info.bullet_limit){
             auto bullet = spawn_bullet(&s.world, e.id, e.pos, e.turret_angle, tank_info);
-            auto sfx = &s.sfx_fire_bullet;
-            audio_play(sfx.samples, sfx.channels, 0);
+            play_sfx(&s.sfx_fire_bullet, 0, 1.0f);
         }
     }
 }
@@ -1814,8 +1816,7 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
                     }
 
                     if(passed_range(meters_moved_prev, e.total_meters_moved, Meters_Per_Treadmark)){
-                        auto sfx = s.sfx_treads;
-                        audio_play(sfx.samples, sfx.channels, 0);
+                        play_sfx(&s.sfx_treads, 0, 0.25f);
                         add_particle(&s.emitter_treadmarks, 1.0f, e.pos, e.angle + deg_to_rad(90));
                     }
                 } break;
@@ -2357,6 +2358,8 @@ extern(C) int main(int args_count, char** args){
     s.sfx_fire_bullet = load_wave_file("./build/fire_bullet.wav", Audio_Frames_Per_Sec, &s.main_memory);
     s.sfx_explosion   = load_wave_file("./build/explosion.wav", Audio_Frames_Per_Sec, &s.main_memory);
     s.sfx_treads      = load_wave_file("./build/treads.wav", Audio_Frames_Per_Sec, &s.main_memory);
+    s.sfx_ricochet    = load_wave_file("./build/ricochet.wav", Audio_Frames_Per_Sec, &s.main_memory);
+    s.sfx_mine_click  = load_wave_file("./build/mine_click.wav", Audio_Frames_Per_Sec, &s.main_memory);
 
     s.img_blank_mesh  = generate_solid_texture(0xff000000, 0);
     s.img_blank_rect  = generate_solid_texture(0xffffffff, 0);

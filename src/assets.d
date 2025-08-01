@@ -679,10 +679,7 @@ void save_tga_file(String file_name, uint *pixels, uint width, uint height, Allo
 //
 ////
 
-struct Sound{
-    uint    channels;
-    short[] samples;
-};
+import audio : Sound;
 
 private{
     struct Wave_Header{

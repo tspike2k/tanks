@@ -23,8 +23,15 @@ enum {
     Sound_Flag_Looped     = (1 << 0),
 };
 
-// TODO: Also include pitch parameter. (And possibly pan as well?)
-Sound_ID audio_play(short[] samples, uint channels, uint flags){
+struct Sound{
+    // Samples are stored interleaved for each channel. So the length of the sound in audio
+    // frames is samples.length/channels.
+    uint    channels;
+    short[] samples;
+};
+
+// TODO: Should we take stereo pan as a parameter? Or perhaps a vector?
+Sound_ID play_sfx(Sound* source, uint flags, float volume, float pitch = 1.0f){
     Sound_ID result = Null_Sound_ID;
     if(g_has_audio){
         Playing_Sound* sound;
@@ -39,10 +46,12 @@ Sound_ID audio_play(short[] samples, uint channels, uint flags){
 
         result = g_next_sound_id++;
 
-        sound.id       = result;
-        sound.samples  = samples;
-        sound.channels = channels;
-        sound.flags    = flags;
+        sound.id         = result;
+        sound.samples    = source.samples;
+        sound.channels   = source.channels;
+        sound.flags      = flags;
+        sound.volume     = volume;
+        sound.pitch      = pitch;
         sound.just_added = true;
         g_playing_sounds.insert(g_playing_sounds.top, sound);
     }
@@ -81,7 +90,7 @@ void audio_update(){
                     auto to_write_this_pass = min(samples_to_write / channels, sound.samples.length - samples_cursor);
                     auto source = sound.samples[samples_cursor .. samples_cursor + to_write_this_pass];
                     foreach(sample_index, sample_value; source){
-                        short value = cast(short)(master_volume*cast(float)sample_value);
+                        short value = cast(short)(sound.volume*master_volume*cast(float)sample_value);
 
                         mixer_samples[samples_written++] += value;
                         mixer_samples[samples_written++] += value;
@@ -118,10 +127,13 @@ struct Playing_Sound{
 
     Sound_ID id;
     uint     flags;
-    uint     channels;
     bool     just_added;
     uint     play_cursor_in_frames;
     uint     frames_until_stopped;
+
+    float    pitch;
+    float    volume;
+    uint     channels;
     short[]  samples;
 }
 
