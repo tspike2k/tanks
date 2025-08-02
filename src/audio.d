@@ -8,6 +8,30 @@ import logging;
 import memory;
 import math : min;
 
+/+
+It is desirable in video games for audio latency to be as low as possible so players can hear
+sound effects as close to the time of accompanying visual feedback so as to be obviously
+related. This is trickier than it sounds. The audio system is temporal and needs to be fed new
+audio samples at regular intervals or the audio will skip or pop, which is very unpleasant to
+the ears and is a jarring experience for players. Due to the general complexity of video games
+and the Operating Systems on which they run, the game logic may be delayed too long to push
+new audio samples to the ouput buffer, resulting in these jarring audio issues. The common
+mitigation strategy is to write more samples than the target latency ahead of time and
+overwrite any unplayed samples. In this API, the desired latency and write ahead audio sizes
+combined will be referred to as the "mixer" buffer size.
+
+It's important to get the terminology down when dealing with audio. Throughout this API, we will
+refer to audio data using the terms "samples" and "audio frames." Consider the following example
+of an interleaved stereo audio buffer:
+    [LRLRLRLRLR...]
+
+In the example, the buffer alternates between left and right channels. One letter (L or R)
+represents a single sample. In our case each sample is encoded as a signed 16-bit integer.
+An "audio frame" referes to one sample per channel. So the size of an audio frame in bytes
+is calculated using the following:
+    auto frame_size = short.sizeof*channels_count;
++/
+
 // TODO:
 // The only reason we use sound IDs is so the user can stop looping soudn effects. Perhaps it
 // would be better to have a different mechanism for looping sounds. For instance, we could
@@ -59,57 +83,60 @@ Sound_ID play_sfx(Sound* source, uint flags, float volume, float pitch = 1.0f){
 }
 
 // TODO: Ideally this would be done using a seperate thread?
+
+// We're going to try a new strategy to support write-ahead audio. Here are the steps:
+//     - Allocate a buffer that can hold the maximum samples that we want to write ahead.
+//     - Mix audio into this buffer using the current play positions of all running sounds.
+//     - Submit the audio. Internally, this will submit the samples starting from how many
+//       samples were actually played last time and up to the full amount the audio card can
+//       take. This function returns the number of samples played since last time.
+//     - Using the return value, loop over each playing sound and advance their play cursors.
+//
+// This strategy sounds much better for many reasons, perhaps the biggest of which is we don't
+// have to query the audio device before we know how many samples we need for the mixer. Plus,
+// We don't have to worry about how slow the mixer is because we don't have the audio device
+// locked (in the case of Windows APIs).
 void audio_update(){
-    if(g_has_audio){
-        push_frame(g_allocator.scratch);
-        scope(exit) pop_frame(g_allocator.scratch);
+    if(!g_has_audio) return;
 
-        Audio_Write_Info info = audio_write_begin();
-        auto mixer_samples    = alloc_array!short(g_allocator.scratch, info.samples_to_write);
+    push_frame(g_allocator.scratch);
+    scope(exit) pop_frame(g_allocator.scratch);
 
-        float master_volume = 0.25f; // TODO: Using this as the max volume prevents the audio from glitching. Is there a better way to handle that?
-        auto channels = g_channels_count;
+    auto dest_channels = g_channels_count;
+    auto mixer_samples_count = g_mixer_size_in_frames*dest_channels;
+    auto mixer_samples = alloc_array!short(g_allocator.scratch, mixer_samples_count);
 
-        foreach(ref sound; g_playing_sounds.iterate()){
-            if(!sound.just_added){
-                sound.play_cursor_in_frames += info.frames_to_advance;
-            }
-            else
-                sound.just_added = false;
+    float master_volume = 0.25f; // TODO: Using this as the max volume prevents the audio from glitching. Is there a better way to handle that?
+    foreach(ref sound; g_playing_sounds.iterate()){
+        assert(sound.channels == 1);
+        assert(dest_channels  == 2);
 
-            bool reached_end = sound.play_cursor_in_frames * sound.channels >= sound.samples.length;
-            if(!reached_end || sound.flags & Sound_Flag_Looped){
-                size_t samples_cursor   = sound.play_cursor_in_frames * sound.channels;
-                size_t samples_to_write = mixer_samples.length;
-                size_t samples_written  = 0;
+        // TODO: For looping audio, this needs to be done in a loop.
+        auto samples_remaining = sound.samples.length - sound.samples_cursor;
+        auto frames_to_write   = min(samples_remaining/sound.channels, g_mixer_size_in_frames);
+        auto source_samples    = sound.samples[sound.samples_cursor .. sound.samples_cursor + frames_to_write*sound.channels];
+        foreach(samples_index, sample; source_samples){
+            short value = cast(short)(sound.volume*master_volume*cast(float)sample);
 
-                // TODO: Handle different source and dest channel configurations
-                assert(channels == 2);
-                assert(sound.channels == 1);
-                while(samples_written < samples_to_write){
-                    auto to_write_this_pass = min(samples_to_write / channels, sound.samples.length - samples_cursor);
-                    auto source = sound.samples[samples_cursor .. samples_cursor + to_write_this_pass];
-                    foreach(sample_index, sample_value; source){
-                        short value = cast(short)(sound.volume*master_volume*cast(float)sample_value);
-
-                        mixer_samples[samples_written++] += value;
-                        mixer_samples[samples_written++] += value;
-                    }
-
-                    samples_cursor = 0;
-                    if(!(sound.flags & Sound_Flag_Looped))
-                        break;
-                }
-            }
-            else{
-                // The sound has finished playing
-                g_playing_sounds.remove(sound);
-                sound.next = g_sounds_free_list;
-                g_sounds_free_list = sound;
-            }
+            auto dest_index = samples_index*dest_channels;
+            mixer_samples[dest_index + 0] += value;
+            mixer_samples[dest_index + 1] += value;
         }
+    }
 
-        audio_write_end(mixer_samples);
+    auto frames_to_advance = audio_submit_samples(mixer_samples);
+    foreach(ref sound; g_playing_sounds.iterate()){
+        // TODO: Advance playing audio
+        auto samples_to_advance = frames_to_advance*sound.channels;
+        if(sound.samples_cursor + samples_to_advance >= sound.samples.length){
+            // TODO: Remove sound
+            g_playing_sounds.remove(sound);
+            sound.next = g_sounds_free_list;
+            g_sounds_free_list = sound;
+        }
+        else{
+            sound.samples_cursor += samples_to_advance;
+        }
     }
 }
 
@@ -128,8 +155,8 @@ struct Playing_Sound{
     Sound_ID id;
     uint     flags;
     bool     just_added;
-    uint     play_cursor_in_frames;
-    uint     frames_until_stopped;
+    uint     samples_cursor;
+    //uint     frames_until_stopped; // TODO: Use this to stop looped audio
 
     float    pitch;
     float    volume;
@@ -141,6 +168,7 @@ __gshared Allocator*         g_allocator;
 __gshared bool               g_has_audio;
 __gshared uint               g_channels_count;
 __gshared size_t             g_buffer_size_in_frames;
+__gshared size_t             g_mixer_size_in_frames;
 __gshared List!Playing_Sound g_playing_sounds;
 __gshared Playing_Sound*     g_sounds_free_list;
 __gshared Sound_ID           g_next_sound_id;
@@ -181,10 +209,11 @@ version(linux){
         import bind.alsa;
 
         __gshared snd_pcm_t* g_pcm_handle;
-        __gshared size_t     g_samples_written_prev;
+        __gshared size_t     g_frames_written_prev;
+        __gshared bool       g_alsa_buffer_was_empty;
     }
 
-    public bool audio_init(uint frames_per_sec, uint channels_count, Allocator* allocator){
+    public bool audio_init(uint audio_frames_per_sec, uint channels_count, size_t target_latency_frames, size_t mixer_size_in_frames, Allocator* allocator){
         bool handle_error(string msg, int error_code){
             if(error_code < 0){
                 log_error("{0}: {1}\n", msg, snd_strerror(error_code));
@@ -201,16 +230,18 @@ version(linux){
 
         g_has_audio = false;
         g_allocator = allocator;
-        g_samples_written_prev = 0;
+        g_frames_written_prev = 0;
         g_channels_count = channels_count;
         g_playing_sounds.make();
+        g_mixer_size_in_frames = mixer_size_in_frames;
+        g_alsa_buffer_was_empty = true;
 
         // TODO: Device name should be user configurable. We could do this through an INI file,
         // but that would be tricky to pass to this function, unless it was still in text form.
         // We could use getenv. Decide how to handle this.
-        const char* device_name = "default";
+        const char* device_name = "default"; // TODO: Allow this to be configured by the user.
         uint frame_size_in_bytes = (cast(uint)short.sizeof)*channels_count;
-        g_buffer_size_in_frames = (frames_per_sec / 60)*4; // Three game frames of audio latency
+        g_buffer_size_in_frames = target_latency_frames;
 
         int err;
         err = snd_pcm_open(&g_pcm_handle, device_name, SND_PCM_STREAM_PLAYBACK, SND_PCM_NONBLOCK);
@@ -232,7 +263,7 @@ version(linux){
         err = snd_pcm_hw_params_set_channels(g_pcm_handle, hwparams, channels_count);
         if(handle_error("ALSA unable to set channels with hw params", err)) return false;
 
-        err = snd_pcm_hw_params_set_rate(g_pcm_handle, hwparams, frames_per_sec, 0);
+        err = snd_pcm_hw_params_set_rate(g_pcm_handle, hwparams, audio_frames_per_sec, 0);
         if(handle_error("ALSA unable to set rate with hw params", err)) return false;
 
         err = snd_pcm_hw_params_set_buffer_size(g_pcm_handle, hwparams, g_buffer_size_in_frames);
@@ -279,19 +310,8 @@ version(linux){
         return true;
     }
 
-    Audio_Write_Info audio_write_begin(){
-        auto avail = get_frames_avail();
-
-        Audio_Write_Info result;
-        result.channels = g_channels_count;
-        result.frames_to_advance = g_samples_written_prev / g_channels_count;
-        result.samples_to_write = avail * g_channels_count;
-
-        return result;
-    }
-
-    private uint get_frames_avail(){
-        uint result = 0; // TODO: Why is this a uint rather than a size_t?
+    private size_t get_frames_avail(){
+        size_t result = 0; // TODO: Why is this a uint rather than a size_t?
 
         if(g_pcm_handle){
             snd_pcm_sframes_t avail = snd_pcm_avail_update(g_pcm_handle);
@@ -304,16 +324,17 @@ version(linux){
                     log("ALSA buffer underrun (-EPIPE). Consider increasing the output buffer size.\n");
 
                     snd_pcm_prepare(g_pcm_handle);
-                    result = cast(uint)g_buffer_size_in_frames;
+                    result = cast(size_t)g_buffer_size_in_frames;
+                    g_alsa_buffer_was_empty = true;
                 }
                 else if (avail < 0){
                     log("ALSA recovering from error: {0}\n", snd_strerror(err));
                     snd_pcm_recover(g_pcm_handle, err, 0);
-                    result = cast(uint)g_buffer_size_in_frames;
+                    result = cast(size_t)g_buffer_size_in_frames;
                 }
             }
             else{
-                result = cast(uint)avail;
+                result = cast(size_t)avail;
             }
         }
         assert(result <= g_buffer_size_in_frames); // Sanity check.
@@ -321,25 +342,40 @@ version(linux){
         return result;
     }
 
-    void audio_write_end(short[] samples){
-        g_samples_written_prev = cast(uint)samples.length;
+    size_t audio_submit_samples(short[] samples){
+        auto dest_channels = g_channels_count;
+        auto result = g_frames_written_prev;
+        auto samples_start = g_frames_written_prev*dest_channels;
 
-        if(samples.length > 0){
-            uint channels = g_channels_count;
-            size_t frames_to_write = samples.length / channels;
-            snd_pcm_sframes_t frames_written = snd_pcm_writei(g_pcm_handle, samples.ptr, frames_to_write);
+        g_frames_written_prev = 0;
+        if(samples.length > samples_start){
+            auto frames_avail  = get_frames_avail();
+
+            auto frames_to_write = g_buffer_size_in_frames - frames_avail;
+            frames_to_write = min(frames_to_write, (samples.length - samples_start)/dest_channels);
+
+            snd_pcm_sframes_t frames_written = snd_pcm_writei(
+                g_pcm_handle, &samples[samples_start], frames_to_write
+            );
             if(frames_written < 0){
                 int err = cast(int)frames_written;
                 log("Buffer underrun in ALSA.\n"); // TODO: Does this REALLY mean a buffer underrun?
                 snd_pcm_recover(g_pcm_handle, err, 0);
             }
             else {
-                size_t samples_written = frames_written*channels;
+                size_t samples_written = frames_written*dest_channels;
                 if(frames_written != frames_to_write){
                     log("Short write in ALSA: wrote {0} of {1} samples\n", samples_written, samples.length);
                 }
             }
+
+            if(!g_alsa_buffer_was_empty){
+                g_frames_written_prev = frames_avail;
+            }
+            g_alsa_buffer_was_empty = false;
         }
+
+        return result;
     }
 } // version(linux)
 

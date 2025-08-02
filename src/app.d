@@ -2437,7 +2437,9 @@ extern(C) int main(int args_count, char** args){
     init_gui(&s.gui);
     s.gui.font = &s.font_editor_small;
 
-    audio_init(Audio_Frames_Per_Sec, 2, &s.main_memory);
+    auto target_latency = Audio_Frames_Per_Sec*3;        // TODO: Should be configurable by the user
+    auto mixer_buffer_size_in_frames = target_latency*2; // TODO: Should be configurable by the user
+    audio_init(Audio_Frames_Per_Sec, 2, target_latency, mixer_buffer_size_in_frames, &s.main_memory);
 
     //s.mode = Game_Mode.Campaign;
     s.mode = Game_Mode.Menu;
