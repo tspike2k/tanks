@@ -210,7 +210,6 @@ version(linux){
 
         __gshared snd_pcm_t* g_pcm_handle;
         __gshared size_t     g_frames_written_prev;
-        __gshared bool       g_alsa_buffer_was_empty;
     }
 
     public bool audio_init(uint audio_frames_per_sec, uint channels_count, size_t target_latency_frames, size_t mixer_size_in_frames, Allocator* allocator){
@@ -234,7 +233,6 @@ version(linux){
         g_channels_count = channels_count;
         g_playing_sounds.make();
         g_mixer_size_in_frames = mixer_size_in_frames;
-        g_alsa_buffer_was_empty = true;
 
         // TODO: Device name should be user configurable. We could do this through an INI file,
         // but that would be tricky to pass to this function, unless it was still in text form.
@@ -325,7 +323,6 @@ version(linux){
 
                     snd_pcm_prepare(g_pcm_handle);
                     result = cast(size_t)g_buffer_size_in_frames;
-                    g_alsa_buffer_was_empty = true;
                 }
                 else if (avail < 0){
                     log("ALSA recovering from error: {0}\n", snd_strerror(err));
@@ -343,39 +340,34 @@ version(linux){
     }
 
     size_t audio_submit_samples(short[] samples){
-        auto dest_channels = g_channels_count;
-        auto result = g_frames_written_prev;
-        auto samples_start = g_frames_written_prev*dest_channels;
+        auto dest_channels     = g_channels_count;
+        auto frames_to_advance = g_frames_written_prev;
+        auto samples_start     = g_frames_written_prev*dest_channels;
 
         g_frames_written_prev = 0;
         if(samples.length > samples_start){
             auto frames_avail  = get_frames_avail();
-
-            auto frames_to_write = g_buffer_size_in_frames - frames_avail;
-            frames_to_write = min(frames_to_write, (samples.length - samples_start)/dest_channels);
-
-            snd_pcm_sframes_t frames_written = snd_pcm_writei(
-                g_pcm_handle, &samples[samples_start], frames_to_write
-            );
-            if(frames_written < 0){
-                int err = cast(int)frames_written;
-                log("Buffer underrun in ALSA.\n"); // TODO: Does this REALLY mean a buffer underrun?
-                snd_pcm_recover(g_pcm_handle, err, 0);
-            }
-            else {
-                size_t samples_written = frames_written*dest_channels;
-                if(frames_written != frames_to_write){
-                    log("Short write in ALSA: wrote {0} of {1} samples\n", samples_written, samples.length);
+            auto frames_to_write = min(frames_avail, (samples.length - samples_start)/dest_channels);
+            if(frames_to_write > 0){
+                g_frames_written_prev = frames_to_write;
+                snd_pcm_sframes_t frames_written = snd_pcm_writei(
+                    g_pcm_handle, &samples[samples_start], frames_to_write
+                );
+                if(frames_written < 0){
+                    int err = cast(int)frames_written;
+                    log("Buffer underrun in ALSA.\n"); // TODO: Does this REALLY mean a buffer underrun?
+                    snd_pcm_recover(g_pcm_handle, err, 0);
+                }
+                else {
+                    size_t samples_written = frames_written*dest_channels;
+                    if(frames_written != frames_to_write){
+                        log("Short write in ALSA: wrote {0} of {1} samples\n", samples_written, samples.length);
+                    }
                 }
             }
-
-            if(!g_alsa_buffer_was_empty){
-                g_frames_written_prev = frames_avail;
-            }
-            g_alsa_buffer_was_empty = false;
         }
 
-        return result;
+        return frames_to_advance;
     }
 } // version(linux)
 

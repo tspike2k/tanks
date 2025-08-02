@@ -1890,7 +1890,6 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
             s.session.timer = 0.0f;
 
             s.session.lives = s.session.lives-1;
-            log("lives: {0}\n", s.session.lives);
         }
         else{
             s.session.state = Session_State.Game_Over;
@@ -2437,7 +2436,7 @@ extern(C) int main(int args_count, char** args){
     init_gui(&s.gui);
     s.gui.font = &s.font_editor_small;
 
-    auto target_latency = Audio_Frames_Per_Sec*3;        // TODO: Should be configurable by the user
+    auto target_latency = (Audio_Frames_Per_Sec/60)*3;        // TODO: Should be configurable by the user
     auto mixer_buffer_size_in_frames = target_latency*2; // TODO: Should be configurable by the user
     audio_init(Audio_Frames_Per_Sec, 2, target_latency, mixer_buffer_size_in_frames, &s.main_memory);
 
