@@ -1571,7 +1571,8 @@ void apply_tank_commands(App_State* s, Entity* e, Tank_Commands* input, float dt
         auto count = get_child_entity_count(&s.world, e.id, Entity_Type.Bullet);
         if(count < tank_info.bullet_limit){
             auto bullet = spawn_bullet(&s.world, e.id, e.pos, e.turret_angle, tank_info);
-            play_sfx(&s.sfx_fire_bullet, 0, 1.0f);
+            auto pitch = random_f32_between(&s.rng, 1.0f - 0.25f, 1.0f + 0.25f);
+            play_sfx(&s.sfx_fire_bullet, 0, 1.0f, pitch);
         }
     }
 }
