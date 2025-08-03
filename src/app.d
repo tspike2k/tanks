@@ -1487,8 +1487,8 @@ void start_play_session(App_State* s, uint variant_index){
     s.session.lives = variant.lives;
     s.session.variant_index = variant_index;
 
-    load_campaign_level(s, &s.campaign, s.session.mission_index);
-    //load_campaign_level(s, &s.campaign, 3);
+    //load_campaign_level(s, &s.campaign, s.session.mission_index);
+    load_campaign_level(s, &s.campaign, 5);
 }
 
 float rotate_tank_part(float target_rot, float speed, float* rot_remaining){
@@ -2283,13 +2283,17 @@ struct Particle_Sort{
         camera_pos = p;
     }
 
+    // TODO: Rename this to be something like "compare?" We're using opcall so that we
+    // can take either a function or an object, but I don't know if that's really needed.
     bool opCall(ref Particle a, ref Particle b){
         // TODO: For some reason, sorting by distance from camera center doesn't seem to work at
-        // all. Fix this.
+        // all. Fix this. Perhaps we need to project the positions of the particles onto the camera
+        // plane?
         //auto a_pos = world_to_render_pos(a.pos);
         //auto b_pos = world_to_render_pos(b.pos);
         //auto result = dist_sq(a_pos, camera_pos) > dist_sq(b_pos, camera_pos);
-        auto result = a.pos.y > b.pos.y;
+
+        bool result = a.pos.y > b.pos.y;
         return result;
     }
 }
@@ -2436,7 +2440,7 @@ extern(C) int main(int args_count, char** args){
     init_gui(&s.gui);
     s.gui.font = &s.font_editor_small;
 
-    auto target_latency = (Audio_Frames_Per_Sec/60)*3;        // TODO: Should be configurable by the user
+    auto target_latency = (Audio_Frames_Per_Sec/60)*3;   // TODO: Should be configurable by the user
     auto mixer_buffer_size_in_frames = target_latency*2; // TODO: Should be configurable by the user
     audio_init(Audio_Frames_Per_Sec, 2, target_latency, mixer_buffer_size_in_frames, &s.main_memory);
 
@@ -2598,7 +2602,7 @@ extern(C) int main(int args_count, char** args){
                 }
 
                 auto bullet_particles = get_particles(&s.emitter_bullet_contrails);
-                auto particle_sort = Particle_Sort(world_camera.center);
+                auto particle_sort = Particle_Sort(s.world_camera_target_pos);
                 quick_sort!(particle_sort)(bullet_particles);
                 foreach(ref p; bullet_particles){
                     if(p.life > 0){

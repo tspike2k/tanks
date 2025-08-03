@@ -6,7 +6,7 @@ License:   Boost Software License 1.0 (https://www.boost.org/LICENSE_1_0.txt)
 
 import logging;
 import memory;
-import math : min;
+import math : min, floor, ceil, lerp;
 
 /+
 It is desirable in video games for audio latency to be as low as possible so players can hear
@@ -76,26 +76,12 @@ Sound_ID play_sfx(Sound* source, uint flags, float volume, float pitch = 1.0f){
         sound.flags      = flags;
         sound.volume     = volume;
         sound.pitch      = pitch;
-        sound.just_added = true;
         g_playing_sounds.insert(g_playing_sounds.top, sound);
     }
     return result;
 }
 
 // TODO: Ideally this would be done using a seperate thread?
-
-// We're going to try a new strategy to support write-ahead audio. Here are the steps:
-//     - Allocate a buffer that can hold the maximum samples that we want to write ahead.
-//     - Mix audio into this buffer using the current play positions of all running sounds.
-//     - Submit the audio. Internally, this will submit the samples starting from how many
-//       samples were actually played last time and up to the full amount the audio card can
-//       take. This function returns the number of samples played since last time.
-//     - Using the return value, loop over each playing sound and advance their play cursors.
-//
-// This strategy sounds much better for many reasons, perhaps the biggest of which is we don't
-// have to query the audio device before we know how many samples we need for the mixer. Plus,
-// We don't have to worry about how slow the mixer is because we don't have the audio device
-// locked (in the case of Windows APIs).
 void audio_update(){
     if(!g_has_audio) return;
 
@@ -111,16 +97,24 @@ void audio_update(){
         assert(sound.channels == 1);
         assert(dest_channels  == 2);
 
-        // TODO: For looping audio, this needs to be done in a loop.
-        auto samples_remaining = sound.samples.length - sound.samples_cursor;
-        auto frames_to_write   = min(samples_remaining/sound.channels, g_mixer_size_in_frames);
-        auto source_samples    = sound.samples[sound.samples_cursor .. sound.samples_cursor + frames_to_write*sound.channels];
-        foreach(samples_index, sample; source_samples){
-            short value = cast(short)(sound.volume*master_volume*cast(float)sample);
+        auto total_samples = cast(size_t)((cast(float)sound.samples.length) / sound.pitch);
 
-            auto dest_index = samples_index*dest_channels;
-            mixer_samples[dest_index + 0] += value;
-            mixer_samples[dest_index + 1] += value;
+        // TODO: For looping audio, this needs to be done in a loop.
+        auto samples_remaining = total_samples - sound.samples_cursor;
+        auto frames_to_write   = min(samples_remaining/sound.channels, g_mixer_size_in_frames);
+        auto samples           = sound.samples;
+        assert(frames_to_write > 0);
+        foreach(i; 0 .. frames_to_write-1){
+            // Pitch adjusting code adapted from Handmade Hero
+            float sample_pos     = sound.pitch * cast(float)(sound.samples_cursor + i);
+            auto  sample_index_0 = cast(size_t)floor(sample_pos);
+            auto  sample_index_1 = cast(size_t)ceil(sample_pos);
+
+            float sample = lerp(samples[sample_index_0], samples[sample_index_1], sample_pos - cast(float)sample_index_0);
+            float output = sample*master_volume*sound.volume;
+
+            mixer_samples[i*dest_channels]   += cast(short)(output);
+            mixer_samples[i*dest_channels+1] += cast(short)(output);
         }
     }
 
@@ -154,7 +148,6 @@ struct Playing_Sound{
 
     Sound_ID id;
     uint     flags;
-    bool     just_added;
     uint     samples_cursor;
     //uint     frames_until_stopped; // TODO: Use this to stop looped audio
 
@@ -309,7 +302,7 @@ version(linux){
     }
 
     private size_t get_frames_avail(){
-        size_t result = 0; // TODO: Why is this a uint rather than a size_t?
+        size_t result = 0;
 
         if(g_pcm_handle){
             snd_pcm_sframes_t avail = snd_pcm_avail_update(g_pcm_handle);

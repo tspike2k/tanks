@@ -31,8 +31,8 @@ enum TAU = PI*2.0f;
 
 @nogc nothrow:
 
-float equals(float n, float target, float epsilon){
-    bool result = n > target - epsilon && n < target + epsilon;
+bool equals(float a, float b, float epsilon){
+    bool result = a > b - epsilon && a < b + epsilon;
     return result;
 }
 
