@@ -97,12 +97,12 @@ void audio_update(){
         assert(sound.channels == 1);
         assert(dest_channels  == 2);
 
-        auto total_samples = cast(size_t)((cast(float)sound.samples.length) / sound.pitch);
+        auto samples                  = sound.samples;
+        auto target_samples_count     = cast(size_t)((cast(float)samples.length) / sound.pitch);
+        auto target_samples_remaining = min(samples.length, target_samples_count - sound.samples_cursor);
 
         // TODO: For looping audio, this needs to be done in a loop.
-        auto samples_remaining = total_samples - sound.samples_cursor;
-        auto frames_to_write   = min(samples_remaining/sound.channels, g_mixer_size_in_frames);
-        auto samples           = sound.samples;
+        auto frames_to_write = min(target_samples_remaining/sound.channels, g_mixer_size_in_frames);
         assert(frames_to_write > 0);
         foreach(i; 0 .. frames_to_write-1){
             // Pitch adjusting code adapted from Handmade Hero
@@ -113,23 +113,21 @@ void audio_update(){
             float sample = lerp(samples[sample_index_0], samples[sample_index_1], sample_pos - cast(float)sample_index_0);
             float output = sample*master_volume*sound.volume;
 
-            mixer_samples[i*dest_channels]   += cast(short)(output);
+            mixer_samples[i*dest_channels+0] += cast(short)(output);
             mixer_samples[i*dest_channels+1] += cast(short)(output);
         }
     }
 
     auto frames_to_advance = audio_submit_samples(mixer_samples);
     foreach(ref sound; g_playing_sounds.iterate()){
-        // TODO: Advance playing audio
-        auto samples_to_advance = frames_to_advance*sound.channels;
-        if(sound.samples_cursor + samples_to_advance >= sound.samples.length){
-            // TODO: Remove sound
+        auto samples_to_advance   = frames_to_advance*sound.channels;
+        auto target_samples_count = cast(size_t)((cast(float)sound.samples.length) / sound.pitch);
+
+        sound.samples_cursor += samples_to_advance;
+        if(sound.samples_cursor >= target_samples_count){
             g_playing_sounds.remove(sound);
             sound.next = g_sounds_free_list;
             g_sounds_free_list = sound;
-        }
-        else{
-            sound.samples_cursor += samples_to_advance;
         }
     }
 }
