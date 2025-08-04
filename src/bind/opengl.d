@@ -822,6 +822,17 @@ enum GL_INVALID_INDEX = 0xFFFFFFFFu;
 enum GL_CLAMP_TO_EDGE   = 0x812F;
 enum GL_CLAMP_TO_BORDER = 0x812D;
 
+enum GL_FRAMEBUFFER = 0x8D40;
+enum GL_RENDERBUFFER = 0x8D41;
+enum GL_DEPTH_ATTACHMENT = 0x8D00;
+enum GL_FRAMEBUFFER_COMPLETE = 0x8CD5;
+enum GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT = 0x8CD6;
+enum GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT = 0x8CD7;
+enum GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER = 0x8CDB;
+enum GL_FRAMEBUFFER_INCOMPLETE_READ_BUFFER = 0x8CDC;
+enum GL_FRAMEBUFFER_UNSUPPORTED = 0x8CDD;
+
+
 extern(C){
     alias glGetStringFunc = const(GLubyte)* function(GLenum name);
     alias glEnableFunc = void function(GLenum cap);
@@ -880,6 +891,12 @@ extern(C){
     alias glDepthRangeFunc = void function(GLclampd nearVal, GLclampd farVal);
     alias glClearDepthFunc = void function(GLclampd depth);
     alias glColorMaskFunc = void function(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha);
+    alias glBindFramebufferFunc = void function(GLenum target, GLuint framebuffer);
+    alias glGenFramebuffersFunc = void function(GLsizei n, GLuint *framebuffers);
+    alias glFramebufferTexture2DFunc = void function(GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level);
+    alias glDrawBufferFunc = void function(GLenum mode);
+    alias glReadBufferFunc = void function(GLenum mode);
+    alias glCheckFramebufferStatusFunc = GLenum function(GLenum target);
 }
 
 __gshared glGetStringFunc glGetString;
@@ -939,6 +956,12 @@ __gshared glDepthFuncFunc glDepthFunc;
 __gshared glDepthRangeFunc glDepthRange;
 __gshared glClearDepthFunc glClearDepth;
 __gshared glColorMaskFunc glColorMask;
+__gshared glBindFramebufferFunc glBindFramebuffer;
+__gshared glGenFramebuffersFunc glGenFramebuffers;
+__gshared glFramebufferTexture2DFunc glFramebufferTexture2D;
+__gshared glDrawBufferFunc glDrawBuffer;
+__gshared glReadBufferFunc glReadBuffer;
+__gshared glCheckFramebufferStatusFunc glCheckFramebufferStatus;
 
 alias OpenGL_Load_Sym_Func = void* function(const(char)*);
 
@@ -1000,4 +1023,10 @@ void load_opengl_functions(OpenGL_Load_Sym_Func load){
     glDepthRange = cast(glDepthRangeFunc)load("glDepthRange");
     glClearDepth = cast(glClearDepthFunc)load("glClearDepth");
     glColorMask = cast(glColorMaskFunc)load("glColorMask");
+    glBindFramebuffer = cast(glBindFramebufferFunc)load("glBindFramebuffer");
+    glGenFramebuffers = cast(glGenFramebuffersFunc)load("glGenFramebuffers");
+    glFramebufferTexture2D = cast(glFramebufferTexture2DFunc)load("glFramebufferTexture2D");
+    glDrawBuffer = cast(glDrawBufferFunc)load("glDrawBuffer");
+    glReadBuffer = cast(glReadBufferFunc)load("glReadBuffer");
+    glCheckFramebufferStatus = cast(glCheckFramebufferStatusFunc)load("glCheckFramebufferStatus");
 }

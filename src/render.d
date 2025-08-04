@@ -8,25 +8,12 @@ See accompanying file LICENSE_BOOST.txt or copy at http://www.boost.org/LICENSE_
 TODO:
     - Add destory texture function
     - Have a shaders/common.glsl file and append it to the top of all the shaders we load in?
-    - Use list nodes rather than a 1m block for each render pass.
+    - Make a shader pre-processor?
 
     Make a single shader constants block that is sensibly divided into chunks that can be block
     copied by the appropriate shader pass.
 
-    We need to have data for the following:
-        - Per frame data
-        - Per pass data
-        - Per model data
-
-    We should also rename "pass" to layer. That would be more indicative of what we're trying to
-    do.
-
     We should also change the prefix render_ to be draw_. This would be faster to type.
-
-    Each call to add_draw_layer() should take a pointer to Draw_Layer_Data, which is all the
-    state that needs to be set up for every draw layer. The draw layer holds a pointer to
-    the data, and when we go to draw we can to a pointer comparison to see if we need to
-    resubmit the layer data.
 +/
 
 import memory;
@@ -36,10 +23,22 @@ private{
     import logging;
     import math;
 
-    Allocator* g_allocator;
-    Texture    g_current_texture;
+    __gshared Allocator*   g_allocator;
+    __gshared Texture[Texture_Index_Max] g_active_textures;
+    __gshared Texture      g_current_texture;
+    __gshared Texture      g_shadow_map_texture;
+    __gshared Render_Pass* g_render_pass_first;
+    __gshared Render_Pass* g_render_pass_last;
+
+    enum Shadow_Map_Width  = 1024;
+    enum Shadow_Map_Height = 1024;
 
     enum Max_Materials = 2;
+}
+
+enum Render_Target : uint{
+    Standard, // TODO: What is this usually called?
+    Shadow_Map,
 }
 
 enum Vec3_Up = Vec3(0, 1, 0); // TODO: Is this correct? If it is, in the future we would prefer it if z positive was up instead.
@@ -80,8 +79,9 @@ struct Mesh{
 struct Render_Pass{
     Render_Pass* next;
 
-    Camera* camera;
-    ulong flags;
+    Camera*       camera;
+    ulong         flags;
+    Render_Target render_target;
 
     Render_Cmd* cmd_next;
     Render_Cmd* cmd_last;
@@ -118,7 +118,12 @@ enum Text_Align : uint{
     Center_X,
 }
 
-enum Texture_Index_Diffuse = 0;
+enum{
+    Texture_Index_Diffuse,
+    Texture_Index_Shadow_Map,
+
+    Texture_Index_Max,
+}
 
 Mat4_Pair orthographic_projection(Rect camera_bounds){
     // Orthographic adapted from here:
@@ -679,17 +684,15 @@ version(opengl){
 
     enum Default_UVs = rect_from_min_max(Vec2(0, 0), Vec2(1, 1));
 
-    __gshared GLuint        g_shader_constants_buffer;
-    __gshared GLuint        g_shader_material_buffer;
-    __gshared GLuint        g_shader_light_buffer;
-    __gshared GLuint        g_shader_camera_buffer;
-    __gshared GLuint        g_quad_vbo;
-    __gshared GLuint        g_quad_index_buffer;
-    __gshared Texture       g_default_texture;
-    __gshared Render_Pass*  g_render_pass_first;
-    __gshared Render_Pass*  g_render_pass_last;
-    __gshared Rect          g_base_viewport;
-    __gshared Vec4          g_clear_color;
+    __gshared GLuint  g_shader_constants_buffer;
+    __gshared GLuint  g_shader_material_buffer;
+    __gshared GLuint  g_shader_light_buffer;
+    __gshared GLuint  g_shader_camera_buffer;
+    __gshared GLuint  g_shadow_map_framebuffer;
+    __gshared GLuint  g_quad_vbo;
+    __gshared GLuint  g_quad_index_buffer;
+    __gshared Rect    g_base_viewport;
+    __gshared Vec4    g_clear_color;
 
     void draw_quads(Vertex[] v){
         assert(v.length % 4 == 0);
@@ -800,37 +803,48 @@ version(opengl){
             glBufferData(GL_ELEMENT_ARRAY_BUFFER, Max_Quads_Per_Batch*Quad_Index_Type.sizeof, index_buffer.ptr, GL_STATIC_DRAW);
         }
 
-
-        version(none){
-            /*
-            glGenBuffers(1, &g_common_shader_data_buffer);
-            if(g_common_shader_data_buffer == -1){
-                log(Cyu_Err "Unable to create buffer for common shader.\n");
-            }*/
-
-            {
-                auto fallback_w = 4;
-                auto fallback_h = 4;
-                auto fallback_pixels = alloc_array!uint(allocator.scratch, fallback_w*fallback_h);
-                fallback_pixels[0 .. $] = uint.max;
-                g_default_texture = create_texture(fallback_pixels, fallback_w, fallback_h);
-
-                if(g_default_texture == 0){
-                    log("Failed to init renderer: Unable to create default texture.\n");
-                    return false;
-                }
-            }
+        //
+        // Setup the state required for shadowmap rendering
+        //
+        glGenFramebuffers(1, &g_shadow_map_framebuffer);
+        if(g_shadow_map_framebuffer == -1){
+            log_error("Unable to generate shadow map framebuffer. Aborting.\n");
+            return false;
         }
+        glBindFramebuffer(GL_FRAMEBUFFER, g_shadow_map_framebuffer);
+
+        GLuint shadow_map_texture;
+        glGenTextures(1, &shadow_map_texture);
+        if(shadow_map_texture == -1){
+            log_error("Unable to generate shadow map texture. Aborting.\n");
+            return false;
+        }
+        glBindTexture(GL_TEXTURE_2D, shadow_map_texture);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, Shadow_Map_Width, Shadow_Map_Height, 0, GL_DEPTH_COMPONENT, GL_FLOAT, null);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, shadow_map_texture, 0);
+        glDrawBuffer(GL_NONE);
+        glReadBuffer(GL_NONE);
+
+        set_texture(shadow_map_texture, Texture_Index_Shadow_Map);
+
+        if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE){
+            log_error("Unable to finalize shadow map framebuffer. Aborting.\n");
+            return false;
+        }
+
+        g_shadow_map_texture = shadow_map_texture;
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glBindTexture(GL_TEXTURE_2D, 0);
 
         init_uniform_buffer(&g_shader_constants_buffer, Constants_Uniform_Binding, Shader_Constants.sizeof);
         init_uniform_buffer(&g_shader_material_buffer, Materials_Uniform_Binding, Shader_Material.sizeof*Max_Materials);
         init_uniform_buffer(&g_shader_light_buffer, Light_Uniform_Binding, Shader_Light.sizeof);
         init_uniform_buffer(&g_shader_camera_buffer, Camera_Uniform_Binding, Shader_Camera.sizeof);
-
-        /*
-        if(!compile_shader("default", 0, Default_Vertex_Shader_Source, Default_Fragment_Shader_Source)){
-            log("Error: Unable to create default shader. Aborting.\n");
-        }*/
 
         return true;
     }
@@ -860,7 +874,20 @@ version(opengl){
 
         Camera* current_camera = null;
         while(pass){
-            set_viewport(g_base_viewport);
+            switch(pass.render_target){
+                default: assert(0);
+
+                case Render_Target.Standard:{
+                    set_viewport(g_base_viewport);
+                    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+                } break;
+
+                case Render_Target.Shadow_Map:{
+                    set_viewport(rect_from_min_max(Vec2(0, 0), Vec2(Shadow_Map_Width, Shadow_Map_Height)));
+                    glBindFramebuffer(GL_FRAMEBUFFER, g_shadow_map_framebuffer);
+                } break;
+            }
+
             if(pass.camera != current_camera){
                 current_camera = pass.camera;
                 auto dest = zero_type!Shader_Camera;
@@ -1223,6 +1250,7 @@ version(opengl){
 
             glUseProgram(program);
             set_texture_index("texture_diffuse", Texture_Index_Diffuse);
+            set_texture_index("texture_shadow_map", Texture_Index_Shadow_Map);
             glUseProgram(0);
         }
         return success;
@@ -1261,9 +1289,7 @@ version(opengl){
         dest.specular  = source.specular;
         dest.shininess = source.shininess;
         dest.tint      = source.tint;
-
-        glActiveTexture(GL_TEXTURE0 + 0);
-        set_texture(source.diffuse_texture);
+        set_texture(source.diffuse_texture, Texture_Index_Diffuse);
 
         glBindBuffer(GL_UNIFORM_BUFFER, g_shader_material_buffer);
         glBufferSubData(GL_UNIFORM_BUFFER, 0, Shader_Material.sizeof, &dest);
@@ -1308,10 +1334,12 @@ version(opengl){
         }
     }
 
-    void set_texture(Texture texture){
-        if(g_current_texture != texture){
+    void set_texture(Texture texture, uint index = 0){
+        if(g_active_textures[index] != texture){
+            glActiveTexture(GL_TEXTURE0 + index);
             glBindTexture(GL_TEXTURE_2D, cast(GLuint)texture);
-            g_current_texture = texture;
+            g_active_textures[index] = texture;
+            glActiveTexture(GL_TEXTURE0);
         }
     }
 
