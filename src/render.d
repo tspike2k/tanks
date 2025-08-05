@@ -264,6 +264,14 @@ void set_hud_camera(Camera* camera, float camera_w, float camera_h){
     camera.center = Vec3(0, 0, 0); // TODO: Is this the correct center for the HUD?
 }
 
+void set_shadow_map_camera(Camera* camera, Shader_Light* light, Vec3 camera_target, Vec3 up){
+    auto camera_extents = Vec2(10, 10); // TODO: What is an appropriate size here?
+    camera.proj = orthographic_projection(Rect(Vec2(0, 0), camera_extents));
+    camera.view.mat = make_lookat_matrix(light.pos, camera_target, up);
+    camera.view.inv = invert_view_matrix(camera.view.mat);
+    camera.center = light.pos;
+}
+
 Vec3 get_camera_facing(Camera* camera){
     auto result = Vec3(
         camera.view.mat.m[2][0],
@@ -448,6 +456,11 @@ float get_text_width(Font* font, String text){
             prev_codepoint = c;
         }
     }
+    return result;
+}
+
+Texture get_shadow_map_texture(){
+    auto result = g_shadow_map_texture;
     return result;
 }
 
@@ -819,6 +832,7 @@ version(opengl){
             log_error("Unable to generate shadow map texture. Aborting.\n");
             return false;
         }
+        glActiveTexture(GL_TEXTURE0 + Texture_Index_Shadow_Map);
         glBindTexture(GL_TEXTURE_2D, shadow_map_texture);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, Shadow_Map_Width, Shadow_Map_Height, 0, GL_DEPTH_COMPONENT, GL_FLOAT, null);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
@@ -830,6 +844,7 @@ version(opengl){
         glDrawBuffer(GL_NONE);
         glReadBuffer(GL_NONE);
 
+        // TODO: Can we simply bind the shadow map once?
         set_texture(shadow_map_texture, Texture_Index_Shadow_Map);
 
         if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE){
@@ -840,6 +855,7 @@ version(opengl){
         g_shadow_map_texture = shadow_map_texture;
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glBindTexture(GL_TEXTURE_2D, 0);
+        glActiveTexture(GL_TEXTURE0);
 
         init_uniform_buffer(&g_shader_constants_buffer, Constants_Uniform_Binding, Shader_Constants.sizeof);
         init_uniform_buffer(&g_shader_material_buffer, Materials_Uniform_Binding, Shader_Material.sizeof*Max_Materials);
@@ -878,13 +894,13 @@ version(opengl){
                 default: assert(0);
 
                 case Render_Target.Standard:{
-                    set_viewport(g_base_viewport);
                     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+                    set_viewport(g_base_viewport);
                 } break;
 
                 case Render_Target.Shadow_Map:{
-                    set_viewport(rect_from_min_max(Vec2(0, 0), Vec2(Shadow_Map_Width, Shadow_Map_Height)));
                     glBindFramebuffer(GL_FRAMEBUFFER, g_shadow_map_framebuffer);
+                    set_viewport(rect_from_min_max(Vec2(0, 0), Vec2(Shadow_Map_Width, Shadow_Map_Height)));
                 } break;
             }
 
@@ -922,12 +938,18 @@ version(opengl){
 
                     case Command.Clear_Target:{
                         auto cmd = cast(Clear_Target*)cmd_node;
-
                         auto color = cmd.color;
-                        glClearColor(color.r, color.g, color.b, color.a);
-                        glClearDepth(Z_Far);
-                        // TODO: Only clear depth if the depth testing is enabled
-                        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+                        //if(pass.render_target != Render_Target.Shadow_Map){
+                        if(true){
+                            glClearColor(color.r, color.g, color.b, color.a);
+                            glClearDepth(Z_Far);
+                            // TODO: Only clear depth if the depth testing is enabled
+                            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+                        }
+                        else{
+                            glClear(GL_DEPTH_BUFFER_BIT);
+                        }
                     } break;
 
                     case Command.Set_Shader:{

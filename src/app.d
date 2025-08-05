@@ -244,6 +244,7 @@ void load_campaign_level(App_State* s, Campaign* campaign, uint mission_index){
 }
 
 struct Render_Passes{
+    Render_Pass* shadow_map;
     Render_Pass* holes;
     Render_Pass* hole_cutouts;
     Render_Pass* world;
@@ -332,6 +333,7 @@ struct App_State{
     Shader shader;
     Shader text_shader;
     Shader rect_shader;
+    Shader shadow_map_shader;
 
     Mesh cube_mesh;
     Mesh tank_base_mesh;
@@ -1388,11 +1390,10 @@ void render_entity(App_State* s, Entity* e, Render_Passes rp, bool highlighted =
                 float height = 1.0f + 0.5f*cast(float)(block_height-1);
                 auto scale = Vec3(1, height, 1);
                 auto pos = p + Vec3(0, height*0.5f, 0);
+                auto x_form = mat4_translate(pos)*mat4_scale(scale);
 
-                render_mesh(
-                    rp.world, &s.cube_mesh, materials,
-                    mat4_translate(pos)*mat4_scale(scale)
-                );
+                render_mesh(rp.world, &s.cube_mesh, materials, x_form);
+                render_mesh(rp.shadow_map, &s.cube_mesh, materials, x_form);
             }
             else{
                 // A hole is modeled using an inside-out cylinder. This way the inner
@@ -1428,14 +1429,13 @@ void render_entity(App_State* s, Entity* e, Render_Passes rp, bool highlighted =
         case Entity_Type.Tank:{
             if(e.health > 0){
                 auto mat_tran = mat4_translate(p + Vec3(0, 0.18f, 0))*mat4_scale(Vec3(0.5f, 0.5f, 0.5f));
-                render_mesh(
-                    rp.world, &s.tank_base_mesh, materials,
-                    mat_tran*mat4_rot_y(e.angle)
-                );
-                render_mesh(
-                    rp.world, &s.tank_top_mesh, materials,
-                    mat_tran*mat4_rot_y(e.turret_angle)
-                );
+
+                auto base_x_form = mat_tran*mat4_rot_y(e.angle);
+                auto top_x_form  = mat_tran*mat4_rot_y(e.turret_angle);
+                render_mesh(rp.world, &s.tank_base_mesh, materials, base_x_form);
+                render_mesh(rp.world, &s.tank_top_mesh, materials, top_x_form);
+                render_mesh(rp.shadow_map, &s.tank_base_mesh, materials, base_x_form);
+                render_mesh(rp.shadow_map, &s.tank_top_mesh, materials, top_x_form);
             }
             else{
                 auto bounds = Rect(e.pos, Vec2(0.5f, 0.5f));
@@ -1448,17 +1448,18 @@ void render_entity(App_State* s, Entity* e, Render_Passes rp, bool highlighted =
         case Entity_Type.Bullet:{
             //auto mat_tran = mat4_translate(p);
             auto mat_tran = mat4_translate(p + Bullet_Ground_Offset); // TODO: Use this offset when we're done testing the camera
-            render_mesh(rp.world, &s.bullet_mesh, materials, mat_tran*mat4_rot_y(e.angle));
+            auto x_form = mat_tran*mat4_rot_y(e.angle);
+            render_mesh(rp.world, &s.bullet_mesh, materials, x_form);
+            render_mesh(rp.shadow_map, &s.bullet_mesh, materials, x_form);
         } break;
 
         case Entity_Type.Mine:{
             // TODO: Dynamic material? This thing needs to blink. Perhaps we should have
             // a shader for that?
             if(!is_exploding(e)){
-                render_mesh(
-                    rp.world, &s.half_sphere_mesh, materials,
-                    mat4_translate(p)*mat4_scale(Vec3(0.5f, 0.5f, 0.5f))
-                );
+                auto x_form = mat4_translate(p)*mat4_scale(Vec3(0.5f, 0.5f, 0.5f));
+                render_mesh(rp.world, &s.half_sphere_mesh, materials, x_form);
+                render_mesh(rp.shadow_map, &s.half_sphere_mesh, materials, x_form);
             }
             else{
                 auto radius = e.extents.x;
@@ -2363,6 +2364,7 @@ extern(C) int main(int args_count, char** args){
     load_shader(&s.shader, "default", shaders_dir, &s.frame_memory);
     load_shader(&s.text_shader, "text", shaders_dir, &s.frame_memory);
     load_shader(&s.rect_shader, "rect", shaders_dir, &s.frame_memory);
+    load_shader(&s.shadow_map_shader, "shadow_map", shaders_dir, &s.frame_memory);
 
     s.sfx_fire_bullet = load_wave_file("./build/fire_bullet.wav", Audio_Frames_Per_Sec, &s.main_memory);
     s.sfx_explosion   = load_wave_file("./build/explosion.wav", Audio_Frames_Per_Sec, &s.main_memory);
@@ -2383,6 +2385,7 @@ extern(C) int main(int args_count, char** args){
     light.ambient  = light_color*0.15f;
     light.diffuse  = light_color;
     light.specular = light_color;
+    light.pos      = Vec3(0, 6, 6);
 
     setup_basic_material(&s.material_ground, s.img_wood);
     setup_basic_material(&s.material_player_tank[0], s.img_blank_mesh, Vec3(0.1f, 0.1f, 0.6f), 256);
@@ -2467,6 +2470,8 @@ extern(C) int main(int args_count, char** args){
         scope(exit) pop_frame(&s.frame_memory);
 
         auto window = get_window_info();
+        auto window_aspect_ratio = (cast(float)window.width)/(cast(float)window.height);
+
         auto dt = target_dt;
         s.t += dt;
 
@@ -2486,23 +2491,32 @@ extern(C) int main(int args_count, char** args){
             s.mode = s.next_mode;
         }
 
+        auto map = get_current_map(s);
+
         Camera hud_camera = void;
         set_hud_camera(&hud_camera, window.width, window.height);
 
-        auto map = get_current_map(s);
+        Camera shadow_map_camera = void;
+        auto world_up_vector = Vec3(0, 1, 0);
+        set_shadow_map_camera(&shadow_map_camera, &light, s.world_camera_target_pos, world_up_vector);
 
         Camera world_camera = void;
-        auto window_aspect_ratio = (cast(float)window.width)/(cast(float)window.height);
         set_world_projection(&world_camera, map.width+2, map.height+2, window_aspect_ratio);
-
         //set_world_view(&world_camera, map_bounds.center, 45.0f);
-        set_world_view(&world_camera, s.world_camera_polar, s.world_camera_target_pos, Vec3(0, 1, 0));
+        set_world_view(&world_camera, s.world_camera_polar, s.world_camera_target_pos, world_up_vector);
+
         auto mouse_world_3d = camera_ray_vs_plane(&world_camera, s.mouse_pixel, window.width, window.height);
         s.mouse_world = Vec2(mouse_world_3d.x, -mouse_world_3d.z);
 
         render_begin_frame(window.width, window.height, Vec4(0, 0.05f, 0.12f, 1), &s.frame_memory);
 
         Render_Passes render_passes;
+        render_passes.shadow_map = add_render_pass(&shadow_map_camera);
+        set_shader(render_passes.shadow_map, &s.shadow_map_shader);
+        clear_target_to_color(render_passes.shadow_map, Vec4(0, 0, 0, 0));
+        render_passes.shadow_map.flags = Render_Flag_Disable_Color;
+        render_passes.shadow_map.render_target = Render_Target.Shadow_Map;
+
         render_passes.holes = add_render_pass(&world_camera);
         set_shader(render_passes.holes, &s.shader);
 
@@ -2707,6 +2721,9 @@ extern(C) int main(int args_count, char** args){
         }
 
         render_gui(&s.gui, &hud_camera, &s.rect_shader, &s.text_shader);
+
+        set_texture(render_passes.hud_rects, get_shadow_map_texture());
+        render_rect(render_passes.hud_rects, Rect(Vec2(200, 200), Vec2(100, 100)), Vec4(1, 1, 1, 1));
 
         // Circle vs OBB test
         /+
