@@ -1,5 +1,3 @@
-#version 330
-
 #define Materials_Max 2
 
 uniform mat4 mat_model;
@@ -15,13 +13,6 @@ struct Material{
     vec3  tint;
     vec3  specular;
     float shininess;
-};
-
-// TODO: Combine all uniforms into this constants buffer
-layout(std140) uniform Constants{
-    mat4  mat_camera;
-    vec3  camera_pos; // TODO: Is there some way to do lighting without this?
-    float time;
 };
 
 layout(std140) uniform Materials{

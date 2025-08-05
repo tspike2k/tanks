@@ -70,6 +70,13 @@ char[] concat(String a, String b, Allocator* allocator){
     return result;
 }
 
+// WARNING: This function does NOT append a null terminator!
+char[] put_raw_string(String s, Allocator* allocator){
+    auto dest = alloc_array!char(allocator, s.length);
+    copy(s, dest);
+    return dest;
+}
+
 bool begins_with(String a, String b){
     bool result = false;
     if(a.length >= b.length){
@@ -188,13 +195,14 @@ version(linux){
 //
 ////
 
-enum Default_Align = uint.sizeof;
+enum Alloc_Flag_No_Clear = (1 << 0);
+
+enum Default_Alignment = uint.sizeof;
 
 struct Allocator_Frame{
     Allocator_Frame* next;
     size_t           used;
 }
-
 
 /+
 Every allocator can point to a buffer of scratch memory. Here, scratch memory refers to a block
@@ -221,32 +229,41 @@ The same issue can also occur if the scratch allocator points to itself.
 struct Allocator{
     void[] memory;
     size_t used;
-    Allocator_Frame* last_frame;
+    size_t alignment;
 
+    this(void[] the_memory, size_t alignment = Default_Alignment){
+        clear_to_zero(this);
+        memory    = the_memory;
+        alignment = alignment;
+    }
+
+    Allocator_Frame* last_frame;
     Allocator* scratch;
 }
 
 size_t calc_alignment_push(void* ptr, size_t alignment){
     // Alignment code thanks to Handmade Hero day 131
     size_t result = 0;
-    if(alignment == 0){
+    if(alignment != 0){
         result = (alignment - cast(size_t)ptr) & (alignment - 1);
     }
     return result;
 }
 
-void[] alloc(Allocator* block, size_t size, uint flags = 0, uint alignment = Default_Align){
+void[] alloc(Allocator* block, size_t size, uint flags = 0){
     void[] result = null;
     if(size > 0){
         assert(block.used <= block.memory.length);
         assert(size <= block.memory.length - block.used);
 
-        size_t align_push = calc_alignment_push(&block.memory[block.used], alignment);
+        size_t align_push = calc_alignment_push(&block.memory[block.used], block.alignment);
 
         size_t index = block.used + align_push;
         assert(index + size <= block.memory.length);
         void *raw = &block.memory[index];
-        memset(raw, 0, size); // TODO: Flag for not clearing memory
+        if(!(flags & Alloc_Flag_No_Clear)){
+            memset(raw, 0, size);
+        }
         result = raw[0 .. size];
 
         block.used += size + align_push;
@@ -255,13 +272,13 @@ void[] alloc(Allocator* block, size_t size, uint flags = 0, uint alignment = Def
     return result;
 }
 
-T* alloc_type(T)(Allocator* allocator, uint flags = 0, uint alignment = Default_Align){
-    auto result = cast(T*)alloc(allocator, T.sizeof, flags, alignment);
+T* alloc_type(T)(Allocator* allocator, uint flags = 0){
+    auto result = cast(T*)alloc(allocator, T.sizeof, flags);
     return result;
 }
 
-T[] alloc_array(T)(Allocator* allocator, size_t count, uint flags = 0, uint alignment = Default_Align){
-    auto raw = cast(T*)alloc(allocator, T.sizeof*count, flags, alignment);
+T[] alloc_array(T)(Allocator* allocator, size_t count, uint flags = 0){
+    auto raw = cast(T*)alloc(allocator, T.sizeof*count, flags);
     auto result = raw[0 .. count];
     return result;
 }
@@ -284,15 +301,16 @@ void pop_frame(Allocator* allocator){
     allocator.last_frame = allocator.last_frame.next;
 }
 
-Allocator make_sub_allocator(Allocator* allocator, size_t size, uint flags = 0, uint alignment = Default_Align){
-    auto result = Allocator(alloc_array!void(allocator, size, flags, alignment));
+Allocator make_sub_allocator(Allocator* allocator, size_t size, uint flags = 0){
+    auto result = Allocator(alloc_array!void(allocator, size, flags));
     return result;
 }
 
-void[] begin_reserve_all(Allocator* allocator, uint alignment = Default_Align){
-    auto push = calc_alignment_push(&allocator.memory[allocator.used], alignment);
-    auto result = allocator.memory[allocator.used + push .. $];
-    allocator.used = allocator.memory.length;
+void[] begin_reserve_all(Allocator* allocator, size_t alignment = Default_Alignment){
+    auto push      = calc_alignment_push(&allocator.memory[allocator.used], alignment);
+    auto result    = allocator.memory[allocator.used + push .. $];
+    //allocator.used = allocator.memory.length; // TODO: Isn't this incorrect?
+    allocator.used = result.length;
     return result;
 }
 
@@ -323,7 +341,7 @@ struct Buffer_Writer{
     }
 }
 
-Buffer_Writer begin_buffer_writer(Allocator* allocator, uint alignment = Default_Align){
+Buffer_Writer begin_buffer_writer(Allocator* allocator, size_t alignment = Default_Alignment){
     auto memory = begin_reserve_all(allocator, alignment);
     auto result = Buffer_Writer(cast(char[])memory);
     return result;

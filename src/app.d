@@ -804,8 +804,24 @@ bool load_shader(Shader* shader, String name, String path, Allocator* allocator)
     auto vertex_file_name   = make_file_path(path, concat(name, "_vert.glsl", scratch), scratch);
     auto fragment_file_name = make_file_path(path, concat(name, "_frag.glsl", scratch), scratch);
 
-    auto vertex_source   = cast(char[])read_file_into_memory(vertex_file_name, scratch);
-    auto fragment_source = cast(char[])read_file_into_memory(fragment_file_name, scratch);
+    // TODO: For now, we are wasting HUGE amounts of memory here by duplicating strings.
+    // What we really want to do is to be able to concatonate strings *in-place.* To do
+    // that we may need to re-think how we're handling allocators.
+
+    // TODO: Generate filepat using "path" parameter
+    auto shader_preamble = cast(char[])read_file_into_memory("./build/shaders/common.glsl", scratch);
+
+    auto writer = Allocator(begin_reserve_all(scratch), 0);
+    put_raw_string(shader_preamble, &writer);
+    read_file_into_memory(vertex_file_name, &writer);
+    auto vertex_source = cast(char[])writer.memory[0 .. writer.used];
+    end_reserve_all(scratch, writer.memory[], writer.used);
+
+    writer = Allocator(begin_reserve_all(scratch), 0);
+    put_raw_string(shader_preamble, &writer);
+    read_file_into_memory(fragment_file_name, &writer);
+    auto fragment_source = cast(char[])writer.memory[0 .. writer.used];
+    end_reserve_all(scratch, writer.memory[], writer.used);
 
     // TODO: Error handling?
     auto succeeded = compile_shader(shader, name, vertex_source, fragment_source);
@@ -2319,7 +2335,7 @@ extern(C) int main(int args_count, char** args){
 
     App_State* s;
     {
-        auto memory = Allocator(app_memory);
+        auto memory      = Allocator(app_memory);
         auto main_memory = make_sub_allocator(&memory, Main_Memory_Size);
 
         s = alloc_type!App_State(&main_memory);
