@@ -91,6 +91,8 @@ enum Max_Quads_Per_Batch = 2048; // TODO: Isn't this a bit high? 512 would be a 
 
 // TODO: Ensure members are correctly aligned with both HLSL and GLSL requirements
 struct Shader_Constants{
+    Mat4  mat_camera;
+    Vec3  camera_pos;
     float time;
 }
 
@@ -605,12 +607,6 @@ struct Render_Debug_OBB{
     float angle;
 }
 
-struct Shader_Camera{
-    Mat4 mat;
-    Vec3 pos;
-    float pad_00;
-}
-
 Render_Cmd* push_command(Render_Pass* pass, Command type, size_t size){
     auto result = cast(Render_Cmd*)alloc(g_allocator, size);
     result.type = type;
@@ -681,9 +677,8 @@ version(opengl){
 
     // TODO: Combine all the uniform blocks into one and use a single binding point?
     enum Constants_Uniform_Binding = 0;
-    enum Materials_Uniform_Binding  = 1;
+    enum Materials_Uniform_Binding = 1;
     enum Light_Uniform_Binding     = 2;
-    enum Camera_Uniform_Binding    = 3;
 
     enum{
         Vertex_Attribute_ID_Pos,
@@ -700,7 +695,6 @@ version(opengl){
     __gshared GLuint  g_shader_constants_buffer;
     __gshared GLuint  g_shader_material_buffer;
     __gshared GLuint  g_shader_light_buffer;
-    __gshared GLuint  g_shader_camera_buffer;
     __gshared GLuint  g_shadow_map_framebuffer;
     __gshared GLuint  g_quad_vbo;
     __gshared GLuint  g_quad_index_buffer;
@@ -860,7 +854,6 @@ version(opengl){
         init_uniform_buffer(&g_shader_constants_buffer, Constants_Uniform_Binding, Shader_Constants.sizeof);
         init_uniform_buffer(&g_shader_material_buffer, Materials_Uniform_Binding, Shader_Material.sizeof*Max_Materials);
         init_uniform_buffer(&g_shader_light_buffer, Light_Uniform_Binding, Shader_Light.sizeof);
-        init_uniform_buffer(&g_shader_camera_buffer, Camera_Uniform_Binding, Shader_Camera.sizeof);
 
         return true;
     }
@@ -906,12 +899,16 @@ version(opengl){
 
             if(pass.camera != current_camera){
                 current_camera = pass.camera;
-                auto dest = zero_type!Shader_Camera;
-                dest.mat = transpose(current_camera.proj.mat*current_camera.view.mat);
-                dest.pos = current_camera.center;
+                Shader_Constants constants = void;
+                constants.mat_camera = transpose(current_camera.proj.mat*current_camera.view.mat);
+                constants.camera_pos = current_camera.center;
 
-                glBindBuffer(GL_UNIFORM_BUFFER, g_shader_camera_buffer);
-                glBufferSubData(GL_UNIFORM_BUFFER, 0, Shader_Camera.sizeof, &dest);
+                glBindBuffer(GL_UNIFORM_BUFFER, g_shader_constants_buffer);
+                glBufferSubData(
+                    GL_UNIFORM_BUFFER, Shader_Constants.mat_camera.offsetof,
+                    Shader_Constants.camera_pos.offsetof - Shader_Constants.mat_camera.offsetof,
+                    &constants.mat_camera
+                );
             }
 
             if(pass.flags & Render_Flag_Disable_Color){
@@ -1266,7 +1263,6 @@ version(opengl){
             make_uniform_binding(program_name, program, "Constants", Constants_Uniform_Binding);
             make_uniform_binding(program_name, program, "Materials", Materials_Uniform_Binding);
             make_uniform_binding(program_name, program, "Light", Light_Uniform_Binding);
-            make_uniform_binding(program_name, program, "Camera", Camera_Uniform_Binding);
 
             get_uniform_loc(&shader.uniform_loc_model, "mat_model");
 

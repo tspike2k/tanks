@@ -4,9 +4,9 @@
 
 uniform mat4 mat_model;
 
-in vec2  f_uv;
-in vec3  f_normal;
-in vec3  f_world_pos;
+in vec2 f_uv;
+in vec3 f_normal;
+in vec3 f_world_pos;
 flat in int  f_material_index;
 
 out vec4 out_color;
@@ -17,13 +17,11 @@ struct Material{
     float shininess;
 };
 
+// TODO: Combine all uniforms into this constants buffer
 layout(std140) uniform Constants{
+    mat4  mat_camera;
+    vec3  camera_pos; // TODO: Is there some way to do lighting without this?
     float time;
-};
-
-layout(std140) uniform Camera{
-    mat4 mat_camera;
-    vec3 camera_pos; // TODO: Is there some way to do lighting without this?
 };
 
 layout(std140) uniform Materials{
