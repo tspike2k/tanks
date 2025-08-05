@@ -1,5 +1,3 @@
-uniform mat4 mat_model;
-
 in vec3 v_pos;
 in vec4 v_common;
 in vec2 v_uv;

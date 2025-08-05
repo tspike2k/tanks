@@ -796,7 +796,7 @@ Mesh load_mesh_from_obj(String file_path, Allocator* allocator){
     return result;
 }
 
-bool load_shader(Shader* shader, String name, String path, Allocator* allocator){ // TODO: Take the directory path
+bool load_shader(Shader* shader, String name, String path, Allocator* allocator){
     push_frame(allocator.scratch);
     scope(exit) pop_frame(allocator.scratch);
 

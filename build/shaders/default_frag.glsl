@@ -1,13 +1,9 @@
-#define Materials_Max 2
+in vec2     f_uv;
+in vec3     f_normal;
+in vec3     f_world_pos;
+flat in int f_material_index;
 
-uniform mat4 mat_model;
-
-in vec2 f_uv;
-in vec3 f_normal;
-in vec3 f_world_pos;
-flat in int  f_material_index;
-
-out vec4 out_color;
+out vec4 out_color; // TODO: This should probably be called v_color
 
 struct Material{
     vec3  tint;

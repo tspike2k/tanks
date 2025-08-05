@@ -94,6 +94,7 @@ struct Shader_Constants{
     Mat4  mat_camera;
     Vec3  camera_pos;
     float time;
+    Mat4  mat_model;
 }
 
 struct Material{
@@ -716,7 +717,6 @@ version(opengl){
         private:
 
         GLuint handle;
-        GLint  uniform_loc_model;
         GLint  uniform_loc_texture_diffuse;
     }
 
@@ -1010,8 +1010,13 @@ version(opengl){
                     case Command.Render_Mesh:{
                         assert(shader);
                         auto cmd = cast(Render_Mesh*)cmd_node;
-                        assert(shader.uniform_loc_model != -1);
-                        set_uniform(shader.uniform_loc_model, &cmd.transform);
+
+                        auto x_form = transpose(cmd.transform);
+                        glBindBuffer(GL_UNIFORM_BUFFER, g_shader_constants_buffer);
+                        glBufferSubData(
+                            GL_UNIFORM_BUFFER, Shader_Constants.mat_model.offsetof,
+                            Mat4.sizeof, &x_form
+                        );
 
                         foreach(ref part; cmd.mesh.parts){
                             auto next_material = &cmd.materials[part.material_index];
@@ -1263,8 +1268,6 @@ version(opengl){
             make_uniform_binding(program_name, program, "Constants", Constants_Uniform_Binding);
             make_uniform_binding(program_name, program, "Materials", Materials_Uniform_Binding);
             make_uniform_binding(program_name, program, "Light", Light_Uniform_Binding);
-
-            get_uniform_loc(&shader.uniform_loc_model, "mat_model");
 
             glUseProgram(program);
             set_texture_index("texture_diffuse", Texture_Index_Diffuse);
