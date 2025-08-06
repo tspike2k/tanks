@@ -20,7 +20,6 @@ TODO:
     - Debug collision volume display?
     - Bullet can get lodged between two blocks, destroying it before the player sees it reflected.
     - Improved collision handling
-    - After losing a mission, once the mission begins again none of the tanks the player destroyed respawn.
     - Switch to high-score list on game over. Highlight you're current score if it's been added.
     - When billboards (such as smoke) are placed exactly horizontally, they do not sort properly; they stay in the order they were spawned. Sorting by life would probably be the right call in that situation.
     - Finish porting over tank params
@@ -149,6 +148,23 @@ bool ray_vs_obstacles(World* world, Vec2 ray_start, Vec2 ray_delta){
     return result;
 }
 
+void set_tank_facing_to_default(Entity* e, Vec2 map_center){
+    assert(e.type == Entity_Type.Tank);
+
+    // All tanks face towards the center of the map when level begins.
+    auto dir = normalize(map_center - e.pos);
+    Vec2 facing = void;
+    if(abs(dir.x) > abs(dir.y))
+        facing = Vec2(sign(dir.x), 0);
+    else
+        facing = Vec2(0, sign(dir.y));
+
+    auto facing_angle  = atan2(facing.y, facing.x);
+    e.turret_angle     = facing_angle;
+    e.angle            = facing_angle;
+    e.target_aim_angle = facing_angle;
+}
+
 Entity* spawn_tank(App_State* s, Vec2 pos, Vec2 map_center, ubyte cell_info, uint tank_type_min, uint tank_type_max){
     auto e = add_entity(&s.world, pos, Entity_Type.Tank);
 
@@ -167,18 +183,7 @@ Entity* spawn_tank(App_State* s, Vec2 pos, Vec2 map_center, ubyte cell_info, uin
         timer_reset(&e.fire_timer, 0, &s.rng);
     }
 
-    // All tanks face towards the center of the map when level begins.
-    auto dir = normalize(map_center - e.pos);
-    Vec2 facing = void;
-    if(abs(dir.x) > abs(dir.y))
-        facing = Vec2(sign(dir.x), 0);
-    else
-        facing = Vec2(0, sign(dir.y));
-
-    auto facing_angle  = atan2(facing.y, facing.x);
-    e.turret_angle     = facing_angle;
-    e.angle            = facing_angle;
-    e.target_aim_angle = facing_angle;
+    set_tank_facing_to_default(e, map_center);
     e.cell_info        = cell_info;
 
     return e;
@@ -188,6 +193,24 @@ void render_ground(App_State* s, Render_Pass* pass, Rect bounds){
     auto p = world_to_render_pos(bounds.center);
     auto ground_xform = mat4_translate(p)*mat4_scale(Vec3(bounds.extents.x, 1.0f, bounds.extents.y));
     render_mesh(pass, &s.ground_mesh, (&s.material_ground)[0..1], ground_xform);
+}
+
+void restart_campaign_mission(App_State* s){
+    reset_particles(&s.emitter_treadmarks);
+    reset_particles(&s.emitter_bullet_contrails);
+
+    auto map = &s.campaign.maps[s.session.map_index];
+    auto map_center = Vec2(map.width, map.height)*0.5f;
+
+    foreach(ref e; iterate_entities(&s.world)){
+        if(e.type == Entity_Type.Tank){
+            if(is_player(&e) || e.health > 0){
+                e.health = max(1, e.health);
+                e.pos = e.start_pos;
+                set_tank_facing_to_default(&e, map_center);
+            }
+        }
+    }
 }
 
 void load_campaign_level(App_State* s, Campaign* campaign, uint mission_index){
@@ -425,6 +448,7 @@ struct Entity{
     Vec2     pos;
     Vec2     extents;
     Vec2     vel;
+    Vec2     start_pos;
     float    angle;
     float    turret_angle;
     uint     health;
@@ -683,9 +707,10 @@ void make_entity(Entity* e, Entity_ID id, Vec2 pos, Entity_Type type){
     clear_to_zero(*e);
     e.health = 1;
     e.parent_id = Null_Entity_ID;
-    e.id   = id;
-    e.type = type;
-    e.pos  = pos;
+    e.id        = id;
+    e.type      = type;
+    e.pos       = pos;
+    e.start_pos = pos;
 
     final switch(type){
         case Entity_Type.None:
@@ -2304,7 +2329,7 @@ void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
             if(s.session.timer >= Mission_End_Max_Time){
                 reset_timer(&s.session.timer, Mission_End_Max_Time);
                 s.session.state = Session_State.Mission_Intro;
-                load_campaign_level(s, &s.campaign, s.session.mission_index);
+                restart_campaign_mission(s);
             }
         } break;
     }
