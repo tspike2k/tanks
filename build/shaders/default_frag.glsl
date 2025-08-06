@@ -33,11 +33,23 @@ vec3 blend_additive(vec3 src, vec3 dest){
 
 // NOTE: Adapted from the following:
 // https://learnopengl.com/Advanced-Lighting/Shadows/Shadow-Mapping
-float calulcate_shadow(vec4 pos_in_lightspace, vec3 light_dir){
+float calulcate_shadow(vec4 pos_in_lightspace, vec3 normal, vec3 light_dir){
     vec3 clip_space = pos_in_lightspace.xyz / pos_in_lightspace.w; // Perspective divide
     vec3 uvs = clip_space * 0.5 + 0.5;
     float shadow_depth = texture(texture_shadow_map, uvs.xy).r;
-    float result = uvs.z > shadow_depth ? 1.0 : 0.0;
+
+    // TODO: These values are finicky and heavily dependant upon the what is being rendered. Is
+    // there a more reliable way to do this?
+    float max_bias = 0.0001;
+    float min_bias = 0.00001;
+    float bias = max(max_bias * (1.0 - dot(normal, light_dir)), min_bias);
+
+    float result = uvs.z - bias > shadow_depth ? 1.0 : 0.0;
+
+    // Ensure that sampling outside the far plane will not cause shadows to appear.
+    if(uvs.z > 1.0) // TODO: Is there a way to do this without a branch? Perhaps step?
+        result = 0.0;
+
     return result;
 }
 
@@ -73,7 +85,7 @@ void main(){
     float specular_intensity = pow(max(dot(normal, half_vector), 0.0), material.shininess);
     vec3 specular = light_specular * (diffuse_intensity*specular_intensity * material.specular);
 
-    float shadow = calulcate_shadow(f_pos_in_lightspace, light_dir);
+    float shadow = calulcate_shadow(f_pos_in_lightspace, normal, light_dir);
 
     vec3 linear_color = ambient + (diffuse + specular)*(1.0-shadow);
     out_color = vec4(linear_color, 1.0f);

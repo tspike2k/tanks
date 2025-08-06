@@ -861,6 +861,7 @@ extern(C){
     alias glDeleteTexturesFunc = void function(GLsizei n, const GLuint *textures);
     alias glTexImage2DFunc = void function(GLenum target, GLint level, GLint internalFormat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const GLvoid *data);
     alias glTexParameteriFunc = void function(GLenum target, GLenum pname, GLint param);
+    alias glTexParameterfvFunc = void function(GLenum target, GLenum pname, const GLfloat *params);
     alias glDeleteProgramFunc = void function(GLuint program);
     alias glDebugMessageCallbackFunc = void function(OpenGL_Debug_Proc callback, void* userParam);
     alias glCreateShaderFunc = GLuint function(GLenum shaderType);
@@ -926,6 +927,7 @@ __gshared glGenTexturesFunc glGenTextures;
 __gshared glDeleteTexturesFunc glDeleteTextures;
 __gshared glTexImage2DFunc glTexImage2D;
 __gshared glTexParameteriFunc glTexParameteri;
+__gshared glTexParameterfvFunc glTexParameterfv;
 __gshared glDeleteProgramFunc glDeleteProgram;
 __gshared glDebugMessageCallbackFunc glDebugMessageCallback;
 __gshared glCreateShaderFunc glCreateShader;
@@ -993,6 +995,7 @@ void load_opengl_functions(OpenGL_Load_Sym_Func load){
     glDeleteTextures = cast(glDeleteTexturesFunc)load("glDeleteTextures");
     glTexImage2D = cast(glTexImage2DFunc)load("glTexImage2D");
     glTexParameteri = cast(glTexParameteriFunc)load("glTexParameteri");
+    glTexParameterfv = cast(glTexParameterfvFunc)load("glTexParameterfv");
     glDeleteProgram = cast(glDeleteProgramFunc)load("glDeleteProgram");
     glDebugMessageCallback = cast(glDebugMessageCallbackFunc)load("glDebugMessageCallback");
     glCreateShader = cast(glCreateShaderFunc)load("glCreateShader");

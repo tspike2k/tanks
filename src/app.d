@@ -25,6 +25,11 @@ TODO:
     - When billboards (such as smoke) are placed exactly horizontally, they do not sort properly; they stay in the order they were spawned. Sorting by life would probably be the right call in that situation.
     - Finish porting over tank params
     - Improve enemy tank aim detection. They occasionally miss or hit their own. Not true to the original at all.
+    - Drain audio when exiting? Right now quitting the game will cause audio playing in the
+      background to stutter.
+    - Enemy firing sight tests can pass through blocks when the origin of the bulelt spawn
+      position is inside a block.
+    - Billboards overwrite debug sight lines. We should probably fix that.
 
 Sound effects:
     - Firing missile (Can we just up-pitch the normal shot sound?)
@@ -864,12 +869,10 @@ Vec2 get_bullet_spawn_pos(Vec2 tank_center, Vec2 turret_dir){
     return result;
 }
 
-Entity* spawn_bullet(World* world, Entity_ID parent_id, Vec2 tank_center, float turret_angle, Tank_Type* tank_info){
-    auto turret_dir = vec2_from_angle(turret_angle);
-    auto p      = get_bullet_spawn_pos(tank_center, turret_dir);
-    auto e      = add_entity(world, p, Entity_Type.Bullet);
-    e.angle     = turret_angle;
-    e.parent_id = parent_id;
+Entity* spawn_bullet(World* world, Entity* tank, Tank_Type* tank_info, Vec2 spawn_pos, Vec2 turret_dir){
+    auto e      = add_entity(world, spawn_pos, Entity_Type.Bullet);
+    e.angle     = tank.turret_angle;
+    e.parent_id = tank.id;
     e.health    = tank_info.bullet_ricochets+1;
     e.vel       = turret_dir*tank_info.bullet_speed;
     return e;
@@ -1588,9 +1591,13 @@ void apply_tank_commands(App_State* s, Entity* e, Tank_Commands* input, float dt
     }
 
     if(input.fire_bullet){
+        auto turret_dir = vec2_from_angle(e.turret_angle);
+        auto spawn_pos = get_bullet_spawn_pos(e.pos, turret_dir);
+
         auto count = get_child_entity_count(&s.world, e.id, Entity_Type.Bullet);
-        if(count < tank_info.bullet_limit){
-            auto bullet = spawn_bullet(&s.world, e.id, e.pos, e.turret_angle, tank_info);
+        if(count < tank_info.bullet_limit
+        && !is_circle_inside_block(&s.world, spawn_pos, Bullet_Radius)){
+            auto bullet = spawn_bullet(&s.world, e, tank_info, spawn_pos, turret_dir);
             auto pitch = random_f32_between(&s.rng, 1.0f - 0.10f, 1.0f + 0.10f);
             play_sfx(&s.sfx_fire_bullet, 0, 1.0f, pitch);
         }
@@ -1811,9 +1818,9 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
     auto map = get_current_map(s);
     auto world_bounds = rect_from_min_max(Vec2(0, 0), Vec2(map.width, map.height));
 
-    float light_radius = 16.0f;
-    s.light.pos.x = cos(s.t*0.25f)*light_radius;
-    s.light.pos.z = sin(s.t*0.25f)*light_radius;
+    float light_radius = 12.0f;
+    s.light.pos.x = world_bounds.center.x + cos(s.t*0.25f)*light_radius;
+    s.light.pos.z = world_bounds.center.y + sin(s.t*0.25f)*light_radius;
 
     foreach(ref e; iterate_entities(&s.world)){
         if(is_dynamic_entity(e.type) && !is_destroyed(&e)){
@@ -2324,6 +2331,23 @@ struct Particle_Sort{
     }
 }
 
+bool is_circle_inside_block(World* world, Vec2 pos, float radius){
+    // TODO: We could speed this up by partitioning entities on a grid. The map is using grid
+    // cells anyway, so this would be intuitive.
+    bool result = false;
+    Vec2 hit_normal = void;
+    float hit_depth = void;
+    foreach(ref e; iterate_entities(world)){
+        if(e.type == Entity_Type.Block && !is_hole(&e)){
+            if(rect_vs_circle(e.pos, e.extents, pos, radius, &hit_normal, &hit_depth)){
+                result = true;
+                break;
+            }
+        }
+    }
+    return result;
+}
+
 extern(C) int main(int args_count, char** args){
     auto app_memory = os_alloc(Total_Memory_Size, 0);
     scope(exit) os_dealloc(app_memory);
@@ -2746,8 +2770,11 @@ extern(C) int main(int args_count, char** args){
 
         render_gui(&s.gui, &hud_camera, &s.rect_shader, &s.text_shader);
 
-        set_shader(render_passes.hud_rects, &s.view_depth);
-        render_rect(render_passes.hud_rects, Rect(Vec2(200, 200), Vec2(100, 100)), Vec4(1, 1, 1, 1));
+        // Render the shadow map
+        if(g_debug_mode){
+            set_shader(render_passes.hud_rects, &s.view_depth);
+            render_rect(render_passes.hud_rects, Rect(Vec2(200, 200), Vec2(100, 100)), Vec4(1, 1, 1, 1));
+        }
 
         // Circle vs OBB test
         /+
