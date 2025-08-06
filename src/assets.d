@@ -188,11 +188,13 @@ struct Tank_Type{
 
     float obstacle_sight_dist; // Obstacle Awareness (Movement)
 
-    float fire_delay_min;  // Word 37
-    float fire_delay_time; // Word 36
-    float fire_window;     // Word 35
-    float aim_timer;       // Word 40
-    float aim_max_angle;   // Word 29
+    float fire_delay_min;     // Word 37
+    float fire_delay_time;    // Word 36
+    float fire_window;        // Word 35
+    float fire_stun_time;     // Word 42
+    float fire_cooldown_time; // Word 37
+    float aim_timer;          // Word 40
+    float aim_max_angle;      // Word 29
 }
 
 struct Campaign_Mission{

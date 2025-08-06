@@ -432,6 +432,9 @@ struct Entity{
     float    mine_timer;
     float    total_meters_moved;
 
+    float    fire_cooldown_timer;
+    float    fire_stun_timer;
+
     // AI related data:
     float     ai_time;
     AI_Timer  fire_timer;
@@ -478,9 +481,12 @@ __gshared Tank_Type[] g_tank_types = [
         invisible: false,
         speed: 1.8f,
 
-        bullet_limit:     5,
-        bullet_ricochets: 1,
-        bullet_speed:     3.0f,
+        bullet_limit:       5,
+        bullet_ricochets:   1,
+        bullet_speed:       3.0f,
+
+        fire_cooldown_time: 6.0f/60.0f,
+        fire_stun_time:     5.0f/60.0f,
     },
     {
         // Brown
@@ -496,6 +502,8 @@ __gshared Tank_Type[] g_tank_types = [
         fire_delay_min:  (300.0f)/60.0f,
         fire_delay_time: (30.0f)/60.0f,
         fire_window:     (15.0f)/60.0f,
+        fire_cooldown_time: 300.0f/60.0f,
+        fire_stun_time:     60.0f/60.0f,
 
         aim_timer: 60.0f/60.0f,
         aim_max_angle: deg_to_rad(170),
@@ -514,6 +522,8 @@ __gshared Tank_Type[] g_tank_types = [
         fire_delay_min:  (180.0f)/60.0f,
         fire_delay_time: (30.0f)/60.0f,
         fire_window:     (15.0f)/60.0f,
+        fire_cooldown_time: 180.0f/60.0f,
+        fire_stun_time:     10.0f/60.0f,
 
         aim_timer: 45.0f/60.0f,
         aim_max_angle: deg_to_rad(40),
@@ -532,6 +542,8 @@ __gshared Tank_Type[] g_tank_types = [
         fire_delay_min:  (180.0f)/60.0f,
         fire_delay_time: (5.0f)/60.0f,
         fire_window:     (5.0f)/60.0f,
+        fire_cooldown_time: 180.0f/60.0f,
+        fire_stun_time:     20.0f/60.0f,
 
         aim_timer: 8.0f/60.0f,
         aim_max_angle: 0,
@@ -550,6 +562,8 @@ __gshared Tank_Type[] g_tank_types = [
         fire_delay_min:  (30.0f)/60.0f,
         fire_delay_time: (5.0f)/60.0f,
         fire_window:     (5.0f)/60.0f,
+        fire_cooldown_time: 30.0f/60.0f,
+        fire_stun_time:     5.0f/60.0f,
 
         aim_timer: 20.0f/60.0f,
         aim_max_angle: deg_to_rad(40),
@@ -568,6 +582,8 @@ __gshared Tank_Type[] g_tank_types = [
         fire_delay_min:  (180.0f)/60.0f,
         fire_delay_time: (30.0f)/60.0f,
         fire_window:     (15.0f)/60.0f,
+        fire_cooldown_time: 180.0f/60.0f,
+        fire_stun_time:     10.0f/60.0f,
 
         aim_timer: 30.0f/60.0f,
         aim_max_angle: deg_to_rad(40),
@@ -586,6 +602,8 @@ __gshared Tank_Type[] g_tank_types = [
         fire_delay_min:  (30.0f)/60.0f,
         fire_delay_time: (5.0f)/60.0f,
         fire_window:     (5.0f)/60.0f,
+        fire_cooldown_time: 30.0f/60.0f,
+        fire_stun_time:     5.0f/60.0f,
 
         aim_timer: 20.0f/60.0f,
         aim_max_angle: deg_to_rad(40),
@@ -604,6 +622,8 @@ __gshared Tank_Type[] g_tank_types = [
         fire_delay_min:  (60.0f)/60.0f,
         fire_delay_time: (5.0f)/60.0f,
         fire_window:     (5.0f)/60.0f,
+        fire_cooldown_time: 60.0f/60.0f,
+        fire_stun_time:     5.0f/60.0f,
 
         aim_timer: 30.0f/60.0f,
         aim_max_angle: deg_to_rad(80),
@@ -622,6 +642,8 @@ __gshared Tank_Type[] g_tank_types = [
         fire_delay_min:  (30.0f)/60.0f,
         fire_delay_time: (5.0f)/60.0f,
         fire_window:     (5.0f)/60.0f,
+        fire_cooldown_time: 30.0f/60.0f,
+        fire_stun_time:     5.0f/60.0f,
 
         aim_timer: 30.0f/60.0f,
         aim_max_angle: deg_to_rad(40),
@@ -640,6 +662,8 @@ __gshared Tank_Type[] g_tank_types = [
         fire_delay_min:  (60.0f)/60.0f,
         fire_delay_time: (5.0f)/60.0f,
         fire_window:     (5.0f)/60.0f,
+        fire_cooldown_time: 60.0f/60.0f,
+        fire_stun_time:     10.0f/60.0f,
 
         aim_timer: 20.0f/60.0f,
         aim_max_angle: deg_to_rad(5),
@@ -1557,7 +1581,8 @@ float rotate_towards(float angle, float target_angle, float speed){
 void apply_tank_commands(App_State* s, Entity* e, Tank_Commands* input, float dt){
     auto tank_info = get_tank_info(&s.campaign, e);
 
-    if(input.turn_angle != 0.0f){
+    bool can_move = e.fire_stun_timer <= 0.0f;
+    if(input.turn_angle != 0.0f && can_move){
         float rot_speed = (PI)*dt;
         auto rotation   = rotate_tank_part(input.turn_angle, rot_speed, &e.target_angle);
         e.angle += rotation;
@@ -1577,7 +1602,7 @@ void apply_tank_commands(App_State* s, Entity* e, Tank_Commands* input, float dt
     e.vel = Vec2(0, 0);
     auto facing = vec2_from_angle(e.angle);
     float speed = tank_info.speed;
-    if(input.move_dir != 0){
+    if(input.move_dir != 0 && can_move){
         e.vel = facing*(speed*cast(float)input.move_dir);
         e.total_meters_moved += speed*dt;
     }
@@ -1590,13 +1615,15 @@ void apply_tank_commands(App_State* s, Entity* e, Tank_Commands* input, float dt
         }
     }
 
-    if(input.fire_bullet){
+    if(input.fire_bullet && e.fire_cooldown_timer <= 0.0f){
         auto turret_dir = vec2_from_angle(e.turret_angle);
         auto spawn_pos = get_bullet_spawn_pos(e.pos, turret_dir);
 
         auto count = get_child_entity_count(&s.world, e.id, Entity_Type.Bullet);
         if(count < tank_info.bullet_limit
         && !is_circle_inside_block(&s.world, spawn_pos, Bullet_Radius)){
+            e.fire_stun_timer     = tank_info.fire_stun_time;
+            e.fire_cooldown_timer = tank_info.fire_cooldown_time;
             auto bullet = spawn_bullet(&s.world, e, tank_info, spawn_pos, turret_dir);
             auto pitch = random_f32_between(&s.rng, 1.0f - 0.10f, 1.0f + 0.10f);
             play_sfx(&s.sfx_fire_bullet, 0, 1.0f, pitch);
@@ -1843,6 +1870,8 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
                         handle_enemy_ai(s, &e, &commands, dt);
                     }
 
+                    e.fire_cooldown_timer -= dt;
+                    e.fire_stun_timer -= dt;
                     apply_tank_commands(s, &e, &commands, dt);
 
                     if(e.id == s.player_entity_id){
