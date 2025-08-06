@@ -2403,7 +2403,7 @@ extern(C) int main(int args_count, char** args){
     light.ambient  = light_color*0.15f;
     light.diffuse  = light_color;
     light.specular = light_color;
-    light.pos      = Vec3(0, 6, 6);
+    light.pos      = Vec3(12, 16, -16); // TODO: Make this relative to the center of the map? We could even rotate it to be fancy!
 
     setup_basic_material(&s.material_ground, s.img_wood);
     setup_basic_material(&s.material_player_tank[0], s.img_blank_mesh, Vec3(0.1f, 0.1f, 0.6f), 256);

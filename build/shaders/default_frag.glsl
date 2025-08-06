@@ -33,7 +33,7 @@ vec3 blend_additive(vec3 src, vec3 dest){
 
 // NOTE: Adapted from the following:
 // https://learnopengl.com/Advanced-Lighting/Shadows/Shadow-Mapping
-float calulcate_shadow(vec4 pos_in_lightspace){
+float calulcate_shadow(vec4 pos_in_lightspace, vec3 light_dir){
     vec3 clip_space = pos_in_lightspace.xyz / pos_in_lightspace.w; // Perspective divide
     vec3 uvs = clip_space * 0.5 + 0.5;
     float shadow_depth = texture(texture_shadow_map, uvs.xy).r;
@@ -43,8 +43,7 @@ float calulcate_shadow(vec4 pos_in_lightspace){
 
 void main(){
     vec3 view_dir  = normalize(camera_pos - f_world_pos);
-    //vec3 light_dir = normalize(f_world_pos - light_pos);
-    vec3 light_dir = vec3(0, -1, -0.75);
+    vec3 light_dir = normalize(f_world_pos - light_pos);
     vec3 normal    = normalize(f_normal); // Account for shortened normals thanks to interlolation. Thanks to https://stackoverflow.com/a/29720519
 
     // Phong shading adapted from both learnopengl.com and Tom Dalling's blog on Modern OpenGL.
@@ -74,7 +73,7 @@ void main(){
     float specular_intensity = pow(max(dot(normal, half_vector), 0.0), material.shininess);
     vec3 specular = light_specular * (diffuse_intensity*specular_intensity * material.specular);
 
-    float shadow = calulcate_shadow(f_pos_in_lightspace);
+    float shadow = calulcate_shadow(f_pos_in_lightspace, light_dir);
 
     vec3 linear_color = ambient + (diffuse + specular)*(1.0-shadow);
     out_color = vec4(linear_color, 1.0f);
