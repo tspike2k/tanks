@@ -320,6 +320,8 @@ struct App_State{
     Font font_main;
     Font font_editor_small;
 
+    Shader_Light light;
+
     Sound sfx_fire_bullet;
     Sound sfx_explosion;
     Sound sfx_treads;
@@ -1808,6 +1810,11 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
     // TODO: Store the world bounds in the app_state somewhere? We seem to need it a lot.
     auto map = get_current_map(s);
     auto world_bounds = rect_from_min_max(Vec2(0, 0), Vec2(map.width, map.height));
+
+    float light_radius = 16.0f;
+    s.light.pos.x = cos(s.t*0.25f)*light_radius;
+    s.light.pos.z = sin(s.t*0.25f)*light_radius;
+
     foreach(ref e; iterate_entities(&s.world)){
         if(is_dynamic_entity(e.type) && !is_destroyed(&e)){
             float meters_moved_prev = e.total_meters_moved;
@@ -2398,12 +2405,11 @@ extern(C) int main(int args_count, char** args){
     s.img_wood        = load_texture_from_file("./build/wood.tga", 0, &s.frame_memory);
     s.img_smoke       = load_texture_from_file("./build/smoke.tga", 0, &s.frame_memory);
 
-    Shader_Light light = void;
     Vec3 light_color = Vec3(1.0f, 1.0f, 1.0f);
-    light.ambient  = light_color*0.15f;
-    light.diffuse  = light_color;
-    light.specular = light_color;
-    light.pos      = Vec3(12, 16, -16); // TODO: Make this relative to the center of the map? We could even rotate it to be fancy!
+    s.light.ambient  = light_color*0.15f;
+    s.light.diffuse  = light_color;
+    s.light.specular = light_color;
+    s.light.pos      = Vec3(0, 16, 0); // TODO: Make this relative to the center of the map? We could even rotate it to be fancy!
 
     setup_basic_material(&s.material_ground, s.img_wood);
     setup_basic_material(&s.material_player_tank[0], s.img_blank_mesh, Vec3(0.1f, 0.1f, 0.6f), 256);
@@ -2516,7 +2522,7 @@ extern(C) int main(int args_count, char** args){
 
         Camera shadow_map_camera = void;
         auto world_up_vector = Vec3(0, 1, 0);
-        set_shadow_map_camera(&shadow_map_camera, &light, s.world_camera_target_pos, world_up_vector);
+        set_shadow_map_camera(&shadow_map_camera, &s.light, s.world_camera_target_pos, world_up_vector);
 
         Camera world_camera = void;
         set_world_projection(&world_camera, map.width+2, map.height+2, window_aspect_ratio);
@@ -2544,7 +2550,7 @@ extern(C) int main(int args_count, char** args){
 
         render_passes.world = add_render_pass(&world_camera);
         set_shader(render_passes.world, &s.shader);
-        set_light(render_passes.world, &light);
+        set_light(render_passes.world, &s.light);
 
         g_debug_render_pass = add_render_pass(&world_camera);
         set_shader(g_debug_render_pass, &s.text_shader);
