@@ -1,6 +1,7 @@
 in vec2     f_uv;
 in vec3     f_normal;
 in vec3     f_world_pos;
+in vec4     f_pos_in_lightspace;
 flat in int f_material_index;
 
 out vec4 out_color; // TODO: This should probably be called v_color
@@ -15,7 +16,8 @@ layout(std140) uniform Materials{
     Material[Materials_Max] materials;
 };
 
-uniform sampler2D texture_diffuse[Materials_Max];
+uniform sampler2D texture_diffuse;
+uniform sampler2D texture_shadow_map;
 
 layout(std140) uniform Light{
     vec3  light_pos;
@@ -27,6 +29,16 @@ layout(std140) uniform Light{
 vec3 blend_additive(vec3 src, vec3 dest){
     // Adapted from  github.com/jamieowen/glsl-blend
     return min(src+dest, vec3(1.0f));
+}
+
+// NOTE: Adapted from the following:
+// https://learnopengl.com/Advanced-Lighting/Shadows/Shadow-Mapping
+float calulcate_shadow(vec4 pos_in_lightspace){
+    vec3 clip_space = pos_in_lightspace.xyz / pos_in_lightspace.w; // Perspective divide
+    vec3 uvs = clip_space * 0.5 + 0.5;
+    float shadow_depth = texture(texture_shadow_map, uvs.xy).r;
+    float result = uvs.z > shadow_depth ? 1.0 : 0.0;
+    return result;
 }
 
 void main(){
@@ -41,25 +53,12 @@ void main(){
     // https://learnopengl.com/Advanced-Lighting/Advanced-Lighting
 
     Material material = materials[f_material_index];
-
-    // NOTE: Hack for GLSL 330. This version of GLSL doesn't allow one to index into an array of
-    // samplers. Idea adapted from the following:
-    // https://gamedev.net/forums/topic/659836-glsl-330-sampler2d-array-access-via-vertex-attribute/
-    // https://stackoverflow.com/questions/45167538/error-sampler-arrays-indexed-with-non-constant-expressions-are-forbidden-in-gl
-    vec4 texture_color = vec4(0);
-    switch(f_material_index){
-        case 0:
-            texture_color = texture(texture_diffuse[0], f_uv); break;
-
-        case 1:
-            texture_color = texture(texture_diffuse[1], f_uv); break;
-    }
+    vec4 texture_color = texture(texture_diffuse, f_uv);
 
     //vec3 ambient = light_ambient * material_ambient;
     vec3 ambient = light_ambient * texture_color.rgb;
 
     float diffuse_intensity = max(dot(normal, -light_dir), 0.0);
-
 
     vec3 material_diffuse = blend_additive(texture_color.rgb, material.tint);
     vec3 diffuse = light_diffuse * diffuse_intensity * material_diffuse;
@@ -75,6 +74,8 @@ void main(){
     float specular_intensity = pow(max(dot(normal, half_vector), 0.0), material.shininess);
     vec3 specular = light_specular * (diffuse_intensity*specular_intensity * material.specular);
 
-    vec3 linear_color = ambient + diffuse + specular;
+    float shadow = calulcate_shadow(f_pos_in_lightspace);
+
+    vec3 linear_color = ambient + (diffuse + specular)*(1.0-shadow);
     out_color = vec4(linear_color, 1.0f);
 }

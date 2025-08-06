@@ -334,6 +334,7 @@ struct App_State{
     Shader text_shader;
     Shader rect_shader;
     Shader shadow_map_shader;
+    Shader view_depth;
 
     Mesh cube_mesh;
     Mesh tank_base_mesh;
@@ -2381,6 +2382,7 @@ extern(C) int main(int args_count, char** args){
     load_shader(&s.text_shader, "text", shaders_dir, &s.frame_memory);
     load_shader(&s.rect_shader, "rect", shaders_dir, &s.frame_memory);
     load_shader(&s.shadow_map_shader, "shadow_map", shaders_dir, &s.frame_memory);
+    load_shader(&s.view_depth, "view_depth", shaders_dir, &s.frame_memory);
 
     s.sfx_fire_bullet = load_wave_file("./build/fire_bullet.wav", Audio_Frames_Per_Sec, &s.main_memory);
     s.sfx_explosion   = load_wave_file("./build/explosion.wav", Audio_Frames_Per_Sec, &s.main_memory);
@@ -2738,7 +2740,7 @@ extern(C) int main(int args_count, char** args){
 
         render_gui(&s.gui, &hud_camera, &s.rect_shader, &s.text_shader);
 
-        set_texture(render_passes.hud_rects, get_shadow_map_texture());
+        set_shader(render_passes.hud_rects, &s.view_depth);
         render_rect(render_passes.hud_rects, Rect(Vec2(200, 200), Vec2(100, 100)), Vec4(1, 1, 1, 1));
 
         // Circle vs OBB test

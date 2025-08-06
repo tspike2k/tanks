@@ -26,7 +26,6 @@ private{
     __gshared Allocator*   g_allocator;
     __gshared Texture[Texture_Index_Max] g_active_textures;
     __gshared Texture      g_current_texture;
-    __gshared Texture      g_shadow_map_texture;
     __gshared Render_Pass* g_render_pass_first;
     __gshared Render_Pass* g_render_pass_last;
 
@@ -95,6 +94,7 @@ struct Shader_Constants{
     Vec3  camera_pos;
     float time;
     Mat4  mat_model;
+    Mat4  mat_light;
 }
 
 struct Material{
@@ -459,11 +459,6 @@ float get_text_width(Font* font, String text){
             prev_codepoint = c;
         }
     }
-    return result;
-}
-
-Texture get_shadow_map_texture(){
-    auto result = g_shadow_map_texture;
     return result;
 }
 
@@ -846,7 +841,6 @@ version(opengl){
             return false;
         }
 
-        g_shadow_map_texture = shadow_map_texture;
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glBindTexture(GL_TEXTURE_2D, 0);
         glActiveTexture(GL_TEXTURE0);
@@ -894,6 +888,13 @@ version(opengl){
                 case Render_Target.Shadow_Map:{
                     glBindFramebuffer(GL_FRAMEBUFFER, g_shadow_map_framebuffer);
                     set_viewport(rect_from_min_max(Vec2(0, 0), Vec2(Shadow_Map_Width, Shadow_Map_Height)));
+
+                    auto camera = pass.camera;
+                    auto x_form = transpose(camera.proj.mat*camera.view.mat);
+                    glBindBuffer(GL_UNIFORM_BUFFER, g_shader_constants_buffer);
+                    glBufferSubData(
+                        GL_UNIFORM_BUFFER, Shader_Constants.mat_light.offsetof, Mat4.sizeof, &x_form
+                    );
                 } break;
             }
 
@@ -1324,8 +1325,10 @@ version(opengl){
     extern(C) void debug_msg_callback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length,
                                       const(GLchar)* message, const(void*) userParam){
         if(severity != GL_DEBUG_SEVERITY_NOTIFICATION){
-            log(message[0 .. strlen(message)]);
-            log("\n");
+            auto msg = message[0 .. strlen(message)];
+            log("{0}\n", msg);
+            assert(msg != "Program/shader state performance warning: Vertex shader in program 1 is being recompiled based on GL st
+ate.");
         }
     }
 

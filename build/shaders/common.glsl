@@ -7,6 +7,7 @@ layout(std140) uniform Constants{
     vec3  camera_pos; // TODO: Is there some way to do lighting without this?
     float time;
     mat4  mat_model;
+    mat4  mat_light;
 };
 
 
