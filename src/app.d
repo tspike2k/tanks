@@ -10,7 +10,7 @@ Credits:
     TheGoldfishKing for the equally helpful "Tanks_Documentation"
 
 TODO:
-    - Billboard particles (Explosions, smoke, etc)
+    - Billboard particles for explosions
     - High score tracking
     - Better scoring
     - Better mine behavior. Should only activate after parent exits placement radius.
@@ -24,11 +24,10 @@ TODO:
     - When billboards (such as smoke) are placed exactly horizontally, they do not sort properly; they stay in the order they were spawned. Sorting by life would probably be the right call in that situation.
     - Finish porting over tank params
     - Improve enemy tank aim detection. They occasionally miss or hit their own. Not true to the original at all.
-    - Drain audio when exiting? Right now quitting the game will cause audio playing in the
-      background to stutter.
     - Enemy firing sight tests can pass through blocks when the origin of the bulelt spawn
       position is inside a block.
     - Billboards overwrite debug sight lines. We should probably fix that.
+    - Decals aren't affected by light. Is that worth fixing?
 
 Sound effects:
     - Firing missile (Can we just up-pitch the normal shot sound?)
@@ -275,7 +274,9 @@ struct Render_Passes{
     Render_Pass* shadow_map;
     Render_Pass* holes;
     Render_Pass* hole_cutouts;
+    Render_Pass* ground;
     Render_Pass* world;
+    Render_Pass* particles;
     Render_Pass* hud_rects;
     Render_Pass* hud_text;
 }
@@ -1510,9 +1511,7 @@ void render_entity(App_State* s, Entity* e, Render_Passes rp, bool highlighted =
             }
             else{
                 auto bounds = Rect(e.pos, Vec2(0.5f, 0.5f));
-                set_shader(rp.world, &s.text_shader); // TODO: Have a decal shader?
-                render_ground_decal(rp.world, bounds, Vec4(1, 1, 1, 1), 0, s.img_x_mark);
-                set_shader(rp.world, &s.shader); // TODO: Use a push/pop shader interface?
+                render_ground_decal(rp.ground, bounds, Vec4(1, 1, 1, 1), 0, s.img_x_mark);
             }
         } break;
 
@@ -2549,6 +2548,7 @@ extern(C) int main(int args_count, char** args){
     auto target_latency = (Audio_Frames_Per_Sec/60)*3;   // TODO: Should be configurable by the user
     auto mixer_buffer_size_in_frames = target_latency*2; // TODO: Should be configurable by the user
     audio_init(Audio_Frames_Per_Sec, 2, target_latency, mixer_buffer_size_in_frames, &s.main_memory);
+    scope(exit) audio_shutdown();
 
     //s.mode = Game_Mode.Campaign;
     s.mode = Game_Mode.Menu;
@@ -2626,6 +2626,10 @@ extern(C) int main(int args_count, char** args){
         set_shader(render_passes.hole_cutouts, &s.shader); // TODO: We should use a more stripped-down shader for this. We don't need lighting!
         render_passes.hole_cutouts.flags = Render_Flag_Disable_Culling|Render_Flag_Disable_Color;
 
+        render_passes.ground = add_render_pass(&world_camera);
+        set_shader(render_passes.ground, &s.shader);
+        render_passes.ground.flags = Render_Flag_Decal_Depth_Test;
+
         render_passes.world = add_render_pass(&world_camera);
         set_shader(render_passes.world, &s.shader);
         set_light(render_passes.world, &s.light);
@@ -2633,6 +2637,9 @@ extern(C) int main(int args_count, char** args){
         g_debug_render_pass = add_render_pass(&world_camera);
         set_shader(g_debug_render_pass, &s.text_shader);
         set_texture(g_debug_render_pass, s.img_blank_rect);
+
+        render_passes.particles = add_render_pass(&world_camera);
+        set_shader(render_passes.particles, &s.text_shader);
 
         render_passes.hud_rects = add_render_pass(&hud_camera);
         set_shader(render_passes.hud_rects, &s.text_shader);
@@ -2703,18 +2710,19 @@ extern(C) int main(int args_count, char** args){
 
             case Game_Mode.Campaign:{
                 if(s.session.state != Session_State.Mission_Intro){
-                    render_ground(s, render_passes.world, s.world.bounds);
+                    render_ground(s, render_passes.ground, s.world.bounds);
+                    // Prepare the ground render pass for decals
+                    set_shader(render_passes.ground, &s.text_shader); // TODO: Do we need a decals shader?
 
                     foreach(ref e; iterate_entities(&s.world)){
                         render_entity(s, &e, render_passes);
                     }
                 }
 
-                set_shader(render_passes.world, &s.text_shader);
                 foreach(ref p; get_particles(&s.emitter_treadmarks)){
                     render_ground_decal(
-                        render_passes.world, Rect(p.pos, Vec2(0.25f, 0.10f)), Vec4(1, 1, 1, 1),
-                        p.angle, s.img_tread_marks
+                        render_passes.ground, Rect(p.pos, Vec2(0.25f, 0.10f)),
+                        Vec4(1, 1, 1, 1), p.angle, s.img_tread_marks
                     );
                 }
 
@@ -2735,11 +2743,10 @@ extern(C) int main(int args_count, char** args){
 
                         auto pos = world_to_render_pos(p.pos) + Bullet_Ground_Offset;
                         render_particle(
-                            render_passes.world, pos, Vec2(0.25f, 0.25f), Vec4(1, 1, 1, alpha),
+                            render_passes.particles, pos, Vec2(0.25f, 0.25f), Vec4(1, 1, 1, alpha),
                             s.img_smoke, p.angle
                         );
                     }
-
                 }
 
                 switch(s.session.state){

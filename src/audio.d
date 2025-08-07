@@ -299,6 +299,14 @@ version(linux){
         return true;
     }
 
+    public void audio_shutdown(){
+        if(g_has_audio){
+            snd_pcm_close(g_pcm_handle);
+            g_pcm_handle = null;
+            g_has_audio = false;
+        }
+    }
+
     private size_t get_frames_avail(){
         size_t result = 0;
 

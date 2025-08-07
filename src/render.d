@@ -51,6 +51,7 @@ enum{
     Render_Flag_Disable_Culling    = (1 << 0),
     Render_Flag_Disable_Color      = (1 << 1),
     Render_Flag_Disable_Depth_Test = (1 << 2),
+    Render_Flag_Decal_Depth_Test   = (1 << 3),
 }
 
 // To keep from having to juggle seperate vertex formats between quads and meshes,
@@ -929,6 +930,10 @@ version(opengl){
                 glDisable(GL_DEPTH_TEST);
             }
 
+            if(pass.flags & Render_Flag_Decal_Depth_Test){
+                glDepthFunc(GL_LEQUAL);
+            }
+
             Material* material;
             Shader* shader;
             Shader_Light* light;
@@ -997,7 +1002,7 @@ version(opengl){
                         auto p2 = center - p_up - p_right;
                         auto p3 = center - p_up + p_right;
 
-                        auto offset = Vec3(0, 0.1f, 0);
+                        auto offset = Vec3(0, 0.001f, 0);
                         Vertex[4] v = void;
                         set_quad(
                             v[],
@@ -1202,6 +1207,10 @@ version(opengl){
 
             if(pass.flags & Render_Flag_Disable_Depth_Test){
                 glEnable(GL_DEPTH_TEST);
+            }
+
+            if(pass.flags & Render_Flag_Decal_Depth_Test){
+                glDepthFunc(GL_LESS);
             }
 
             pass = pass.next;
