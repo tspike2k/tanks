@@ -10,9 +10,9 @@ Credits:
     TheGoldfishKing for the equally helpful "Tanks_Documentation"
 
 TODO:
-    - Billboard particles for explosions
+    - Billboard particles for explosions and breaking blocks
     - High score tracking
-    - Better scoring
+    - Better scoring (Have both point and kill-based scoring)
     - Better mine behavior. Should only activate after parent exits placement radius.
     - Multiplayer
     - Temp saves
@@ -21,13 +21,15 @@ TODO:
     - Bullet can get lodged between two blocks, destroying it before the player sees it reflected.
     - Improved collision handling
     - Switch to high-score list on game over. Highlight you're current score if it's been added.
-    - When billboards (such as smoke) are placed exactly horizontally, they do not sort properly; they stay in the order they were spawned. Sorting by life would probably be the right call in that situation.
+    - When billboards (such as smoke) are placed exactly horizontally, they do not sort properly;
+      they stay in the order they were spawned. Sorting by life would probably be the right call
+      in that situation.
     - Finish porting over tank params
     - Improve enemy tank aim detection. They occasionally miss or hit their own. Not true to the original at all.
     - Enemy firing sight tests can pass through blocks when the origin of the bulelt spawn
       position is inside a block.
-    - Billboards overwrite debug sight lines. We should probably fix that.
     - Decals aren't affected by light. Is that worth fixing?
+    - Mouse input for menus.
 
 Sound effects:
     - Firing missile (Can we just up-pitch the normal shot sound?)
@@ -64,8 +66,6 @@ enum Audio_Frames_Per_Sec = 44100;
 
 enum Campaign_File_Name = "./build/main.camp"; // TODO: Use a specific folder for campaigns?
 
-enum Max_Mines_Per_Tank   = 3;
-
 enum Mine_Detonation_Time    = 8.0f;
 enum Mine_Explosion_End_Time = Mine_Detonation_Time + 1.0f;
 
@@ -75,7 +75,7 @@ enum Mission_End_Max_Time   = 3.0f;
 
 enum Text_White = Vec4(1, 1, 1, 1);
 
-// NOTE: Enemies are limited by the number of bytes that encode a map cell.
+// NOTE: Enemies are limited by the number of bytes that can be encoded into a map cell.
 enum Max_Enemies = 16;
 enum Max_Players = 4;
 
@@ -226,11 +226,15 @@ void load_campaign_level(App_State* s, Campaign* campaign, uint mission_index){
 
     uint next_map_index = mission.map_index_min;
     if(mission.map_index_min != mission.map_index_max){
-        // TODO: Support random maps. But pick a map that wasn't chosen last time!
-        assert(0);
+        // Pick a random map that wasn't picked last time.
+        while(true){
+            next_map_index = random_u32_between(&s.rng, mission.map_index_min, mission.map_index_max+1);
+            if(next_map_index != s.session.prev_map_index)
+                break;
+        }
     }
     s.session.prev_map_index = s.session.map_index;
-    s.session.map_index = next_map_index; // TODO: Clamp the mission index to variant.maps.length?
+    s.session.map_index = min(next_map_index, cast(uint)campaign.maps.length-1); // Sanity check
 
     auto map = &campaign.maps[s.session.map_index];
     s.world.bounds = rect_from_min_max(Vec2(0, 0), Vec2(map.width, map.height));
@@ -510,6 +514,8 @@ __gshared Tank_Type[] g_tank_types = [
         bullet_ricochets:   1,
         bullet_speed:       3.0f,
 
+        mine_limit:         2,
+
         fire_cooldown_time: 6.0f/60.0f,
         fire_stun_time:     5.0f/60.0f,
     },
@@ -523,6 +529,8 @@ __gshared Tank_Type[] g_tank_types = [
         bullet_limit:     1,
         bullet_ricochets: 1,
         bullet_speed:     3.0f,
+
+        mine_limit:       0,
 
         fire_delay_min:  (300.0f)/60.0f,
         fire_delay_time: (30.0f)/60.0f,
@@ -544,6 +552,8 @@ __gshared Tank_Type[] g_tank_types = [
         bullet_ricochets: 1,
         bullet_speed:     3.0f,
 
+        mine_limit:       0,
+
         fire_delay_min:  (180.0f)/60.0f,
         fire_delay_time: (30.0f)/60.0f,
         fire_window:     (15.0f)/60.0f,
@@ -563,6 +573,8 @@ __gshared Tank_Type[] g_tank_types = [
         bullet_limit:     1,
         bullet_ricochets: 0,
         bullet_speed:     6.0f,
+
+        mine_limit:       0,
 
         fire_delay_min:  (180.0f)/60.0f,
         fire_delay_time: (5.0f)/60.0f,
@@ -584,6 +596,8 @@ __gshared Tank_Type[] g_tank_types = [
         bullet_ricochets: 1,
         bullet_speed:     3.0f,
 
+        mine_limit:       0,
+
         fire_delay_min:  (30.0f)/60.0f,
         fire_delay_time: (5.0f)/60.0f,
         fire_window:     (5.0f)/60.0f,
@@ -603,6 +617,8 @@ __gshared Tank_Type[] g_tank_types = [
         bullet_limit:     1,
         bullet_ricochets: 1,
         bullet_speed:     3.0f,
+
+        mine_limit:       4,
 
         fire_delay_min:  (180.0f)/60.0f,
         fire_delay_time: (30.0f)/60.0f,
@@ -624,6 +640,8 @@ __gshared Tank_Type[] g_tank_types = [
         bullet_ricochets: 1,
         bullet_speed:     3.0f,
 
+        mine_limit:       2,
+
         fire_delay_min:  (30.0f)/60.0f,
         fire_delay_time: (5.0f)/60.0f,
         fire_window:     (5.0f)/60.0f,
@@ -643,6 +661,8 @@ __gshared Tank_Type[] g_tank_types = [
         bullet_limit:     2,
         bullet_ricochets: 2,
         bullet_speed:     6.0f,
+
+        mine_limit:       0,
 
         fire_delay_min:  (60.0f)/60.0f,
         fire_delay_time: (5.0f)/60.0f,
@@ -664,6 +684,8 @@ __gshared Tank_Type[] g_tank_types = [
         bullet_ricochets: 1,
         bullet_speed:     3.0f,
 
+        mine_limit:       2,
+
         fire_delay_min:  (30.0f)/60.0f,
         fire_delay_time: (5.0f)/60.0f,
         fire_window:     (5.0f)/60.0f,
@@ -683,6 +705,8 @@ __gshared Tank_Type[] g_tank_types = [
         bullet_limit:     3,
         bullet_ricochets: 0,
         bullet_speed:     6.0f,
+
+        mine_limit:       2,
 
         fire_delay_min:  (60.0f)/60.0f,
         fire_delay_time: (5.0f)/60.0f,
@@ -859,27 +883,24 @@ bool load_shader(Shader* shader, String name, String path, Allocator* allocator)
     scope(exit) pop_frame(allocator.scratch);
 
     auto scratch = allocator.scratch;
-    auto vertex_file_name   = make_file_path(path, concat(name, "_vert.glsl", scratch), scratch);
-    auto fragment_file_name = make_file_path(path, concat(name, "_frag.glsl", scratch), scratch);
+    auto sep = to_string(Dir_Char);
+    path = trim_ending_if_char(path, Dir_Char);
 
-    // TODO: For now, we are wasting HUGE amounts of memory here by duplicating strings.
-    // What we really want to do is to be able to concatonate strings *in-place.* To do
-    // that we may need to re-think how we're handling allocators.
+    auto vertex_file_name   = concat(path, sep, name, "_vert." ~ Shader_File_Extension, scratch);
+    auto fragment_file_name = concat(path, sep, name, "_frag." ~ Shader_File_Extension, scratch);
+    auto preamble_file_name = concat(path, sep, "common." ~ Shader_File_Extension, scratch);
 
-    // TODO: Generate filepat using "path" parameter
-    auto shader_preamble = cast(char[])read_file_into_memory("./build/shaders/common.glsl", scratch);
+    auto shader_preamble = cast(char[])read_file_into_memory(preamble_file_name, scratch);
 
-    auto writer = Allocator(begin_reserve_all(scratch), 0);
+    auto writer = begin_buffer_writer(scratch);
     put_raw_string(shader_preamble, &writer);
     read_file_into_memory(vertex_file_name, &writer);
-    auto vertex_source = cast(char[])writer.memory[0 .. writer.used];
-    end_reserve_all(scratch, writer.memory[], writer.used);
+    auto vertex_source = end_buffer_writer(scratch, &writer);
 
-    writer = Allocator(begin_reserve_all(scratch), 0);
+    writer = begin_buffer_writer(scratch);
     put_raw_string(shader_preamble, &writer);
     read_file_into_memory(fragment_file_name, &writer);
-    auto fragment_source = cast(char[])writer.memory[0 .. writer.used];
-    end_reserve_all(scratch, writer.memory[], writer.used);
+    auto fragment_source =  end_buffer_writer(scratch, &writer);
 
     // TODO: Error handling?
     auto succeeded = compile_shader(shader, name, vertex_source, fragment_source);
@@ -1373,11 +1394,22 @@ Vec2 integrate(Vec2* vel, Vec2 accel, float dt){
     return result;
 }
 
-bool load_font(String file_name, Font* font, Allocator* allocator){
+String trim_path(String path){
+    auto result = trim_ending_if_char(path, Dir_Char);
+    return result;
+}
+
+bool load_font(String file_path, String file_name, Font* font, Allocator* allocator){
+    auto scratch = allocator.scratch;
+    push_frame(scratch);
+    scope(exit) pop_frame(scratch);
+
+    auto full_path = concat(trim_path(file_path), to_string(Dir_Char), file_name, scratch);
+
     bool result = false;
     Font source;
     Pixels pixels;
-    if(load_font_from_file(file_name, &source, &pixels, allocator)){
+    if(load_font_from_file(full_path, &source, &pixels, allocator)){
         font.metrics = source.metrics;
         font.glyphs  = dup_array(source.glyphs, allocator);
         if(source.kerning_pairs.length && source.kerning_pairs.length == source.kerning_advance.length){
@@ -1633,7 +1665,7 @@ void apply_tank_commands(App_State* s, Entity* e, Tank_Commands* input, float dt
 
     if(input.place_mine){
         auto count = get_child_entity_count(&s.world, e.id, Entity_Type.Mine);
-        if(count < Max_Mines_Per_Tank){
+        if(count < tank_info.mine_limit){
             play_sfx(&s.sfx_mine_click, 0, 2.0f);
             spawn_mine(&s.world, e.pos, e.id);
         }
@@ -2446,11 +2478,14 @@ extern(C) int main(int args_count, char** args){
     }
     scope(exit) render_close();
 
-    seed(&s.rng, 1247865); // TODO: Seed using time values?
+    seed(&s.rng, 1247865); // TODO: Seed using current time value?
+
+    auto base_path = get_path_to_executable(&s.main_memory);
+    auto font_path = base_path;
 
     // TODO: Build the directory using the path to the application
-    load_font("./build/test_en.fnt", &s.font_main, &s.main_memory);
-    load_font("./build/editor_small_en.fnt", &s.font_editor_small, &s.main_memory);
+    load_font(font_path, "test_en.fnt", &s.font_main, &s.main_memory);
+    load_font(font_path, "editor_small_en.fnt", &s.font_editor_small, &s.main_memory);
 
     //auto teapot_mesh = load_mesh_from_obj("./build/teapot.obj", &s.main_memory);
     s.cube_mesh        = load_mesh_from_obj("./build/cube.obj", &s.main_memory);
@@ -2461,7 +2496,7 @@ extern(C) int main(int args_count, char** args){
     s.hole_mesh        = load_mesh_from_obj("./build/hole.obj", &s.main_memory);
     s.half_sphere_mesh = load_mesh_from_obj("./build/half_sphere.obj", &s.main_memory);
 
-    auto shaders_dir = "./build/shaders";
+    auto shaders_dir = "./build/shaders/"; // TODO: Get base directory using absolute path.
     load_shader(&s.shader, "default", shaders_dir, &s.frame_memory);
     load_shader(&s.text_shader, "text", shaders_dir, &s.frame_memory);
     load_shader(&s.rect_shader, "rect", shaders_dir, &s.frame_memory);
@@ -2486,7 +2521,7 @@ extern(C) int main(int args_count, char** args){
     s.light.ambient  = light_color*0.15f;
     s.light.diffuse  = light_color;
     s.light.specular = light_color;
-    s.light.pos      = Vec3(0, 16, 0); // TODO: Make this relative to the center of the map? We could even rotate it to be fancy!
+    s.light.pos      = Vec3(0, 16, 0);
 
     setup_basic_material(&s.material_ground, s.img_wood);
     setup_basic_material(&s.material_player_tank[0], s.img_blank_mesh, Vec3(0.1f, 0.1f, 0.6f), 256);

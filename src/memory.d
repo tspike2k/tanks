@@ -70,6 +70,17 @@ char[] concat(String a, String b, Allocator* allocator){
     return result;
 }
 
+// NOTE: This function null termiates the string, but returns a slice without the null terminator.
+char[] concat(Args...)(Args args, Allocator* allocator)
+if(Args.length > 2){ // TODO: Ensure Args are all strings
+    auto writer = begin_buffer_writer(allocator);
+    foreach(arg; args){
+        put_raw_string(arg, &writer);
+    }
+    auto result = end_buffer_writer(allocator, &writer);
+    return result;
+}
+
 // WARNING: This function does NOT append a null terminator!
 char[] put_raw_string(String s, Allocator* allocator){
     auto dest = alloc_array!char(allocator, s.length);
@@ -325,36 +336,18 @@ void end_reserve_all(Allocator* allocator, void[] buffer, size_t used){
 //
 ////
 
-// TODO: This should really be called "String_Writer."
-struct Buffer_Writer{
-    char[] buffer;
-    size_t used;
-
-    // TODO: Are methods almost impossible to debug in gdb? That would be a good reason
-    // to prefer not using them. The only reason we're using this method is to make it
-    // compatible with D Ranges.
-    void put(String text){
-        size_t bytes_left = buffer.length - used;
-        size_t to_write = text.length > bytes_left ? bytes_left : text.length;
-        copy(text[0 .. to_write], buffer[used .. used + to_write]);
-        used += to_write;
-    }
-}
-
-Buffer_Writer begin_buffer_writer(Allocator* allocator, size_t alignment = Default_Alignment){
+// TODO: Rename buffer_writer with string_writer
+Allocator begin_buffer_writer(Allocator* allocator, size_t alignment = Default_Alignment){
     auto memory = begin_reserve_all(allocator, alignment);
-    auto result = Buffer_Writer(cast(char[])memory);
+    auto result = Allocator(cast(char[])memory, 0);
     return result;
 }
 
-char[] end_buffer_writer(Allocator* allocator, Buffer_Writer* writer){
-    if(writer.buffer.length > 0 && writer.used > writer.buffer.length-1){
-        writer.used = writer.buffer.length-1;
-    }
-
-    end_reserve_all(allocator, writer.buffer, writer.used+1);
-    writer.buffer[writer.used] = '\0';
-    auto result = writer.buffer[0 .. writer.used];
+char[] end_buffer_writer(Allocator* allocator, Allocator* writer){
+    end_reserve_all(allocator, writer.memory, writer.used+1);
+    auto end = cast(char*)&writer.memory[writer.used];
+    *end = '\0';
+    auto result = cast(char[])writer.memory[0 .. writer.used];
     return result;
 }
 
@@ -388,6 +381,13 @@ bool is_match(String a, String b){
     return true;
 }
 
+// NOTE: Use nogc here for this function to ensure we don't trigger an allocation when using
+// an array literal.
+@nogc char[1] to_string(char c){
+    char[1] result = [c];
+    return result;
+}
+
 inout(char)[] to_string(inout(char)* s){
     auto result = s[0 .. strlen(s)];
     return result;
@@ -402,7 +402,7 @@ String eat_line(ref Reader_Slice reader){
     String result = reader;
     size_t reader_next = reader.length;
     foreach(i, c; reader){
-        if(c == '\n'){ // Handle Windows style line ends?
+        if(c == '\n'){ // TODO: Handle Windows style line ends?
             result = reader[0 .. i];
             reader_next = i+1;
             break;
@@ -413,7 +413,23 @@ String eat_line(ref Reader_Slice reader){
     return result;
 }
 
-inout(char)* get_last_char(Reader_Slice s, char target){
+inout(char)[] trim_after(inout(char)[] s, const(char)* place){
+    auto result = s;
+    if(place){
+        result = s[0 .. place - s.ptr];
+    }
+    return result;
+}
+
+inout(char)[] trim_ending_if_char(inout(char)[] s, char delimter){
+    auto result = s;
+    if(s.length > 0 && s[$-1] == delimter){
+        result = s[0..$-1];
+    }
+    return result;
+}
+
+inout(char)* get_last_char(inout(char)[] s, char target){
     inout(char)* result;
 
     foreach(ref c; s){
@@ -465,7 +481,7 @@ String eat_until_char(ref Reader_Slice reader, char delimiter){
 }
 
 // TODO: This is used by the obj parser. We should switch to using eat_until_char
-// once we iron out how it workds.
+// once we iron out how it works.
 String eat_between_char(ref Reader_Slice reader, char delimiter){
     String result = reader;
     foreach(i, c; reader){

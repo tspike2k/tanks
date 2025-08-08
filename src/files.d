@@ -10,10 +10,10 @@ private{
 }
 
 version(Windows){
-    enum Dir_Sep = "\\";
+    enum Dir_Char = '\\';
 }
 else{
-    enum Dir_Sep = "/";
+    enum Dir_Char = '/';
 }
 
 enum{
@@ -61,22 +61,6 @@ bool write_file_from_memory(const(char)[] file_name, void[] data){
         close_file(&file);
     }
     return success;
-}
-
-// TODO: Make sure the source args are Strings.
-char[] make_file_path(Args...)(Args args, Allocator* allocator)
-if(Args.length > 0){
-    auto writer = begin_buffer_writer(allocator);
-
-    foreach(arg; args[0 .. $-1]){
-        writer.put(arg);
-        writer.put(Dir_Sep);
-    }
-    writer.put(args[$-1]);
-
-    auto result = writer.buffer[0 .. writer.used];
-    end_buffer_writer(allocator, &writer);
-    return result;
 }
 
 enum File_Type: uint{
@@ -130,10 +114,7 @@ File open_file(const(char)[] file_name, uint flags){
     }
     else{
         // TODO: Better logging
-        log("Unable to open ");
-        log(file_name);
-        log("\n");
-        //log(Cyu_Err "Unable to open {0}.\n", fmt_cstr(file_path));
+        log_error("Unable to open {0}\n", file_name);
     }
     return result;
 }
@@ -174,7 +155,7 @@ struct Directory_Range{
 
     this(String dir_name, Allocator* allocator){
         assert(dir_name.length);
-        assert(dir_name[$-1] != Dir_Sep[0]);
+        assert(dir_name[$-1] != Dir_Char);
 
         scratch = allocator.scratch;
         push_frame(scratch);
@@ -218,9 +199,9 @@ struct Directory_Range{
             assert(!nodes.is_sentinel(top));
 
             auto writer = begin_buffer_writer(scratch);
-            writer.put(top.path);
-            writer.put(Dir_Sep);
-            writer.put(to_string(entry.d_name.ptr));
+            put_raw_string(top.path, &writer);
+            put_raw_string(to_string(Dir_Char), &writer);
+            put_raw_string(to_string(entry.d_name.ptr), &writer);
             auto path = end_buffer_writer(scratch, &writer);
 
             push_directory(path);
@@ -288,9 +269,9 @@ char[] get_full_path(Directory_Entry *dir, Allocator* allocator){
     assert(node.entry_stream);
 
     auto writer = begin_buffer_writer(allocator);
-    writer.put(node.path);
-    writer.put(Dir_Sep);
-    writer.put(to_string(node.entry_stream.d_name.ptr));
+    put_raw_string(node.path, &writer);
+    put_raw_string(to_string(Dir_Char), &writer);
+    put_raw_string(to_string(node.entry_stream.d_name.ptr), &writer);
     auto result = end_buffer_writer(allocator, &writer);
 
     return result;
@@ -345,26 +326,18 @@ size_t write_file(File *file, size_t offset, void[] data){
 char[] get_path_to_executable(Allocator* allocator){
     char[] result;
 
-    auto writer = begin_buffer_writer(allocator);
-    auto buffer = writer.buffer;
+    auto buffer = cast(char[])begin_reserve_all(allocator);
     ssize_t count = readlink("/proc/self/exe", buffer.ptr, buffer.length);
     if(count > 0){
         // Remove the trailing binary name from the result
-        char* c = get_last_char(buffer[0 .. count], '/');
-        if(c){
-            *c = '\0';
-            result = buffer[0 .. c - buffer.ptr];
-            writer.used += result.length + 1;
-            assert(result[$-1] != '\0');
-        }
-        else{
-            // TODO: Handle errors
-        }
+        result = buffer[0 .. count];
+        result = trim_after(result, get_last_char(buffer, '/'));
     }
     else{
         // TODO: Handle errors
     }
-    end_buffer_writer(allocator, &writer);
+    end_reserve_all(allocator, buffer[], result.length+1);
+    buffer[result.length] = '\0';
     return result;
 }
 

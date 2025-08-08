@@ -672,6 +672,8 @@ version(opengl){
     import math;
     import bind.opengl;
 
+    public enum Shader_File_Extension = "glsl";
+
     // TODO: Combine all the uniform blocks into one and use a single binding point?
     enum Constants_Uniform_Binding = 0;
     enum Materials_Uniform_Binding = 1;

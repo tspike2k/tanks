@@ -186,6 +186,8 @@ struct Tank_Type{
     uint  bullet_ricochets;
     float bullet_speed;
 
+    uint mine_limit;
+
     float obstacle_sight_dist; // Obstacle Awareness (Movement)
 
     float fire_delay_min;     // Word 37
