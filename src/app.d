@@ -66,8 +66,10 @@ enum Audio_Frames_Per_Sec = 44100;
 
 enum Campaign_File_Name = "./build/main.camp"; // TODO: Use a specific folder for campaigns?
 
-enum Mine_Detonation_Time    = 8.0f;
-enum Mine_Explosion_End_Time = Mine_Detonation_Time + 1.0f;
+enum Mine_Detonation_Time    = 10.0f;
+enum Mine_Explosion_End_Time = Mine_Detonation_Time + 0.5f;
+enum Mine_Explosion_Radius   = 2.0f;
+enum Mine_Activation_Dist    = Mine_Explosion_Radius;
 
 enum Mission_Intro_Max_Time = 3.0f;
 enum Mission_Start_Max_Time = 3.0f;
@@ -446,9 +448,13 @@ bool players_defeated(App_State* s){
     return result;
 }
 
+// Mine entity flags
+enum Entity_Flag_Mine_Active = (1<<0);
+
 struct Entity{
     Entity_ID   id;
     Entity_ID   parent_id;
+    ulong       flags;
     Entity_Type type;
     uint        tank_type_index;
 
@@ -1165,6 +1171,12 @@ Shape get_collision_shape(Entity* e){
     return result;
 }
 
+bool is_about_to_explode(Entity* e){
+    assert(e.type == Entity_Type.Mine);
+    bool result = e.mine_timer >= Mine_Detonation_Time - 2.0f;
+    return result;
+}
+
 bool is_exploding(Entity* e){
     assert(e.type == Entity_Type.Mine);
     bool result = e.mine_timer > Mine_Detonation_Time;
@@ -1445,12 +1457,16 @@ Material[] choose_materials(App_State* s, Entity* e, bool highlighted){
 
             case Entity_Type.Mine:{
                 if(is_exploding(e)){
-                    // TODO: The explosion should spin over time. This would only have any impact
-                    // once we add a texture to it.
                     result = (&s.material_eraser)[0..1]; // TODO: Have a dedicated explosion material
                 }
                 else{
                     result = (&s.material_block)[0..1];
+                    if(is_about_to_explode(e)){
+                        auto t = sin((e.mine_timer)*18.0f);
+                        if(t > 0){
+                            result = (&s.material_eraser)[0..1]; // TODO: Have a dedicated explosion material
+                        }
+                    }
                 }
             } break;
 
@@ -1562,18 +1578,21 @@ void render_entity(App_State* s, Entity* e, Render_Passes rp, bool highlighted =
         case Entity_Type.Mine:{
             // TODO: Dynamic material? This thing needs to blink. Perhaps we should have
             // a shader for that?
-            if(!is_exploding(e)){
-                auto x_form = mat4_translate(p)*mat4_scale(Vec3(0.5f, 0.5f, 0.5f));
-                render_mesh(rp.world, &s.half_sphere_mesh, materials, x_form);
-                render_mesh(rp.shadow_map, &s.half_sphere_mesh, materials, x_form);
-            }
-            else{
+            if(is_exploding(e)){
                 auto radius = e.extents.x;
                 auto scale = Vec3(radius, radius, radius)*2.0f;
+
+                // TODO: The explosion should spin over time. This would only have any impact
+                // once we add a texture to it.
                 render_mesh(
                     rp.world, &s.half_sphere_mesh, materials,
                     mat4_translate(p)*mat4_scale(scale)
                 );
+            }
+            else{
+                auto x_form = mat4_translate(p)*mat4_scale(Vec3(0.5f, 0.5f, 0.5f));
+                render_mesh(rp.world, &s.half_sphere_mesh, materials, x_form);
+                render_mesh(rp.shadow_map, &s.half_sphere_mesh, materials, x_form);
             }
         } break;
     }
@@ -1594,8 +1613,8 @@ void start_play_session(App_State* s, uint variant_index){
     s.session.lives = variant.lives;
     s.session.variant_index = variant_index;
 
-    //load_campaign_level(s, &s.campaign, s.session.mission_index);
-    load_campaign_level(s, &s.campaign, 5);
+    load_campaign_level(s, &s.campaign, s.session.mission_index);
+    //load_campaign_level(s, &s.campaign, 5);
 }
 
 float rotate_tank_part(float target_rot, float speed, float* rot_remaining){
@@ -1949,15 +1968,33 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
                 } break;
 
                 case Entity_Type.Mine:{
-                    e.mine_timer += dt;
-                    if(e.mine_timer > Mine_Explosion_End_Time){
-                        destroy_entity(&e);
+                    if(e.flags & Entity_Flag_Mine_Active){
+                        e.mine_timer += dt;
+                        if(e.mine_timer > Mine_Explosion_End_Time){
+                            destroy_entity(&e);
+                        }
+                        else if(is_exploding(&e)){
+                            auto t = normalized_range_clamp(e.mine_timer, Mine_Detonation_Time, Mine_Explosion_End_Time);
+                            auto radius = Mine_Explosion_Radius * sin(t);
+                            e.extents = Vec2(radius, radius);
+                        }
+                        else if(!is_about_to_explode(&e)){
+                            // Prime the mine to explode if a tank gets close enough
+                            foreach(ref target; iterate_entities(&s.world)){
+                                if(target.health > 0 && target.type == Entity_Type.Tank
+                                && dist_sq(target.pos, e.pos) < squared(Mine_Explosion_Radius)){
+                                    e.mine_timer = Mine_Detonation_Time - 0.5f;
+                                }
+                            }
+                        }
                     }
-                    else if(e.mine_timer > Mine_Detonation_Time){
-                        auto t = normalized_range_clamp(e.mine_timer, Mine_Detonation_Time, Mine_Explosion_End_Time);
-                        auto radius = 3.0f * sin(t);
-                        e.extents = Vec2(radius, radius);
+                    else{
+                        auto parent = get_entity_by_id(&s.world, e.parent_id);
+                        if(!parent || dist_sq(e.pos, parent.pos) > squared(Mine_Activation_Dist)){
+                            e.flags |= Entity_Flag_Mine_Active;
+                        }
                     }
+
                 } break;
 
                 case Entity_Type.Bullet:{
@@ -2894,18 +2931,6 @@ extern(C) int main(int args_count, char** args){
 
             render_debug_obb(g_debug_render_pass, test_p, Vec2(test_r, test_r), color, 0);
             render_debug_obb(g_debug_render_pass, target_p, target_extents, color, target_angle);
-        }+/
-
-        /+
-        // Particle test
-        auto player = get_entity_by_id(&s.world, s.player_entity_id);
-        if(player){
-            auto p = world_to_render_pos(player.pos) + Vec3(0, 1, 0);
-            set_shader(render_passes.world, &s.text_shader);
-            render_particle(
-                render_passes.world, p, Vec2(1, 0.25f),
-                Vec4(1, 0, 1, 0.5f), s.img_blank_rect, deg_to_rad(45)
-            );
         }+/
 
         render_end_frame();
