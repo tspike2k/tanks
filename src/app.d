@@ -147,8 +147,19 @@ bool ray_vs_obstacles(World* world, Vec2 ray_start, Vec2 ray_delta){
     return result;
 }
 
-void set_tank_facing_to_default(Entity* e, Vec2 map_center){
-    assert(e.type == Entity_Type.Tank);
+void setup_tank_by_type(App_State* s, Entity* e, uint tank_type, ubyte cell_info, Vec2 map_center){
+    e.cell_info       = cell_info;
+    e.tank_type_index = tank_type;
+
+    auto is_player = (cell_info & Map_Cell_Is_Player);
+    if(!is_player){
+        auto tank_info = get_tank_info(&s.campaign, e);
+
+        e.fire_timer.min_delay = tank_info.fire_delay_min;
+        e.fire_timer.max_delay = tank_info.fire_delay_min + tank_info.fire_delay_time;
+        e.fire_timer.window    = tank_info.fire_window;
+        timer_reset(&e.fire_timer, 0, &s.rng);
+    }
 
     // All tanks face towards the center of the map when level begins.
     auto dir = normalize(map_center - e.pos);
@@ -167,24 +178,11 @@ void set_tank_facing_to_default(Entity* e, Vec2 map_center){
 Entity* spawn_tank(App_State* s, Vec2 pos, Vec2 map_center, ubyte cell_info, uint tank_type_min, uint tank_type_max){
     auto e = add_entity(&s.world, pos, Entity_Type.Tank);
 
-    auto is_player = (cell_info & Map_Cell_Is_Player);
-    if(!is_player){
-        if(tank_type_min != tank_type_max)
-            e.tank_type_index = random_u32_between(&s.rng, tank_type_min, tank_type_max);
-        else
-            e.tank_type_index = tank_type_min;
-
-        auto tank_info = get_tank_info(&s.campaign, e);
-
-        e.fire_timer.min_delay = tank_info.fire_delay_min;
-        e.fire_timer.max_delay = tank_info.fire_delay_min + tank_info.fire_delay_time;
-        e.fire_timer.window    = tank_info.fire_window;
-        timer_reset(&e.fire_timer, 0, &s.rng);
+    auto tank_type = tank_type_min;
+    if(tank_type_min != tank_type_max){
+        tank_type = random_u32_between(&s.rng, tank_type_min, tank_type_max);
     }
-
-    set_tank_facing_to_default(e, map_center);
-    e.cell_info        = cell_info;
-
+    setup_tank_by_type(s, e, tank_type, cell_info, map_center);
     return e;
 }
 
@@ -202,12 +200,16 @@ void restart_campaign_mission(App_State* s){
     auto map_center = Vec2(map.width, map.height)*0.5f;
 
     foreach(ref e; iterate_entities(&s.world)){
-        if(e.type == Entity_Type.Tank){
-            if(is_player(&e) || e.health > 0){
-                e.health = max(1, e.health);
-                e.pos = e.start_pos;
-                set_tank_facing_to_default(&e, map_center);
-            }
+        if(e.type == Entity_Type.Tank
+        && (is_player(&e) || e.health > 0)){
+            auto cell_info = e.cell_info;
+            auto tank_type = e.tank_type_index;
+
+            make_entity(&e, e.id, e.start_pos, Entity_Type.Tank);
+            setup_tank_by_type(s, &e, tank_type, cell_info, map_center);
+        }
+        else if(e.type != Entity_Type.Block){
+            destroy_entity(&e);
         }
     }
 }
@@ -868,11 +870,13 @@ Mesh obj_to_mesh(Obj_Data* obj_data, Allocator* allocator){
     return result;
 }
 
-Mesh load_mesh_from_obj(String file_path, Allocator* allocator){
+Mesh load_mesh_from_obj(String dir_path, String file_name, Allocator* allocator){
     push_frame(allocator.scratch);
     scope(exit) pop_frame(allocator.scratch);
 
-    auto source = cast(char[])read_file_into_memory(file_path, allocator.scratch);
+    auto full_path = concat(trim_path(dir_path), to_string(Dir_Char), file_name, allocator.scratch);
+
+    auto source = cast(char[])read_file_into_memory(full_path, allocator.scratch);
     auto obj = parse_obj_file(source, allocator.scratch);
     auto result = obj_to_mesh(&obj, allocator);
     return result;
@@ -2482,19 +2486,18 @@ extern(C) int main(int args_count, char** args){
 
     auto base_path = get_path_to_executable(&s.main_memory);
     auto font_path = base_path;
+    auto mesh_path = base_path;
 
-    // TODO: Build the directory using the path to the application
     load_font(font_path, "test_en.fnt", &s.font_main, &s.main_memory);
     load_font(font_path, "editor_small_en.fnt", &s.font_editor_small, &s.main_memory);
 
-    //auto teapot_mesh = load_mesh_from_obj("./build/teapot.obj", &s.main_memory);
-    s.cube_mesh        = load_mesh_from_obj("./build/cube.obj", &s.main_memory);
-    s.tank_base_mesh   = load_mesh_from_obj("./build/tank_base.obj", &s.main_memory);
-    s.tank_top_mesh    = load_mesh_from_obj("./build/tank_top.obj", &s.main_memory);
-    s.bullet_mesh      = load_mesh_from_obj("./build/bullet.obj", &s.main_memory);
-    s.ground_mesh      = load_mesh_from_obj("./build/ground.obj", &s.main_memory);
-    s.hole_mesh        = load_mesh_from_obj("./build/hole.obj", &s.main_memory);
-    s.half_sphere_mesh = load_mesh_from_obj("./build/half_sphere.obj", &s.main_memory);
+    s.cube_mesh        = load_mesh_from_obj(mesh_path, "cube.obj", &s.main_memory);
+    s.tank_base_mesh   = load_mesh_from_obj(mesh_path, "tank_base.obj", &s.main_memory);
+    s.tank_top_mesh    = load_mesh_from_obj(mesh_path, "tank_top.obj", &s.main_memory);
+    s.bullet_mesh      = load_mesh_from_obj(mesh_path, "bullet.obj", &s.main_memory);
+    s.ground_mesh      = load_mesh_from_obj(mesh_path, "ground.obj", &s.main_memory);
+    s.hole_mesh        = load_mesh_from_obj(mesh_path, "hole.obj", &s.main_memory);
+    s.half_sphere_mesh = load_mesh_from_obj(mesh_path, "half_sphere.obj", &s.main_memory);
 
     auto shaders_dir = "./build/shaders/"; // TODO: Get base directory using absolute path.
     load_shader(&s.shader, "default", shaders_dir, &s.frame_memory);
