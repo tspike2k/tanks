@@ -157,10 +157,8 @@ void setup_tank_by_type(App_State* s, Entity* e, uint tank_type, ubyte cell_info
     if(!is_player){
         auto tank_info = get_tank_info(&s.campaign, e);
 
-        e.fire_timer.min_delay = tank_info.fire_delay_min;
-        e.fire_timer.max_delay = tank_info.fire_delay_min + tank_info.fire_delay_time;
-        e.fire_timer.window    = tank_info.fire_window;
-        timer_reset(&e.fire_timer, 0, &s.rng);
+        e.fire_timer = AI_Timer(0, tank_info.fire_timer_min, tank_info.fire_timer_max);
+        e.place_mine_timer = AI_Timer(0, tank_info.mine_timer_min, tank_info.mine_timer_max);
     }
 
     // All tanks face towards the center of the map when level begins.
@@ -410,32 +408,24 @@ enum Entity_Type : uint{
     Mine,
 }
 
-/+
-In the original Wii Play minigame "Tanks!", AI controlled tanks make decisions based on timers.
-These timers give a limited window of opportunity for the AI to make some sort of decision
-(take aim, fire bullet, etc.). The length of the window is always fixed, but the amount of time
-between opportunities is randomly selected between a minimum and maximum value.
-+/
 struct AI_Timer{
-    float start;
-    float window;
+    float time;
     float min_delay;
     float max_delay;
 }
 
-void timer_reset(AI_Timer* timer, float ai_time, Xorshift32* rng){
-    timer.start = ai_time + random_f32_between(rng, timer.min_delay, timer.max_delay);
+void timer_reset(AI_Timer* timer, Xorshift32* rng){
+    timer.time = random_f32_between(rng, timer.min_delay, timer.max_delay) - timer.time;
 }
 
-void timer_update(AI_Timer* timer, float ai_time, Xorshift32* rng){
-    if(ai_time > timer.start + timer.window){
-        timer_reset(timer, ai_time, rng);
+bool timer_update(AI_Timer* timer, float dt, Xorshift32* rng){
+    timer.time -= dt;
+    bool has_opportunity = false;
+    if(timer.time <= 0.0f){
+        has_opportunity = true;
+        timer_reset(timer, rng);
     }
-}
-
-bool has_opportunity(AI_Timer* timer, float ai_time){
-    bool result = ai_time > timer.start && ai_time < timer.start + timer.window;
-    return result;
+    return has_opportunity;
 }
 
 bool players_defeated(App_State* s){
@@ -473,8 +463,8 @@ struct Entity{
     float    fire_stun_timer;
 
     // AI related data:
-    float     ai_time;
     AI_Timer  fire_timer;
+    AI_Timer  place_mine_timer;
     float     aim_timer;
 
     Vec2      aim_target_pos;
@@ -538,12 +528,14 @@ __gshared Tank_Type[] g_tank_types = [
         bullet_ricochets: 1,
         bullet_speed:     3.0f,
 
-        mine_limit:       0,
+        mine_limit:         0,
+        mine_cooldown_time: 6.0f/60.0f,
+        mine_timer_min:     0.0f,
+        mine_timer_max:     0.0f,
 
-        fire_delay_min:  (300.0f)/60.0f,
-        fire_delay_time: (30.0f)/60.0f,
-        fire_window:     (15.0f)/60.0f,
-        fire_cooldown_time: 300.0f/60.0f,
+        fire_cooldown_time: (300.0f)/60.0f,
+        fire_timer_max:     (45.0f)/60.0f,
+        fire_timer_min:     (30.0f)/60.0f,
         fire_stun_time:     60.0f/60.0f,
 
         aim_timer: 60.0f/60.0f,
@@ -560,12 +552,14 @@ __gshared Tank_Type[] g_tank_types = [
         bullet_ricochets: 1,
         bullet_speed:     3.0f,
 
-        mine_limit:       0,
+        mine_limit:          0,
+        mine_cooldown_time:  6.0f/60.0f,
+        mine_timer_min:      0.0f,
+        mine_timer_max:      0.0f,
 
-        fire_delay_min:  (180.0f)/60.0f,
-        fire_delay_time: (30.0f)/60.0f,
-        fire_window:     (15.0f)/60.0f,
-        fire_cooldown_time: 180.0f/60.0f,
+        fire_cooldown_time: (180.0f)/60.0f,
+        fire_timer_max:     (45.0f)/60.0f,
+        fire_timer_min:     (30.0f)/60.0f,
         fire_stun_time:     10.0f/60.0f,
 
         aim_timer: 45.0f/60.0f,
@@ -582,12 +576,14 @@ __gshared Tank_Type[] g_tank_types = [
         bullet_ricochets: 0,
         bullet_speed:     6.0f,
 
-        mine_limit:       0,
+        mine_limit:         0,
+        mine_cooldown_time: 6.0f/60.0f,
+        mine_timer_min:     0.0f,
+        mine_timer_max:     0.0f,
 
-        fire_delay_min:  (180.0f)/60.0f,
-        fire_delay_time: (5.0f)/60.0f,
-        fire_window:     (5.0f)/60.0f,
-        fire_cooldown_time: 180.0f/60.0f,
+        fire_cooldown_time: (180.0f)/60.0f,
+        fire_timer_max:     (10.0f)/60.0f,
+        fire_timer_min:     (5.0f)/60.0f,
         fire_stun_time:     20.0f/60.0f,
 
         aim_timer: 8.0f/60.0f,
@@ -604,12 +600,14 @@ __gshared Tank_Type[] g_tank_types = [
         bullet_ricochets: 1,
         bullet_speed:     3.0f,
 
-        mine_limit:       0,
+        mine_limit:         0,
+        mine_cooldown_time: 6.0f/60.0f,
+        mine_timer_min:     0.0f,
+        mine_timer_max:     0.0f,
 
-        fire_delay_min:  (30.0f)/60.0f,
-        fire_delay_time: (5.0f)/60.0f,
-        fire_window:     (5.0f)/60.0f,
-        fire_cooldown_time: 30.0f/60.0f,
+        fire_cooldown_time: (30.0f)/60.0f,
+        fire_timer_max:     (10.0f)/60.0f,
+        fire_timer_min:     (5.0f)/60.0f,
         fire_stun_time:     5.0f/60.0f,
 
         aim_timer: 20.0f/60.0f,
@@ -626,12 +624,14 @@ __gshared Tank_Type[] g_tank_types = [
         bullet_ricochets: 1,
         bullet_speed:     3.0f,
 
-        mine_limit:       4,
+        mine_limit:          4,
+        mine_cooldown_time:  6.0f/60.0f,
+        mine_timer_min:     40.0f/60.0f,
+        mine_timer_max:     60.0f/60.0f,
 
-        fire_delay_min:  (180.0f)/60.0f,
-        fire_delay_time: (30.0f)/60.0f,
-        fire_window:     (15.0f)/60.0f,
-        fire_cooldown_time: 180.0f/60.0f,
+        fire_cooldown_time: (180.0f)/60.0f,
+        fire_timer_max:     (45.0f)/60.0f,
+        fire_timer_min:     (30.0f)/60.0f,
         fire_stun_time:     10.0f/60.0f,
 
         aim_timer: 30.0f/60.0f,
@@ -648,12 +648,14 @@ __gshared Tank_Type[] g_tank_types = [
         bullet_ricochets: 1,
         bullet_speed:     3.0f,
 
-        mine_limit:       2,
+        mine_limit:         2,
+        mine_cooldown_time: 6.0f/60.0f,
+        mine_timer_min:     40.0f/60.0f,
+        mine_timer_max:     60.0f/60.0f,
 
-        fire_delay_min:  (30.0f)/60.0f,
-        fire_delay_time: (5.0f)/60.0f,
-        fire_window:     (5.0f)/60.0f,
-        fire_cooldown_time: 30.0f/60.0f,
+        fire_cooldown_time: (30.0f)/60.0f,
+        fire_timer_max:     (10.0f)/60.0f,
+        fire_timer_min:     (5.0f)/60.0f,
         fire_stun_time:     5.0f/60.0f,
 
         aim_timer: 20.0f/60.0f,
@@ -670,12 +672,14 @@ __gshared Tank_Type[] g_tank_types = [
         bullet_ricochets: 2,
         bullet_speed:     6.0f,
 
-        mine_limit:       0,
+        mine_limit:         0,
+        mine_cooldown_time: 6.0f/60.0f,
+        mine_timer_min:     0.0f,
+        mine_timer_max:     0.0f,
 
-        fire_delay_min:  (60.0f)/60.0f,
-        fire_delay_time: (5.0f)/60.0f,
-        fire_window:     (5.0f)/60.0f,
-        fire_cooldown_time: 60.0f/60.0f,
+        fire_cooldown_time: (60.0f)/60.0f,
+        fire_timer_max:     (10.0f)/60.0f,
+        fire_timer_min:     (5.0f)/60.0f,
         fire_stun_time:     5.0f/60.0f,
 
         aim_timer: 30.0f/60.0f,
@@ -692,12 +696,14 @@ __gshared Tank_Type[] g_tank_types = [
         bullet_ricochets: 1,
         bullet_speed:     3.0f,
 
-        mine_limit:       2,
+        mine_limit:          2,
+        mine_cooldown_time:  6.0f/60.0f,
+        mine_timer_min:     40.0f/60.0f,
+        mine_timer_max:     60.0f/60.0f,
 
-        fire_delay_min:  (30.0f)/60.0f,
-        fire_delay_time: (5.0f)/60.0f,
-        fire_window:     (5.0f)/60.0f,
-        fire_cooldown_time: 30.0f/60.0f,
+        fire_cooldown_time: (30.0f)/60.0f,
+        fire_timer_max:     (10.0f)/60.0f,
+        fire_timer_min:     (5.0f)/60.0f,
         fire_stun_time:     5.0f/60.0f,
 
         aim_timer: 30.0f/60.0f,
@@ -714,12 +720,14 @@ __gshared Tank_Type[] g_tank_types = [
         bullet_ricochets: 0,
         bullet_speed:     6.0f,
 
-        mine_limit:       2,
+        mine_limit:           2,
+        mine_cooldown_time:   6.0f/60.0f,
+        mine_timer_max:     40.0f/60.0f,
+        mine_timer_min:     60.0f/60.0f,
 
-        fire_delay_min:  (60.0f)/60.0f,
-        fire_delay_time: (5.0f)/60.0f,
-        fire_window:     (5.0f)/60.0f,
-        fire_cooldown_time: 60.0f/60.0f,
+        fire_cooldown_time: (60.0f)/60.0f,
+        fire_timer_max:     (10.0f)/60.0f,
+        fire_timer_min:     (5.0f)/60.0f,
         fire_stun_time:     10.0f/60.0f,
 
         aim_timer: 20.0f/60.0f,
@@ -1613,8 +1621,8 @@ void start_play_session(App_State* s, uint variant_index){
     s.session.lives = variant.lives;
     s.session.variant_index = variant_index;
 
-    load_campaign_level(s, &s.campaign, s.session.mission_index);
-    //load_campaign_level(s, &s.campaign, 5);
+    //load_campaign_level(s, &s.campaign, s.session.mission_index);
+    load_campaign_level(s, &s.campaign, 5);
 }
 
 float rotate_tank_part(float target_rot, float speed, float* rot_remaining){
@@ -1752,7 +1760,7 @@ Tank_Type* get_tank_info(Campaign* campaign, Entity* e){
     return result;
 }
 
-bool handle_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info, bool has_opportunity){
+bool should_take_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info, bool has_opportunity){
     auto ray_dir   = vec2_from_angle(e.turret_angle);
     auto ray_start = get_bullet_spawn_pos(e.pos, ray_dir);
 
@@ -1829,6 +1837,11 @@ bool handle_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info, bool
     return result && has_opportunity;
 }
 
+bool should_take_mine_opportunity(World* world, Entity* e, Tank_Type* tank_info, bool has_opportunity){
+    auto result = has_opportunity;
+    return result;
+}
+
 void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
     // TODO: A LOT of work needs to be done here. Here's just a few features we need:
     // - Random turning
@@ -1874,15 +1887,20 @@ void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
         }
     }
 
-    e.ai_time += dt;
-    timer_update(&e.fire_timer, e.ai_time, &s.rng);
-
     auto sight_range = 8.0f;           // TODO: Get this from tank params
     auto sight_angle = deg_to_rad(65); // TODO: Get this from tank params
-    bool fire_opportunity = has_opportunity(&e.fire_timer, e.ai_time);
-    if(handle_fire_opportunity(&s.world, e, tank_info, true)){
+    bool fire_opportunity = timer_update(&e.fire_timer, dt, &s.rng);
+    if(should_take_fire_opportunity(&s.world, e, tank_info, fire_opportunity)){
         cmd.fire_bullet = true;
-        timer_reset(&e.fire_timer, e.ai_time, &s.rng);
+        timer_reset(&e.fire_timer, &s.rng);
+    }
+
+    if(tank_info.mine_limit > 0){
+        bool mine_opportunity = timer_update(&e.place_mine_timer, dt, &s.rng);
+        if(should_take_mine_opportunity(&s.world, e, tank_info, mine_opportunity)){
+            cmd.place_mine = true;
+            timer_reset(&e.place_mine_timer, &s.rng);
+        }
     }
 
     e.aim_timer -= dt;
