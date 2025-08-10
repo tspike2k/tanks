@@ -47,7 +47,10 @@ enum Cursor_Mode : uint{
 
 struct Map_Cell{
     Map_Cell* next;
+    Map_Cell* prev;
 
+    int x;
+    int y;
     bool block_is_breakable;
     uint block_height;
 }
@@ -59,8 +62,7 @@ struct Map_Entry{
     uint width;
     uint height;
 
-    Map_Cell* first_cell;
-    Map_Cell* last_cell;
+    List!Map_Cell cells;
 }
 
 struct Mission_Entry{
@@ -150,23 +152,6 @@ void save_campaign_file(App_State* s, String file_name){
     write_file_from_memory(file_name, serializer.buffer[0 .. serializer.buffer_used]);
 }
 
-/+
-bool is_cell_occupied(Campaign_Map* map, Vec2 cell){
-    auto x = cast(int)cell.x;
-    auto y = cast(int)cell.y;
-    assert(x >= 0 && x <= map.width);
-    assert(y >= 0 && y <= map.height);
-
-    bool result = map.cells[x + y * map.width] != 0;
-    return result;
-}
-
-bool inside_grid(Campaign_Map* map, Vec2 p){
-    bool result = p.x >= 0.0f && p.x < cast(float)map.width
-                  && p.y >= 0.0f && p.y < cast(float)map.height;
-    return result;
-}
-+/
 bool editor_load_campaign(App_State* s, String name){
     push_frame(g_frame_allocator);
     scope(exit) pop_frame(g_frame_allocator);
@@ -196,6 +181,49 @@ bool editor_load_campaign(App_State* s, String name){
     return success;
 }
 
+bool inside_grid(Map_Entry* map, Vec2 p){
+    bool result = p.x >= 0.0f && p.x < cast(float)map.width
+                  && p.y >= 0.0f && p.y < cast(float)map.height;
+    return result;
+}
+
+bool is_cell_occupied(Map_Entry* map, Vec2 pos){
+    assert(inside_grid(map, pos));
+    bool result = null != get_cell(map, pos);
+    return result;
+}
+
+Map_Cell* add_cell(Map_Entry* map, Vec2 pos){
+    assert(inside_grid(map, pos));
+    auto x = cast(int)pos.x;
+    auto y = cast(int)pos.y;
+
+    // TODO: Alloc from a free list if we have a free node.
+    auto cell = alloc_type!Map_Cell(g_allocator);
+    cell.x = x;
+    cell.y = y;
+
+    map.cells.insert(map.cells.top, cell);
+    return cell;
+}
+
+Map_Cell* get_cell(Map_Entry* map, Vec2 pos){
+    Map_Cell* result;
+
+    auto x = cast(int)pos.x;
+    auto y = cast(int)pos.y;
+    if(inside_grid(map, pos)){
+        foreach(ref cell; map.cells.iterate()){
+            if(cell.x == x && cell.y == y){
+                result = cell;
+                break;
+            }
+        }
+    }
+
+    return result;
+}
+
 public bool editor_simulate(App_State* s, float dt){
     assert(g_editor_is_open);
 
@@ -215,14 +243,8 @@ public bool editor_simulate(App_State* s, float dt){
     bool text_buffer_updated = false;
     while(next_event(&evt)){
         if(!handle_event_common(s, &evt, dt)){
-    /+
             switch(evt.type){
                 default: break;
-
-                case Event_Type.Window_Close:{
-                    // TODO: Save state before exit in a temp/suspend file.
-                    s.running = false;
-                } break;
 
                 case Event_Type.Button:{
                     auto btn = &evt.button;
@@ -242,11 +264,6 @@ public bool editor_simulate(App_State* s, float dt){
                     }
                 } break;
 
-                case Event_Type.Mouse_Motion:{
-                    auto motion = &evt.mouse_motion;
-                    s.mouse_pixel = Vec2(motion.pixel_x, motion.pixel_y);
-                } break;
-
                 case Event_Type.Key:{
                     auto key = &evt.key;
                     if(key.pressed){
@@ -261,12 +278,12 @@ public bool editor_simulate(App_State* s, float dt){
                                 arrow_down_pressed = true;
                             } break;
 
+/+
                             case Key_ID_U:{
                                 if(g_cursor_mode == Cursor_Mode.Select && g_selected_cell){
                                     (*g_selected_cell) ^= Map_Cell_Is_Special; // Toggle the special bit
                                 }
                             } break;
-
                             case Key_ID_0:
                             case Key_ID_1:
                             case Key_ID_2:
@@ -288,7 +305,7 @@ public bool editor_simulate(App_State* s, float dt){
                                     }
                                 }
                             } break;
-
++/
                             case Key_ID_T:{
                                 g_place_type = Place_Type.Tank;
                             } break;
@@ -305,6 +322,7 @@ public bool editor_simulate(App_State* s, float dt){
                                 g_cursor_mode = Cursor_Mode.Erase;
                             } break;
 
+                            /+
                             case Key_ID_Delete:{
                                 if(g_cursor_mode == Cursor_Mode.Select){
                                     if(g_selected_cell){
@@ -312,12 +330,12 @@ public bool editor_simulate(App_State* s, float dt){
                                         g_selected_cell = null;
                                     }
                                 }
-                            } break;
+                            } break;+/
 
                             case Key_ID_S:{
                                 if(!key.is_repeat){
                                     if(key.modifier & Key_Modifier_Ctrl){
-                                        save_campaign_file(s, "./build/main.camp");
+                                        //save_campaign_file(s, "./build/main.camp");
                                     }
                                     else{
                                         g_cursor_mode = Cursor_Mode.Select;
@@ -339,13 +357,13 @@ public bool editor_simulate(App_State* s, float dt){
                         }
                     }
                 } break;
-            }+/
+            }
         }
     }
 
-    /+
     //label(&s.gui, Label_Map_ID, gen_string("map_id: {0}", g_current_map.map.id, &s.frame_memory));
     update_gui(&s.gui, dt);
+    /+
 
     if(s.gui.message_id != Null_Gui_ID){
         switch(s.gui.message_id){
@@ -373,22 +391,32 @@ public bool editor_simulate(App_State* s, float dt){
                 g_current_map = next_map;
             } break;
         }
-    }
+    }+/
 
     switch(g_cursor_mode){
         default: break;
 
         case Cursor_Mode.Place:{
-            if(inside_grid(map, s.mouse_world) && !is_cell_occupied(map, s.mouse_world)){
-                bool is_tank = g_place_type == Place_Type.Tank;
-                if((is_tank && mouse_left_pressed) || (!is_tank && g_mouse_left_is_down)){
-                    ubyte default_index = is_tank ? 0 : 1;
-                    auto entry = encode_map_cell(is_tank, false, default_index);
-                    set_cell(map, s.mouse_world, entry);
+            if(g_mouse_left_is_down){
+                if(inside_grid(map, s.mouse_world) && !is_cell_occupied(map, s.mouse_world)){
+                    bool is_tank = g_place_type == Place_Type.Tank;
+                    auto cell = add_cell(map, s.mouse_world);
+                    cell.block_height = 1;
                 }
             }
         } break;
 
+        case Cursor_Mode.Erase:{
+            if(g_mouse_left_is_down){
+                auto cell = get_cell(map, s.mouse_world);
+                if(cell){
+                    map.cells.remove(cell);
+                    // TODO: MEMORY LEAK! Add cell to free list!
+                }
+            }
+        } break;
+
+        /+
         case Cursor_Mode.Select:{
             if(mouse_left_pressed){
                 if(inside_grid(map, s.mouse_world) && is_cell_occupied(map, s.mouse_world)){
@@ -400,7 +428,7 @@ public bool editor_simulate(App_State* s, float dt){
                     g_selected_cell = null;
                 }
             }
-        } break;
+        } break;+/
     }
 
     /+
@@ -497,7 +525,7 @@ public bool editor_simulate(App_State* s, float dt){
             }
         } break;
     }+/
-+/
+
     if(should_close){
         editor_toggle(s);
     }
@@ -536,6 +564,14 @@ public void editor_render(App_State* s, Render_Passes rp){
 
     auto map = g_current_map;
     render_ground(s, rp.world, rect_from_min_max(Vec2(0, 0), Vec2(map.width, map.height)));
+
+    foreach(ref cell; map.cells.iterate()){
+        Entity e;
+        e.type = Entity_Type.Block;
+        e.pos = Vec2(cell.x, cell.y) + Vec2(0.5f, 0.5f);
+        e.cell_info = encode_map_cell(false, false, cast(ubyte)cell.block_height);
+        render_entity(s, &e, rp);
+    }
 
     /+
     foreach(y; 0 .. map.height){
@@ -663,6 +699,12 @@ Variant* editor_add_variant(){
 Map_Entry* editor_add_map(){
     auto variant = g_current_variant;
     auto map = alloc_type!Map_Entry(g_allocator);
+
+    // Default values.
+    map.width  = 22;
+    map.height = 17;
+    map.cells.make();
+
     variant.maps.insert(variant.maps.top, map);
     g_current_map = map;
     return map;
