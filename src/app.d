@@ -30,6 +30,15 @@ TODO:
       position is inside a block.
     - Decals aren't affected by light. Is that worth fixing?
     - Mouse input for menus.
+    - Shadows cut off at the edges of 16:9 maps. This is probably an issue with the shadow map
+      camera.
+
+Enemy AI:
+    - Improved bullet prediction. Right now, even enemies with good aim stats are surprisingly
+    off target.
+    - Enemies are supposed to enter "survival mode" when they see a bullet (I think) or a mine.
+      In this mode, the enemy tries to move as far back as needed.
+    - Enemies should make sure they have room to drive away from a mine.
 
 Sound effects:
     - Firing missile (Can we just up-pitch the normal shot sound?)
@@ -75,6 +84,8 @@ enum Mission_Intro_Max_Time = 3.0f;
 enum Mission_Start_Max_Time = 3.0f;
 enum Mission_End_Max_Time   = 3.0f;
 
+enum Mine_Min_Ally_Dist = 3.0f;
+
 enum Text_White = Vec4(1, 1, 1, 1);
 
 // NOTE: Enemies are limited by the number of bytes that can be encoded into a map cell.
@@ -99,20 +110,41 @@ enum Game_Mode : uint{
     Campaign,
 }
 
-bool load_campaign_from_file(Campaign* campaign, String file_name, Allocator* allocator){
+bool load_campaign_from_file(App_State* s, String file_name){
+    auto allocator = &s.campaign_memory;
+
     auto scratch = allocator.scratch;
     push_frame(scratch);
     scope(exit) pop_frame(scratch);
 
+    auto campaign = &s.campaign;
+
     bool success = false;
     auto memory = read_file_into_memory(file_name, scratch);
     if(memory.length){
-        auto reader = Serializer(memory, allocator);
+        if(allocator.memory){
+            os_dealloc(allocator.memory);
+        }
 
+        // We add 2 MiB for extra data such as tank materials and alignment of serialized members.
+        auto campaign_memory_size = memory.length + 2*1024*1024; // TODO: Is this too arbitrary?
+        *allocator = Allocator(os_alloc(campaign_memory_size, 0));
+        allocator.scratch = scratch;
+
+        auto reader = Serializer(memory, allocator);
         auto header = eat_type!Asset_Header(&reader);
         if(verify_asset_header!Campaign_Meta(file_name, header)){
             read(&reader, *campaign);
             success = !reader.errors && campaign.variants.length > 0;
+
+            // Setup enemy tank colors based on tank params
+            auto tank_types = campaign.tank_types;
+            s.materials_enemy_tank = alloc_array!Tank_Materials(allocator, tank_types.length);
+            foreach(i, ref entry; tank_types){
+                auto tank_mats = &s.materials_enemy_tank[i];
+                setup_basic_material(&tank_mats.materials[0], s.img_blank_mesh, entry.main_color);
+                setup_basic_material(&tank_mats.materials[1], s.img_blank_mesh, entry.alt_color, 256);
+            }
         }
     }
 
@@ -330,7 +362,7 @@ struct App_State{
     Allocator main_memory;
     Allocator frame_memory;
     Allocator editor_memory;
-    //Allocator campaign_memory; // TODO: Implement this?
+    Allocator campaign_memory;
 
     bool       running;
     float      t;
@@ -414,16 +446,12 @@ struct AI_Timer{
     float max_delay;
 }
 
-void timer_reset(AI_Timer* timer, Xorshift32* rng){
-    timer.time = random_f32_between(rng, timer.min_delay, timer.max_delay) - timer.time;
-}
-
 bool timer_update(AI_Timer* timer, float dt, Xorshift32* rng){
     timer.time -= dt;
     bool has_opportunity = false;
     if(timer.time <= 0.0f){
         has_opportunity = true;
-        timer_reset(timer, rng);
+        timer.time = random_f32_between(rng, timer.min_delay, timer.max_delay) - timer.time;
     }
     return has_opportunity;
 }
@@ -459,8 +487,9 @@ struct Entity{
     float    mine_timer;
     float    total_meters_moved;
 
-    float    fire_cooldown_timer;
-    float    fire_stun_timer;
+    float fire_cooldown_timer;
+    float mine_cooldown_timer;
+    float action_stun_timer; // Time a tank cannot move after firing a bullet or laying a mine
 
     // AI related data:
     AI_Timer  fire_timer;
@@ -512,7 +541,10 @@ __gshared Tank_Type[] g_tank_types = [
         bullet_ricochets:   1,
         bullet_speed:       3.0f,
 
-        mine_limit:         2,
+        mine_limit:            2,
+        mine_stun_time:        1.0f/60.0f,
+        mine_cooldown_time:    6.0f/60.0f,
+        mine_placement_chance: 0.1f,
 
         fire_cooldown_time: 6.0f/60.0f,
         fire_stun_time:     5.0f/60.0f,
@@ -532,6 +564,8 @@ __gshared Tank_Type[] g_tank_types = [
         mine_cooldown_time: 6.0f/60.0f,
         mine_timer_min:     0.0f,
         mine_timer_max:     0.0f,
+        mine_stun_time:     3.0f/60.0f,
+        mine_placement_chance: 0.0f,
 
         fire_cooldown_time: (300.0f)/60.0f,
         fire_timer_max:     (45.0f)/60.0f,
@@ -556,6 +590,8 @@ __gshared Tank_Type[] g_tank_types = [
         mine_cooldown_time:  6.0f/60.0f,
         mine_timer_min:      0.0f,
         mine_timer_max:      0.0f,
+        mine_stun_time:      3.0f/60.0f,
+        mine_placement_chance: 0.0f,
 
         fire_cooldown_time: (180.0f)/60.0f,
         fire_timer_max:     (45.0f)/60.0f,
@@ -580,6 +616,8 @@ __gshared Tank_Type[] g_tank_types = [
         mine_cooldown_time: 6.0f/60.0f,
         mine_timer_min:     0.0f,
         mine_timer_max:     0.0f,
+        mine_stun_time:     3.0f/60.0f,
+        mine_placement_chance: 0.0f,
 
         fire_cooldown_time: (180.0f)/60.0f,
         fire_timer_max:     (10.0f)/60.0f,
@@ -604,6 +642,8 @@ __gshared Tank_Type[] g_tank_types = [
         mine_cooldown_time: 6.0f/60.0f,
         mine_timer_min:     0.0f,
         mine_timer_max:     0.0f,
+        mine_stun_time:     3.0f/60.0f,
+        mine_placement_chance: 0.0f,
 
         fire_cooldown_time: (30.0f)/60.0f,
         fire_timer_max:     (10.0f)/60.0f,
@@ -628,11 +668,13 @@ __gshared Tank_Type[] g_tank_types = [
         mine_cooldown_time:  6.0f/60.0f,
         mine_timer_min:     40.0f/60.0f,
         mine_timer_max:     60.0f/60.0f,
+        mine_stun_time:     1.0f/60.0f,
 
         fire_cooldown_time: (180.0f)/60.0f,
         fire_timer_max:     (45.0f)/60.0f,
         fire_timer_min:     (30.0f)/60.0f,
         fire_stun_time:     10.0f/60.0f,
+        mine_placement_chance: 0.5f,
 
         aim_timer: 30.0f/60.0f,
         aim_max_angle: deg_to_rad(40),
@@ -652,6 +694,8 @@ __gshared Tank_Type[] g_tank_types = [
         mine_cooldown_time: 6.0f/60.0f,
         mine_timer_min:     40.0f/60.0f,
         mine_timer_max:     60.0f/60.0f,
+        mine_stun_time:     1.0f/60.0f,
+        mine_placement_chance: 0.03f,
 
         fire_cooldown_time: (30.0f)/60.0f,
         fire_timer_max:     (10.0f)/60.0f,
@@ -676,6 +720,8 @@ __gshared Tank_Type[] g_tank_types = [
         mine_cooldown_time: 6.0f/60.0f,
         mine_timer_min:     0.0f,
         mine_timer_max:     0.0f,
+        mine_stun_time:     3.0f/60.0f,
+        mine_placement_chance: 0.0f,
 
         fire_cooldown_time: (60.0f)/60.0f,
         fire_timer_max:     (10.0f)/60.0f,
@@ -700,6 +746,8 @@ __gshared Tank_Type[] g_tank_types = [
         mine_cooldown_time:  6.0f/60.0f,
         mine_timer_min:     40.0f/60.0f,
         mine_timer_max:     60.0f/60.0f,
+        mine_stun_time:     1.0f/60.0f,
+        mine_placement_chance: 0.03f,
 
         fire_cooldown_time: (30.0f)/60.0f,
         fire_timer_max:     (10.0f)/60.0f,
@@ -724,6 +772,8 @@ __gshared Tank_Type[] g_tank_types = [
         mine_cooldown_time:   6.0f/60.0f,
         mine_timer_max:     40.0f/60.0f,
         mine_timer_min:     60.0f/60.0f,
+        mine_stun_time:     1.0f/60.0f,
+        mine_placement_chance: 0.03f,
 
         fire_cooldown_time: (60.0f)/60.0f,
         fire_timer_max:     (10.0f)/60.0f,
@@ -1193,8 +1243,10 @@ bool is_exploding(Entity* e){
 
 void detonate(Entity* e){
     assert(e.type == Entity_Type.Mine);
-    if(e.mine_timer < Mine_Detonation_Time)
+    if(e.mine_timer < Mine_Detonation_Time){
+        e.flags |= Entity_Flag_Mine_Active;
         e.mine_timer = Mine_Detonation_Time;
+    }
 }
 
 bool should_handle_overlap(Entity* a, Entity* b){
@@ -1616,13 +1668,16 @@ bool passed_range(float a, float b, float range){
 void start_play_session(App_State* s, uint variant_index){
     auto variant = &s.campaign.variants[variant_index];
 
+    s.world.next_entity_id = Null_Entity_ID+1;
+
     clear_to_zero(s.session);
     s.session.state = Session_State.Mission_Intro;
     s.session.lives = variant.lives;
     s.session.variant_index = variant_index;
 
     //load_campaign_level(s, &s.campaign, s.session.mission_index);
-    load_campaign_level(s, &s.campaign, 5);
+    //load_campaign_level(s, &s.campaign, 5);
+    load_campaign_level(s, &s.campaign, 8);
 }
 
 float rotate_tank_part(float target_rot, float speed, float* rot_remaining){
@@ -1668,7 +1723,7 @@ float rotate_towards(float angle, float target_angle, float speed){
 void apply_tank_commands(App_State* s, Entity* e, Tank_Commands* input, float dt){
     auto tank_info = get_tank_info(&s.campaign, e);
 
-    bool can_move = e.fire_stun_timer <= 0.0f;
+    bool can_move = e.action_stun_timer <= 0.0f;
     if(input.turn_angle != 0.0f && can_move){
         float rot_speed = (PI)*dt;
         auto rotation   = rotate_tank_part(input.turn_angle, rot_speed, &e.target_angle);
@@ -1694,11 +1749,13 @@ void apply_tank_commands(App_State* s, Entity* e, Tank_Commands* input, float dt
         e.total_meters_moved += speed*dt;
     }
 
-    if(input.place_mine){
+    if(input.place_mine && e.mine_cooldown_timer <= 0.0f){
         auto count = get_child_entity_count(&s.world, e.id, Entity_Type.Mine);
         if(count < tank_info.mine_limit){
             play_sfx(&s.sfx_mine_click, 0, 2.0f);
             spawn_mine(&s.world, e.pos, e.id);
+            e.mine_cooldown_timer = tank_info.mine_cooldown_time;
+            e.action_stun_timer += tank_info.mine_stun_time;
         }
     }
 
@@ -1709,8 +1766,8 @@ void apply_tank_commands(App_State* s, Entity* e, Tank_Commands* input, float dt
         auto count = get_child_entity_count(&s.world, e.id, Entity_Type.Bullet);
         if(count < tank_info.bullet_limit
         && !is_circle_inside_block(&s.world, spawn_pos, Bullet_Radius)){
-            e.fire_stun_timer     = tank_info.fire_stun_time;
             e.fire_cooldown_timer = tank_info.fire_cooldown_time;
+            e.action_stun_timer     += tank_info.fire_stun_time;
             auto bullet = spawn_bullet(&s.world, e, tank_info, spawn_pos, turret_dir);
             auto pitch = random_f32_between(&s.rng, 1.0f - 0.10f, 1.0f + 0.10f);
             play_sfx(&s.sfx_fire_bullet, 0, 1.0f, pitch);
@@ -1837,8 +1894,29 @@ bool should_take_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info,
     return result && has_opportunity;
 }
 
-bool should_take_mine_opportunity(World* world, Entity* e, Tank_Type* tank_info, bool has_opportunity){
-    auto result = has_opportunity;
+bool should_take_mine_opportunity(World* world, Entity* e, Tank_Type* tank_info, bool has_opportunity, Xorshift32* rng){
+    if(!has_opportunity) return false;
+
+    auto result = false;
+    auto chance = random_percent(rng);
+    // TODO: Depending on the AI type, AI tanks shouldn't be allowed to lay mines
+    // if they're in "survival mode."
+
+    if(chance >= tank_info.mine_placement_chance){
+        float min_dist_sq = float.max;
+        foreach(ref target; iterate_entities(world)){
+            if(target.health > 0 && target.type == Entity_Type.Tank
+            && target.id != e.id){
+                auto d = dist_sq(target.pos, e.pos);
+                if(!is_player(&target) && d < min_dist_sq){
+                    min_dist_sq = d;
+                }
+            }
+        }
+
+        result = min_dist_sq > squared(Mine_Min_Ally_Dist);
+    }
+
     return result;
 }
 
@@ -1892,14 +1970,12 @@ void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
     bool fire_opportunity = timer_update(&e.fire_timer, dt, &s.rng);
     if(should_take_fire_opportunity(&s.world, e, tank_info, fire_opportunity)){
         cmd.fire_bullet = true;
-        timer_reset(&e.fire_timer, &s.rng);
     }
 
     if(tank_info.mine_limit > 0){
         bool mine_opportunity = timer_update(&e.place_mine_timer, dt, &s.rng);
-        if(should_take_mine_opportunity(&s.world, e, tank_info, mine_opportunity)){
+        if(should_take_mine_opportunity(&s.world, e, tank_info, mine_opportunity, &s.rng)){
             cmd.place_mine = true;
-            timer_reset(&e.place_mine_timer, &s.rng);
         }
     }
 
@@ -1967,9 +2043,13 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
                         handle_enemy_ai(s, &e, &commands, dt);
                     }
 
-                    e.fire_cooldown_timer -= dt;
-                    e.fire_stun_timer -= dt;
                     apply_tank_commands(s, &e, &commands, dt);
+
+                    e.fire_cooldown_timer -= dt;
+                    e.mine_cooldown_timer -= dt;
+                    if(e.action_stun_timer >= 0.0f){
+                        e.action_stun_timer -= dt;
+                    }
 
                     if(e.id == s.player_entity_id){
                         e.turret_angle = get_angle(s.mouse_world - e.pos);
@@ -2008,11 +2088,13 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
                     }
                     else{
                         auto parent = get_entity_by_id(&s.world, e.parent_id);
-                        if(!parent || dist_sq(e.pos, parent.pos) > squared(Mine_Activation_Dist)){
+                        auto parent_within_activation_dist = parent && parent.health
+                            && dist_sq(e.pos, parent.pos) <= squared(Mine_Activation_Dist);
+
+                        if(!parent_within_activation_dist){
                             e.flags |= Entity_Flag_Mine_Active;
                         }
                     }
-
                 } break;
 
                 case Entity_Type.Bullet:{
@@ -2519,10 +2601,12 @@ extern(C) int main(int args_count, char** args){
         s.frame_memory      = make_sub_allocator(&memory, Frame_Memory_Size);
         s.editor_memory     = make_sub_allocator(&memory, Editor_Memory_Size);
         auto scratch_memory = make_sub_allocator(&memory, Scratch_Memory_Size);
+        s.campaign_memory = Allocator(null); // NOTE: The memory for this allocator is managed by load_campaign_from_file
 
-        s.main_memory.scratch   = &scratch_memory;
-        s.frame_memory.scratch  = &scratch_memory;
-        s.editor_memory.scratch = &scratch_memory;
+        s.main_memory.scratch     = &scratch_memory;
+        s.frame_memory.scratch    = &scratch_memory;
+        s.editor_memory.scratch   = &scratch_memory;
+        s.campaign_memory.scratch = &scratch_memory;
     }
 
     if(!open_display("Tanks", 1920, 1080, 0)){
@@ -2617,21 +2701,8 @@ extern(C) int main(int args_count, char** args){
     }
     scope(exit) close_socket(&socket);
 
-    s.world.next_entity_id = Null_Entity_ID+1;
     s.campaign.tank_types = g_tank_types[];
-    if(load_campaign_from_file(&s.campaign, Campaign_File_Name, &s.main_memory)){
-        // Setup enemy tank colors based on tank params
-        auto tank_types = s.campaign.tank_types;
-        s.materials_enemy_tank = alloc_array!Tank_Materials(&s.main_memory, tank_types.length);
-        foreach(i, ref entry; tank_types){
-            auto tank_mats = &s.materials_enemy_tank[i];
-            setup_basic_material(&tank_mats.materials[0], s.img_blank_mesh, entry.main_color);
-            setup_basic_material(&tank_mats.materials[1], s.img_blank_mesh, entry.alt_color, 256);
-        }
-    }
-    else{
-        generate_test_level(s);
-    }
+    load_campaign_from_file(s, Campaign_File_Name);
 
     s.mouse_pixel = Vec2(0, 0);
 

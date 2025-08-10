@@ -187,13 +187,15 @@ struct Tank_Type{
     float bullet_speed;
 
     uint mine_limit;
-    float mine_timer_min;     // Word 5
-    float mine_timer_max;     // Word 4
-    float mine_cooldown_time; // Word 9
+    float mine_timer_min;        // Word 5
+    float mine_timer_max;        // Word 4
+    float mine_cooldown_time;    // Word 9
+    float mine_stun_time;        // Word 10
+    float mine_placement_chance; // Word 8
 
     float obstacle_sight_dist; // Obstacle Awareness (Movement)
 
-    float fire_timer_min;    // Word 36
+    float fire_timer_min;     // Word 36
     float fire_timer_max;     // Word 35
     float fire_stun_time;     // Word 42
     float fire_cooldown_time; // Word 37

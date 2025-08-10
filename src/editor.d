@@ -167,13 +167,13 @@ void set_cell(Campaign_Map* map, Vec2 cell, Map_Cell value){
     map.cells[x + y * map.width] = value;
 }
 
-bool editor_load_campaign(String name){
+bool editor_load_campaign(App_State* s, String name){
     push_frame(g_frame_allocator);
     scope(exit) pop_frame(g_frame_allocator);
     bool success = false;
 
     Campaign campaign;
-    if(load_campaign_from_file(&campaign, name, g_frame_allocator)){
+    if(load_campaign_from_file(s, name)){
         success = true;
         prepare_campaign();
 
@@ -325,7 +325,7 @@ public bool editor_simulate(App_State* s, float dt){
 
                             case Key_ID_L:{
                                 if(!key.is_repeat && key.modifier & Key_Modifier_Ctrl){
-                                    editor_load_campaign(Campaign_File_Name);
+                                    editor_load_campaign(s, Campaign_File_Name);
                                 }
                             } break;
 
@@ -714,7 +714,7 @@ public void editor_toggle(App_State* s){
         g_mouse_left_is_down  = false;
         g_mouse_right_is_down = false;
 
-        if(!editor_load_campaign("./build/main.camp")){
+        if(!editor_load_campaign(s, "./build/main.camp")){
             editor_new_campaign();
             //editor_load_maps_file("./build/wii_16x9.maps");
         }
