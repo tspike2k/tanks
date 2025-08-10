@@ -13,32 +13,31 @@ TODO:
     - Billboard particles for explosions and breaking blocks
     - High score tracking
     - Better scoring (Have both point and kill-based scoring)
-    - Better mine behavior. Should only activate after parent exits placement radius.
     - Multiplayer
     - Temp saves
     - More editor features (tank params, level size, etc)
     - Debug collision volume display?
     - Bullet can get lodged between two blocks, destroying it before the player sees it reflected.
     - Improved collision handling
-    - Switch to high-score list on game over. Highlight you're current score if it's been added.
+    - Switch to high-score list on game over. Highlight your current score if it's been added.
     - When billboards (such as smoke) are placed exactly horizontally, they do not sort properly;
       they stay in the order they were spawned. Sorting by life would probably be the right call
       in that situation.
     - Finish porting over tank params
-    - Improve enemy tank aim detection. They occasionally miss or hit their own. Not true to the original at all.
     - Enemy firing sight tests can pass through blocks when the origin of the bulelt spawn
       position is inside a block.
     - Decals aren't affected by light. Is that worth fixing?
     - Mouse input for menus.
     - Shadows cut off at the edges of 16:9 maps. This is probably an issue with the shadow map
       camera.
+    - Support playing custom campaigns.
 
 Enemy AI:
     - Improved bullet prediction. Right now, even enemies with good aim stats are surprisingly
     off target.
     - Enemies are supposed to enter "survival mode" when they see a bullet (I think) or a mine.
       In this mode, the enemy tries to move as far back as needed.
-    - Enemies should make sure they have room to drive away from a mine.
+    - Enemies should make sure they have room to drive away from a mine before placing one.
 
 Sound effects:
     - Firing missile (Can we just up-pitch the normal shot sound?)

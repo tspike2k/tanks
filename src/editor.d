@@ -45,19 +45,27 @@ enum Cursor_Mode : uint{
     Erase,
 }
 
+struct Map_Cell{
+    Map_Cell* next;
+
+    bool block_is_breakable;
+    uint block_height;
+}
+
 struct Map_Entry{
     Map_Entry* next;
     Map_Entry* prev;
 
-    Campaign_Map map;
+    uint width;
+    uint height;
+
+    Map_Cell* first_cell;
+    Map_Cell* last_cell;
 }
 
 struct Mission_Entry{
     Mission_Entry* next;
     Mission_Entry* prev;
-
-    //Enemy_Entry[Max_Enemies] enemies_memory;
-    //Campaign_Mission mission;
 }
 
 struct Tank_Entry{
@@ -142,6 +150,7 @@ void save_campaign_file(App_State* s, String file_name){
     write_file_from_memory(file_name, serializer.buffer[0 .. serializer.buffer_used]);
 }
 
+/+
 bool is_cell_occupied(Campaign_Map* map, Vec2 cell){
     auto x = cast(int)cell.x;
     auto y = cast(int)cell.y;
@@ -157,16 +166,7 @@ bool inside_grid(Campaign_Map* map, Vec2 p){
                   && p.y >= 0.0f && p.y < cast(float)map.height;
     return result;
 }
-
-void set_cell(Campaign_Map* map, Vec2 cell, Map_Cell value){
-    auto x = cast(int)cell.x;
-    auto y = cast(int)cell.y;
-    assert(x >= 0 && x <= map.width);
-    assert(y >= 0 && y <= map.height);
-
-    map.cells[x + y * map.width] = value;
-}
-
++/
 bool editor_load_campaign(App_State* s, String name){
     push_frame(g_frame_allocator);
     scope(exit) pop_frame(g_frame_allocator);
@@ -183,8 +183,9 @@ bool editor_load_campaign(App_State* s, String name){
 
         foreach(ref source_map; campaign.maps){
             auto entry   = editor_add_map();
-            entry.map = source_map;
-            entry.map.cells = dup_array(source_map.cells, g_allocator);
+            // TODO: Populate map cells.
+            //entry.map = source_map;
+            //entry.map.cells = dup_array(source_map.cells, g_allocator);
         }
     }
     else{
@@ -205,15 +206,16 @@ public bool editor_simulate(App_State* s, float dt){
     bool mouse_left_pressed  = false;
     bool mouse_right_pressed = false;
 
-    auto map = &g_current_map.map;
+    auto map = g_current_map;
     auto grid_extents = Vec2(map.width, map.height)*0.5f;
     auto grid_center  = world_to_render_pos(grid_extents);
-    s.world_camera_target_pos = get_map_center(map);
+    s.world_camera_target_pos = world_to_render_pos(Vec2(map.width, map.height)*0.5f);
 
     Event evt;
     bool text_buffer_updated = false;
     while(next_event(&evt)){
         if(!handle_event_common(s, &evt, dt)){
+    /+
             switch(evt.type){
                 default: break;
 
@@ -337,10 +339,11 @@ public bool editor_simulate(App_State* s, float dt){
                         }
                     }
                 } break;
-            }
+            }+/
         }
     }
 
+    /+
     //label(&s.gui, Label_Map_ID, gen_string("map_id: {0}", g_current_map.map.id, &s.frame_memory));
     update_gui(&s.gui, dt);
 
@@ -494,13 +497,14 @@ public bool editor_simulate(App_State* s, float dt){
             }
         } break;
     }+/
-
++/
     if(should_close){
         editor_toggle(s);
     }
     return should_close;
 }
 
+/+
 Entity make_entity_from_cell(Map_Cell cell, Vec2 pos){
     assert(cell != 0);
     auto result = zero_type!Entity;
@@ -517,7 +521,7 @@ Entity make_entity_from_cell(Map_Cell cell, Vec2 pos){
     result.cell_info = cell;
     return result;
 }
-
++/
 public void editor_render(App_State* s, Render_Passes rp){
     auto window = get_window_info();
 
@@ -530,9 +534,10 @@ public void editor_render(App_State* s, Render_Passes rp){
         gen_string("Mode: {0}", enum_string(g_cursor_mode), &s.frame_memory)
     );
 
-    auto map = &g_current_map.map;
+    auto map = g_current_map;
     render_ground(s, rp.world, rect_from_min_max(Vec2(0, 0), Vec2(map.width, map.height)));
 
+    /+
     foreach(y; 0 .. map.height){
         foreach(x; 0 .. map.width){
             auto cell = &map.cells[x + y * map.width];
@@ -551,7 +556,7 @@ public void editor_render(App_State* s, Render_Passes rp){
         auto tile_center = floor(s.mouse_world) + Vec2(0.5f, 0.5f);
         auto e = make_entity_from_cell(entity_type, tile_center);
         render_entity(s, &e, rp);
-    }
+    }+/
 
     /+
     switch(g_cursor_mode){
@@ -660,7 +665,6 @@ Map_Entry* editor_add_map(){
     auto map = alloc_type!Map_Entry(g_allocator);
     variant.maps.insert(variant.maps.top, map);
     g_current_map = map;
-
     return map;
 }
 
@@ -672,8 +676,7 @@ void prepare_campaign(){
 void editor_new_campaign(){
     prepare_campaign();
     editor_add_variant();
-    //editor_add_map();
-    //editor_add_level();
+    editor_add_map();
 }
 
 /+
@@ -714,12 +717,14 @@ public void editor_toggle(App_State* s){
         g_mouse_left_is_down  = false;
         g_mouse_right_is_down = false;
 
-        if(!editor_load_campaign(s, "./build/main.camp")){
+        //if(!editor_load_campaign(s, "./build/main.camp")){
             editor_new_campaign();
             //editor_load_maps_file("./build/wii_16x9.maps");
-        }
+        //}
 
-        s.world_camera_target_pos = get_map_center(&g_current_map.map);
+        auto map = g_current_map;
+        auto map_center = 0.5f*Vec2(map.width, map.height);
+        s.world_camera_target_pos = world_to_render_pos(map_center);
 
         auto memory = (malloc(4086)[0 .. 4086]);
         begin_window(gui, Window_ID_Main, "Test Window", rect_from_min_wh(Vec2(20, 20), 200, 80), memory);
