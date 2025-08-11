@@ -14,6 +14,10 @@ A container is a vertical slice of the screen region and can hold one or more me
 Containers are not displayed, they're only used to place menu items.
 
 TODO: Explain the rest after we finilize things!
+
+TODO:
+    - What happens when we don't have any interactive elements? Do we crash if we hit enter?
+
 +/
 
 import memory;
@@ -99,6 +103,9 @@ struct Menu{
     Font*         heading_font;
     Font*         title_font;
 
+    Rect    canvas;
+    bool    mouse_moved;
+    Vec2    mouse_p;
     Menu_ID current_menu_id;
 
     uint           hover_item_index;
@@ -258,6 +265,18 @@ struct Menu_Event{
     Menu_ID     target_menu;
 }
 
+private Menu_Event do_action(Menu_Item* item){
+    Menu_Event result;
+    result.action = item.action;
+    result.target_menu = item.target_menu;
+    return result;
+}
+
+private Menu_Item* get_hover_item(Menu* menu){
+    auto result = &menu.items[menu.hover_item_index];
+    return result;
+}
+
 Menu_Event menu_handle_event(Menu* menu, Event* event){
     Menu_Event result;
 
@@ -292,20 +311,57 @@ Menu_Event menu_handle_event(Menu* menu, Event* event){
                     } break;
 
                     case Key_ID_Enter:{
-                        auto item = menu.items[menu.hover_item_index];
-                        result.action = item.action;
-                        result.target_menu = item.target_menu;
+                        auto item = get_hover_item(menu);
+                        if(item){
+                            result = do_action(item);
+                        }
                     } break;
                 }
             }
+        } break;
+
+        case Event_Type.Button:{
+            auto button = &event.button;
+            if(button.pressed){
+                switch(button.id){
+                    default: break;
+
+                    case Button_ID.Mouse_Left:{
+                        auto item = get_hover_item(menu);
+                        if(item && is_point_inside_rect(menu.mouse_p, item.bounds)){
+                            result = do_action(item);
+                        }
+                    } break;
+                }
+            }
+        } break;
+
+        case Event_Type.Mouse_Motion:{
+            auto motion = &event.mouse_motion;
+
+            menu.mouse_p = Vec2(motion.pixel_x, height(menu.canvas) - motion.pixel_y);
+            menu.mouse_moved = true;
         } break;
     }
     return result;
 }
 
-void menu_do_layout(Menu* menu, Rect canvas){
+void menu_update(Menu* menu, Rect canvas){
+    if(menu.mouse_moved){
+        foreach(item_index, ref item; menu.items[0 .. menu.items_count]){
+            if(is_interactive(&item) && is_point_inside_rect(menu.mouse_p, item.bounds)){
+                menu.hover_item_index = cast(uint)item_index;
+                break;
+            }
+        }
+
+        menu.mouse_moved = false;
+    }
+
     // TODO: Only run the layout algorithm if the canvas position or size has changed
     // since the last update.
+
+    menu.canvas = canvas;
 
     enum Margin = 8.0f;
     auto canvas_width  = width(canvas);

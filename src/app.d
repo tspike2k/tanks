@@ -24,13 +24,11 @@ TODO:
       they stay in the order they were spawned. Sorting by life would probably be the right call
       in that situation.
     - Finish porting over tank params
-    - Enemy firing sight tests can pass through blocks when the origin of the bulelt spawn
-      position is inside a block.
     - Decals aren't affected by light. Is that worth fixing?
-    - Mouse input for menus.
     - Shadows cut off at the edges of 16:9 maps. This is probably an issue with the shadow map
       camera.
     - Support playing custom campaigns.
+    - Pause menu which allows us to exit to main menu (shouldn't actually pause in multiplayer, though)
 
 Enemy AI:
     - Improved bullet prediction. Right now, even enemies with good aim stats are surprisingly
@@ -226,6 +224,7 @@ void render_ground(App_State* s, Render_Pass* pass, Rect bounds){
 void restart_campaign_mission(App_State* s){
     reset_particles(&s.emitter_treadmarks);
     reset_particles(&s.emitter_bullet_contrails);
+    reset_particles(&s.emitter_explosion_flames);
 
     auto map = &s.campaign.maps[s.session.map_index];
     auto map_center = Vec2(map.width, map.height)*0.5f;
@@ -342,7 +341,7 @@ struct Session{
 }
 
 struct Particle{
-    Vec2  pos;
+    Vec3  pos;
     float angle;
     float life;
 }
@@ -397,6 +396,7 @@ struct App_State{
 
     Particle_Emitter emitter_treadmarks;
     Particle_Emitter emitter_bullet_contrails;
+    Particle_Emitter emitter_explosion_flames;
 
     Shader shader;
     Shader text_shader;
@@ -1351,6 +1351,17 @@ void add_to_score_if_killed_by_player(App_State* s, Entity* tank, Entity_ID atta
     }
 }
 
+void emit_tank_explosion(Particle_Emitter* emitter, Vec2 pos, Xorshift32* rng){
+    auto p = world_to_render_pos(pos) + Bullet_Ground_Offset;
+    foreach(i; 0 .. 32){
+        auto angle = random_angle(rng);
+        auto height = random_f32_between(rng, -0.5f, 0.5f);
+        auto radius = random_percent(rng);
+        auto offset = Vec3(cos(angle)*radius, height, 0.01f*cast(float)i);
+        add_particle(emitter, 1.0f, p + offset, 0);
+    }
+}
+
 void resolve_collision(App_State* s, Entity* a, Entity* b, Vec2 normal, float depth){
     if(should_seperate(a.type, b.type)){
         // TODO: Handle energy transfer here somehow
@@ -1375,7 +1386,7 @@ void resolve_collision(App_State* s, Entity* a, Entity* b, Vec2 normal, float de
         default: break;
 
         case make_collision_id(Entity_Type.Tank, Entity_Type.Bullet):{
-            // TODO: Show explosion
+            emit_tank_explosion(&s.emitter_explosion_flames, a.pos, &s.rng);
             play_sfx(&s.sfx_explosion, 0, 1.0f);
             destroy_entity(a);
             destroy_entity(b);
@@ -1675,8 +1686,8 @@ void start_play_session(App_State* s, uint variant_index){
     s.session.variant_index = variant_index;
 
     //load_campaign_level(s, &s.campaign, s.session.mission_index);
-    //load_campaign_level(s, &s.campaign, 5);
-    load_campaign_level(s, &s.campaign, 8);
+    load_campaign_level(s, &s.campaign, 5);
+    //load_campaign_level(s, &s.campaign, 8);
 }
 
 float rotate_tank_part(float target_rot, float speed, float* rot_remaining){
@@ -1817,6 +1828,11 @@ Tank_Type* get_tank_info(Campaign* campaign, Entity* e){
 }
 
 bool should_take_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info, bool has_opportunity){
+    // NOTE: Enemy firing sight tests can pass through blocks when the bullet spawn position
+    // is inside a block. This is not an issues since we don't allow bullets to be fired if the
+    // spawn position is inside a block. A better way of handling that for future projects
+    // would probably be to have collision tests report of the start of the ray is inside a
+    // collision volume.
     auto ray_dir   = vec2_from_angle(e.turret_angle);
     auto ray_start = get_bullet_spawn_pos(e.pos, ray_dir);
 
@@ -2060,7 +2076,8 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
 
                     if(passed_range(meters_moved_prev, e.total_meters_moved, Meters_Per_Treadmark)){
                         play_sfx(&s.sfx_treads, 0, 0.10f);
-                        add_particle(&s.emitter_treadmarks, 1.0f, e.pos, e.angle + deg_to_rad(90));
+                        auto pos = world_to_render_pos(e.pos);
+                        add_particle(&s.emitter_treadmarks, 1.0f, pos, e.angle + deg_to_rad(90));
                     }
                 } break;
 
@@ -2101,7 +2118,8 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
                     // bulelt velocity?
                     e.total_meters_moved += length(e.vel)*dt;
                     if(passed_range(meters_moved_prev, e.total_meters_moved, Meters_Per_Bullet_Smoke)){
-                        add_particle(&s.emitter_bullet_contrails, Bullet_Smoke_Lifetime, e.pos, 0);
+                        auto pos = world_to_render_pos(e.pos) + Bullet_Ground_Offset;
+                        add_particle(&s.emitter_bullet_contrails, Bullet_Smoke_Lifetime, pos, 0);
                     }
                 } break;
             }
@@ -2133,6 +2151,7 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
     }
 
     update_particles(&s.emitter_bullet_contrails, dt);
+    update_particles(&s.emitter_explosion_flames, dt);
 
     remove_destroyed_entities(&s.world);
 
@@ -2200,7 +2219,7 @@ void update_particles(Particle_Emitter* emitter, float dt){
     }
 }
 
-void add_particle(Particle_Emitter* emitter, float life, Vec2 pos, float angle){
+void add_particle(Particle_Emitter* emitter, float life, Vec3 pos, float angle){
     auto p = &emitter.particles[emitter.cursor];
     p.life  = life;
     p.pos   = pos;
@@ -2224,7 +2243,7 @@ void change_to_menu(App_State* s, Menu* menu, Menu_ID menu_id){
     s.next_menu_id = menu_id;
 }
 
-void menu_simulate(App_State* s, float dt){
+void simulate_menu(App_State* s, float dt, Rect canvas){
     auto menu = &s.menu;
 
     auto menu_id = s.next_menu_id;
@@ -2281,6 +2300,8 @@ void menu_simulate(App_State* s, float dt){
             set_text(menu, &menu.items[Variant_Label_Index], variant.name);
         } break;
     }
+
+    menu_update(menu, canvas);
 }
 
 bool handle_event_common(App_State* s, Event* evt, float dt){
@@ -2551,7 +2572,8 @@ struct Particle_Sort{
         //auto b_pos = world_to_render_pos(b.pos);
         //auto result = dist_sq(a_pos, camera_pos) > dist_sq(b_pos, camera_pos);
 
-        bool result = a.pos.y > b.pos.y;
+        bool result = a.pos.z < b.pos.z;
+        //bool result = dist_sq(a.pos, camera_pos) > dist_sq(b.pos, camera_pos);
         return result;
     }
 }
@@ -2674,6 +2696,7 @@ extern(C) int main(int args_count, char** args){
 
     init_particles(&s.emitter_treadmarks, 2048, &s.main_memory);
     init_particles(&s.emitter_bullet_contrails, 2048, &s.main_memory);
+    init_particles(&s.emitter_explosion_flames, 2048, &s.main_memory);
 
     auto player_input = zero_type!Tank_Commands;
     bool send_broadcast;
@@ -2803,6 +2826,7 @@ extern(C) int main(int args_count, char** args){
 
         render_passes.particles = add_render_pass(&world_camera);
         set_shader(render_passes.particles, &s.text_shader);
+        render_passes.particles.flags = Render_Flag_Decal_Depth_Test;
 
         render_passes.hud_rects = add_render_pass(&hud_camera);
         set_shader(render_passes.hud_rects, &s.text_shader);
@@ -2851,8 +2875,7 @@ extern(C) int main(int args_count, char** args){
                         }
                     }
                 }
-                menu_simulate(s, dt);
-                menu_do_layout(&s.menu, window_bounds);
+                simulate_menu(s, dt, window_bounds);
             } break;
 
             case Game_Mode.Campaign:{
@@ -2883,14 +2906,16 @@ extern(C) int main(int args_count, char** args){
                 }
 
                 foreach(ref p; get_particles(&s.emitter_treadmarks)){
+                    auto pos = render_to_world_pos(p.pos);
                     render_ground_decal(
-                        render_passes.ground, Rect(p.pos, Vec2(0.25f, 0.10f)),
+                        render_passes.ground, Rect(pos, Vec2(0.25f, 0.10f)),
                         Vec4(1, 1, 1, 1), p.angle, s.img_tread_marks
                     );
                 }
 
                 auto bullet_particles = get_particles(&s.emitter_bullet_contrails);
-                auto particle_sort = Particle_Sort(s.world_camera_target_pos);
+                //auto particle_sort = Particle_Sort(s.world_camera_target_pos);
+                auto particle_sort = Particle_Sort(world_camera.center);
                 quick_sort!(particle_sort)(bullet_particles);
                 foreach(ref p; bullet_particles){
                     if(p.life > 0){
@@ -2904,9 +2929,20 @@ extern(C) int main(int args_count, char** args){
                             //alpha = 0;
                         }
 
-                        auto pos = world_to_render_pos(p.pos) + Bullet_Ground_Offset;
                         render_particle(
-                            render_passes.particles, pos, Vec2(0.25f, 0.25f), Vec4(1, 1, 1, alpha),
+                            render_passes.particles, p.pos, Vec2(0.25f, 0.25f), Vec4(1, 1, 1, alpha),
+                            s.img_smoke, p.angle
+                        );
+                    }
+                }
+
+                quick_sort!(particle_sort)(get_particles(&s.emitter_explosion_flames));
+                foreach(ref p; get_particles(&s.emitter_explosion_flames)){
+                    if(p.life > 0){
+                        float alpha = p.life;
+
+                        render_particle(
+                            render_passes.particles, p.pos, Vec2(0.5f, 0.5f), Vec4(1, 0.25f, 0.25f, alpha),
                             s.img_smoke, p.angle
                         );
                     }
