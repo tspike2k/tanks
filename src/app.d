@@ -81,6 +81,8 @@ enum Mission_Intro_Max_Time = 3.0f;
 enum Mission_Start_Max_Time = 3.0f;
 enum Mission_End_Max_Time   = 3.0f;
 
+enum Tank_Explosion_Particles_Time = 2.0f;
+
 enum Mine_Min_Ally_Dist = 3.0f;
 
 enum Text_White = Vec4(1, 1, 1, 1);
@@ -221,10 +223,14 @@ void render_ground(App_State* s, Render_Pass* pass, Rect bounds){
     render_mesh(pass, &s.ground_mesh, (&s.material_ground)[0..1], ground_xform);
 }
 
-void restart_campaign_mission(App_State* s){
+void reset_all_particles(App_State* s){
     reset_particles(&s.emitter_treadmarks);
     reset_particles(&s.emitter_bullet_contrails);
     reset_particles(&s.emitter_explosion_flames);
+}
+
+void restart_campaign_mission(App_State* s){
+    reset_all_particles(s);
 
     auto map = &s.campaign.maps[s.session.map_index];
     auto map_center = Vec2(map.width, map.height)*0.5f;
@@ -248,8 +254,8 @@ void load_campaign_level(App_State* s, Campaign* campaign, uint mission_index){
     auto world = &s.world;
     world.entities_count = 0;
 
-    reset_particles(&s.emitter_treadmarks);
-    reset_particles(&s.emitter_bullet_contrails);
+
+    reset_all_particles(s);
 
     clear_to_zero(s.session.enemies_defeated);
     s.session.mission_index = mission_index;
@@ -1352,13 +1358,12 @@ void add_to_score_if_killed_by_player(App_State* s, Entity* tank, Entity_ID atta
 }
 
 void emit_tank_explosion(Particle_Emitter* emitter, Vec2 pos, Xorshift32* rng){
-    auto p = world_to_render_pos(pos) + Bullet_Ground_Offset;
-    foreach(i; 0 .. 32){
-        auto angle = random_angle(rng);
-        auto height = random_f32_between(rng, -0.5f, 0.5f);
-        auto radius = random_percent(rng);
-        auto offset = Vec3(cos(angle)*radius, height, 0.01f*cast(float)i);
-        add_particle(emitter, 1.0f, p + offset, 0);
+    auto p = world_to_render_pos(pos);
+    foreach(i; 0 .. 256){
+        auto angle  = random_angle(rng);
+        auto height = random_f32_between(rng, 0.25f, 0.75f);
+        auto offset = Vec3(cos(angle)*0.5f, height, 0.0f);
+        add_particle(emitter, Tank_Explosion_Particles_Time, p + offset, 0);
     }
 }
 
@@ -2914,7 +2919,6 @@ extern(C) int main(int args_count, char** args){
                 }
 
                 auto bullet_particles = get_particles(&s.emitter_bullet_contrails);
-                //auto particle_sort = Particle_Sort(s.world_camera_target_pos);
                 auto particle_sort = Particle_Sort(world_camera.center);
                 quick_sort!(particle_sort)(bullet_particles);
                 foreach(ref p; bullet_particles){
@@ -2926,7 +2930,6 @@ extern(C) int main(int args_count, char** args){
                         }
                         else{
                             alpha = 1.0f-normalized_range_clamp(t, 0.15f, 1);
-                            //alpha = 0;
                         }
 
                         render_particle(
@@ -2936,13 +2939,31 @@ extern(C) int main(int args_count, char** args){
                     }
                 }
 
-                quick_sort!(particle_sort)(get_particles(&s.emitter_explosion_flames));
+                //quick_sort!(particle_sort)(get_particles(&s.emitter_explosion_flames));
                 foreach(ref p; get_particles(&s.emitter_explosion_flames)){
                     if(p.life > 0){
-                        float alpha = p.life;
+                        enum color_red_0  = Vec4(1, 0.0f, 0.0f, 1.0f);
+                        enum color_red_1  = Vec4(1, 0.25f, 0.25f, 1.0f);
+                        enum color_black  = Vec4(0.25f, 0.25f, 0.25f, 1.0f);
+
+                        Vec4 color = Vec4(1, 1, 1, 0);
+                        auto t = 1.0f - normalized_range_clamp(p.life, 0, Tank_Explosion_Particles_Time);
+                        if(t < 0.25f){
+                            auto t0 = normalized_range_clamp(t, 0, 0.25f);
+                            color = lerp(color_red_0, color_red_1, t0);
+                        }
+                        else if(t < 0.35f){
+                            auto t0 = normalized_range_clamp(t, 0.25f, 0.35f);
+                            color = lerp(color_red_1, color_black, t0);
+                        }
+                        else{
+                            auto t0 = normalized_range_clamp(t, 0.35f, 1.0f);
+                            color = color_black;
+                            color.a = 1.0f-t0;
+                        }
 
                         render_particle(
-                            render_passes.particles, p.pos, Vec2(0.5f, 0.5f), Vec4(1, 0.25f, 0.25f, alpha),
+                            render_passes.particles, p.pos, Vec2(0.5f, 0.5f), color,
                             s.img_smoke, p.angle
                         );
                     }
