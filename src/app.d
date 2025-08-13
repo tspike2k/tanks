@@ -10,19 +10,14 @@ Credits:
     TheGoldfishKing for the equally helpful "Tanks_Documentation"
 
 TODO:
-    - Billboard particles for explosions and breaking blocks
     - High score tracking
     - Better scoring (Have both point and kill-based scoring)
-    - Multiplayer
     - Temp saves
     - More editor features (tank params, level size, etc)
     - Debug collision volume display?
     - Bullet can get lodged between two blocks, destroying it before the player sees it reflected.
     - Improved collision handling
     - Switch to high-score list on game over. Highlight your current score if it's been added.
-    - When billboards (such as smoke) are placed exactly horizontally, they do not sort properly;
-      they stay in the order they were spawned. Sorting by life would probably be the right call
-      in that situation.
     - Finish porting over tank params
     - Decals aren't affected by light. Is that worth fixing?
     - Shadows cut off at the edges of 16:9 maps. This is probably an issue with the shadow map
@@ -82,8 +77,6 @@ enum Mission_Start_Max_Time = 3.0f;
 enum Mission_End_Max_Time   = 3.0f;
 
 enum Tank_Explosion_Particles_Time = 2.0f;
-
-enum Mine_Min_Ally_Dist = 3.0f;
 
 enum Text_White = Vec4(1, 1, 1, 1);
 
@@ -545,11 +538,13 @@ __gshared Tank_Type[] g_tank_types = [
         bullet_limit:       5,
         bullet_ricochets:   1,
         bullet_speed:       3.0f,
+        bullet_min_ally_dist: 2.0f,
 
         mine_limit:            2,
         mine_stun_time:        1.0f/60.0f,
         mine_cooldown_time:    6.0f/60.0f,
         mine_placement_chance: 0.1f,
+        mine_min_ally_dist:    3.0f,
 
         fire_cooldown_time: 6.0f/60.0f,
         fire_stun_time:     5.0f/60.0f,
@@ -561,9 +556,10 @@ __gshared Tank_Type[] g_tank_types = [
         main_color: Enemy_Tank_Main_Color,
         alt_color: Vec3(0.45f, 0.22f, 0.13f),
 
-        bullet_limit:     1,
-        bullet_ricochets: 1,
-        bullet_speed:     3.0f,
+        bullet_limit:         1,
+        bullet_ricochets:     1,
+        bullet_speed:         3.0f,
+        bullet_min_ally_dist: 2.0f,
 
         mine_limit:         0,
         mine_cooldown_time: 6.0f/60.0f,
@@ -571,6 +567,7 @@ __gshared Tank_Type[] g_tank_types = [
         mine_timer_max:     0.0f,
         mine_stun_time:     3.0f/60.0f,
         mine_placement_chance: 0.0f,
+        mine_min_ally_dist:    3.0f,
 
         fire_cooldown_time: (300.0f)/60.0f,
         fire_timer_max:     (45.0f)/60.0f,
@@ -590,6 +587,7 @@ __gshared Tank_Type[] g_tank_types = [
         bullet_limit:     1,
         bullet_ricochets: 1,
         bullet_speed:     3.0f,
+        bullet_min_ally_dist: 2.0f,
 
         mine_limit:          0,
         mine_cooldown_time:  6.0f/60.0f,
@@ -597,6 +595,7 @@ __gshared Tank_Type[] g_tank_types = [
         mine_timer_max:      0.0f,
         mine_stun_time:      3.0f/60.0f,
         mine_placement_chance: 0.0f,
+        mine_min_ally_dist:    3.0f,
 
         fire_cooldown_time: (180.0f)/60.0f,
         fire_timer_max:     (45.0f)/60.0f,
@@ -613,9 +612,10 @@ __gshared Tank_Type[] g_tank_types = [
         main_color: Enemy_Tank_Main_Color,
         alt_color: Vec3(0.10f, 0.45f, 0.43f),
 
-        bullet_limit:     1,
-        bullet_ricochets: 0,
-        bullet_speed:     6.0f,
+        bullet_limit:         1,
+        bullet_ricochets:     0,
+        bullet_speed:         6.0f,
+        bullet_min_ally_dist: 2.0f,
 
         mine_limit:         0,
         mine_cooldown_time: 6.0f/60.0f,
@@ -623,6 +623,7 @@ __gshared Tank_Type[] g_tank_types = [
         mine_timer_max:     0.0f,
         mine_stun_time:     3.0f/60.0f,
         mine_placement_chance: 0.0f,
+        mine_min_ally_dist:    3.0f,
 
         fire_cooldown_time: (180.0f)/60.0f,
         fire_timer_max:     (10.0f)/60.0f,
@@ -639,9 +640,10 @@ __gshared Tank_Type[] g_tank_types = [
         main_color: Enemy_Tank_Main_Color,
         alt_color: Vec3(0.72f, 0.26f, 0.54f),
 
-        bullet_limit:     3,
-        bullet_ricochets: 1,
-        bullet_speed:     3.0f,
+        bullet_limit:         3,
+        bullet_ricochets:     1,
+        bullet_speed:         3.0f,
+        bullet_min_ally_dist: 2.0f,
 
         mine_limit:         0,
         mine_cooldown_time: 6.0f/60.0f,
@@ -649,6 +651,7 @@ __gshared Tank_Type[] g_tank_types = [
         mine_timer_max:     0.0f,
         mine_stun_time:     3.0f/60.0f,
         mine_placement_chance: 0.0f,
+        mine_min_ally_dist:    3.0f,
 
         fire_cooldown_time: (30.0f)/60.0f,
         fire_timer_max:     (10.0f)/60.0f,
@@ -665,15 +668,17 @@ __gshared Tank_Type[] g_tank_types = [
         main_color: Enemy_Tank_Main_Color,
         alt_color: Vec3(0.73f, 0.60f, 0.15f),
 
-        bullet_limit:     1,
-        bullet_ricochets: 1,
-        bullet_speed:     3.0f,
+        bullet_limit:         1,
+        bullet_ricochets:     1,
+        bullet_speed:         3.0f,
+        bullet_min_ally_dist: 2.0f,
 
         mine_limit:          4,
         mine_cooldown_time:  6.0f/60.0f,
         mine_timer_min:     40.0f/60.0f,
         mine_timer_max:     60.0f/60.0f,
         mine_stun_time:     1.0f/60.0f,
+        mine_min_ally_dist: 3.0f,
 
         fire_cooldown_time: (180.0f)/60.0f,
         fire_timer_max:     (45.0f)/60.0f,
@@ -691,9 +696,10 @@ __gshared Tank_Type[] g_tank_types = [
         main_color: Enemy_Tank_Main_Color,
         alt_color: Vec3(0.42f, 0.16f, 0.82f),
 
-        bullet_limit:     5,
-        bullet_ricochets: 1,
-        bullet_speed:     3.0f,
+        bullet_limit:         5,
+        bullet_ricochets:     1,
+        bullet_speed:         3.0f,
+        bullet_min_ally_dist: 2.0f,
 
         mine_limit:         2,
         mine_cooldown_time: 6.0f/60.0f,
@@ -701,6 +707,7 @@ __gshared Tank_Type[] g_tank_types = [
         mine_timer_max:     60.0f/60.0f,
         mine_stun_time:     1.0f/60.0f,
         mine_placement_chance: 0.03f,
+        mine_min_ally_dist: 3.0f,
 
         fire_cooldown_time: (30.0f)/60.0f,
         fire_timer_max:     (10.0f)/60.0f,
@@ -717,9 +724,10 @@ __gshared Tank_Type[] g_tank_types = [
         main_color: Enemy_Tank_Main_Color,
         alt_color: Vec3(0.21f, 0.36f, 0.06f),
 
-        bullet_limit:     2,
-        bullet_ricochets: 2,
-        bullet_speed:     6.0f,
+        bullet_limit:         2,
+        bullet_ricochets:     2,
+        bullet_speed:         6.0f,
+        bullet_min_ally_dist: 2.0f,
 
         mine_limit:         0,
         mine_cooldown_time: 6.0f/60.0f,
@@ -727,6 +735,7 @@ __gshared Tank_Type[] g_tank_types = [
         mine_timer_max:     0.0f,
         mine_stun_time:     3.0f/60.0f,
         mine_placement_chance: 0.0f,
+        mine_min_ally_dist: 3.0f,
 
         fire_cooldown_time: (60.0f)/60.0f,
         fire_timer_max:     (10.0f)/60.0f,
@@ -743,9 +752,10 @@ __gshared Tank_Type[] g_tank_types = [
         main_color: Enemy_Tank_Main_Color,
         alt_color: Vec3(0.68f, 0.70f, 0.73f),
 
-        bullet_limit:     5,
-        bullet_ricochets: 1,
-        bullet_speed:     3.0f,
+        bullet_limit:         5,
+        bullet_ricochets:     1,
+        bullet_speed:         3.0f,
+        bullet_min_ally_dist: 2.0f,
 
         mine_limit:          2,
         mine_cooldown_time:  6.0f/60.0f,
@@ -753,6 +763,7 @@ __gshared Tank_Type[] g_tank_types = [
         mine_timer_max:     60.0f/60.0f,
         mine_stun_time:     1.0f/60.0f,
         mine_placement_chance: 0.03f,
+        mine_min_ally_dist: 3.0f,
 
         fire_cooldown_time: (30.0f)/60.0f,
         fire_timer_max:     (10.0f)/60.0f,
@@ -769,9 +780,10 @@ __gshared Tank_Type[] g_tank_types = [
         main_color: Enemy_Tank_Main_Color,
         alt_color: Vec3(0.15f, 0.18f, 0.20f),
 
-        bullet_limit:     3,
-        bullet_ricochets: 0,
-        bullet_speed:     6.0f,
+        bullet_limit:         3,
+        bullet_ricochets:     0,
+        bullet_speed:         6.0f,
+        bullet_min_ally_dist: 2.0f,
 
         mine_limit:           2,
         mine_cooldown_time:   6.0f/60.0f,
@@ -779,6 +791,7 @@ __gshared Tank_Type[] g_tank_types = [
         mine_timer_min:     60.0f/60.0f,
         mine_stun_time:     1.0f/60.0f,
         mine_placement_chance: 0.03f,
+        mine_min_ally_dist: 3.0f,
 
         fire_cooldown_time: (60.0f)/60.0f,
         fire_timer_max:     (10.0f)/60.0f,
@@ -1832,7 +1845,27 @@ Tank_Type* get_tank_info(Campaign* campaign, Entity* e){
     return result;
 }
 
+bool is_ally_within_range(World* world, Entity* e, float test_range){
+    float min_dist_sq = float.max;
+    foreach(ref target; iterate_entities(world)){
+        if(target.health > 0 && target.type == Entity_Type.Tank
+        && target.id != e.id){
+            auto d = dist_sq(target.pos, e.pos);
+            if(!is_player(&target) && d < min_dist_sq){
+                min_dist_sq = d;
+            }
+        }
+    }
+
+    bool result = min_dist_sq < squared(test_range);
+    return result;
+}
+
 bool should_take_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info, bool has_opportunity){
+    if(is_ally_within_range(world, e, tank_info.bullet_min_ally_dist)){
+        return false;
+    }
+
     // NOTE: Enemy firing sight tests can pass through blocks when the bullet spawn position
     // is inside a block. This is not an issues since we don't allow bullets to be fired if the
     // spawn position is inside a block. A better way of handling that for future projects
@@ -1917,26 +1950,12 @@ bool should_take_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info,
 bool should_take_mine_opportunity(World* world, Entity* e, Tank_Type* tank_info, bool has_opportunity, Xorshift32* rng){
     if(!has_opportunity) return false;
 
-    auto result = false;
     auto chance = random_percent(rng);
     // TODO: Depending on the AI type, AI tanks shouldn't be allowed to lay mines
     // if they're in "survival mode."
 
-    if(chance >= tank_info.mine_placement_chance){
-        float min_dist_sq = float.max;
-        foreach(ref target; iterate_entities(world)){
-            if(target.health > 0 && target.type == Entity_Type.Tank
-            && target.id != e.id){
-                auto d = dist_sq(target.pos, e.pos);
-                if(!is_player(&target) && d < min_dist_sq){
-                    min_dist_sq = d;
-                }
-            }
-        }
-
-        result = min_dist_sq > squared(Mine_Min_Ally_Dist);
-    }
-
+    bool result = chance >= tank_info.mine_placement_chance
+    && !is_ally_within_range(world, e, tank_info.mine_min_ally_dist);
     return result;
 }
 
