@@ -10,8 +10,6 @@ Credits:
     TheGoldfishKing for the equally helpful "Tanks_Documentation"
 
 TODO:
-    - High score tracking
-    - Better scoring (Have both point and kill-based scoring)
     - Temp saves
     - More editor features (tank params, level size, etc)
     - Debug collision volume display?
@@ -86,6 +84,7 @@ enum Max_Players = 4;
 
 enum Meters_Per_Treadmark = 0.25f;
 
+enum Bullet_Radius = 0.25f*0.5f;
 enum Bullet_Smoke_Lifetime = 2.0f;
 enum Bullet_Ground_Offset = Vec3(0, 0.5f, 0);
 enum Meters_Per_Bullet_Smoke = 0.20f;
@@ -100,6 +99,255 @@ enum Game_Mode : uint{
     Menu,
     Editor,
     Campaign,
+}
+
+struct Render_Passes{
+    Render_Pass* shadow_map;
+    Render_Pass* holes;
+    Render_Pass* hole_cutouts;
+    Render_Pass* ground;
+    Render_Pass* world;
+    Render_Pass* particles;
+    Render_Pass* hud_rects;
+    Render_Pass* hud_text;
+}
+
+enum Session_State : uint{
+    Inactive,
+    Mission_Intro,
+    Mission_Start,
+    Mission_End,
+    Playing_Mission,
+    Restart_Mission,
+    Game_Over,
+}
+
+struct Session{
+    Session_State state;
+    uint  lives;
+    uint  variant_index;
+    uint  mission_index;
+    uint  map_index;
+    uint  prev_map_index;
+    float timer;
+
+    uint[Max_Players] enemies_defeated;
+    uint[Max_Players] total_enemies_defeated;
+}
+
+struct Particle{
+    Vec3  pos;
+    float angle;
+    float life;
+}
+
+// NOTE: The watermark member provides a fast way to "clear" all the particles in the ring buffer.
+// When iterating particles, all particles after the watermark are ignored. The watermark rises
+// as particles are added. We can set this field to zero to ignore all particles, avoiding the
+// need to clear the life field of each particle or call memset on the entire ring buffer.
+struct Particle_Emitter{
+    Particle[] particles;
+    uint       cursor;
+    uint       watermark;
+}
+
+struct App_State{
+    Allocator main_memory;
+    Allocator frame_memory;
+    Allocator editor_memory;
+    Allocator campaign_memory;
+
+    String     data_path;
+
+    bool       running;
+    float      t;
+    Entity_ID  player_entity_id;
+    Vec2       mouse_pixel;
+    Vec2       mouse_world;
+    World      world;
+    Game_Mode  mode;
+    Game_Mode  next_mode;
+    Campaign   campaign;
+    Session    session;
+    Vec3       world_camera_polar;
+    Vec3       world_camera_target_pos;
+    Xorshift32 rng;
+
+    bool moving_camera;
+
+    Menu      menu;
+    Menu_ID   next_menu_id;
+    Gui_State gui;
+
+    Font font_main;
+    Font font_editor_small;
+
+    Shader_Light light;
+
+    Sound sfx_fire_bullet;
+    Sound sfx_explosion;
+    Sound sfx_treads;
+    Sound sfx_ricochet;
+    Sound sfx_mine_click;
+    Sound sfx_pop;
+
+    Particle_Emitter emitter_treadmarks;
+    Particle_Emitter emitter_bullet_contrails;
+    Particle_Emitter emitter_explosion_flames;
+
+    Shader shader;
+    Shader text_shader;
+    Shader rect_shader;
+    Shader shadow_map_shader;
+    Shader view_depth;
+
+    Mesh cube_mesh;
+    Mesh tank_base_mesh;
+    Mesh tank_top_mesh;
+    Mesh bullet_mesh;
+    Mesh ground_mesh;
+    Mesh hole_mesh;
+    Mesh half_sphere_mesh;
+
+    Tank_Materials[] materials_enemy_tank;
+    Material[2] material_player_tank;
+    Material material_block;
+    Material material_ground;
+    Material material_eraser;
+    Material material_mine;
+    Material material_breakable_block;
+
+    Texture img_blank_mesh;
+    Texture img_blank_rect;
+    Texture img_x_mark;
+    Texture img_tread_marks;
+    Texture img_wood;
+    Texture img_smoke;
+}
+
+alias Entity_ID = ulong;
+enum  Null_Entity_ID = 0;
+
+enum Entity_Type : uint{
+    None,
+    Block,
+    Tank,
+    Bullet,
+    Mine,
+}
+
+struct AI_Timer{
+    float time;
+    float min_delay;
+    float max_delay;
+}
+
+// Mine entity flags
+enum Entity_Flag_Mine_Active = (1<<0);
+
+struct Entity{
+    Entity_ID   id;
+    Entity_ID   parent_id;
+    ulong       flags;
+    Entity_Type type;
+    uint        tank_type_index;
+
+    Vec2     pos;
+    Vec2     extents;
+    Vec2     vel;
+    Vec2     start_pos;
+    float    angle;
+    float    turret_angle;
+    uint     health;
+    Map_Cell cell_info;
+    float    mine_timer;
+    float    total_meters_moved;
+
+    float fire_cooldown_timer;
+    float mine_cooldown_timer;
+    float action_stun_timer; // Time a tank cannot move after firing a bullet or laying a mine
+
+    // AI related data:
+    AI_Timer  fire_timer;
+    AI_Timer  place_mine_timer;
+    float     aim_timer;
+
+    Vec2      aim_target_pos;
+    float     target_angle;
+    float     target_aim_angle;
+}
+
+struct World{
+    Entity_ID   next_entity_id;
+    Entity[512] entities;
+    uint        entities_count;
+    Rect        bounds;
+}
+
+enum Enemy_Tank_Main_Color = Vec3(0.6f, 0.5f, 0.3f);
+
+struct Tank_Materials{
+    Material[2] materials;
+}
+
+struct Player_Score{
+    uint     name_count;
+    char[64] name;
+    char[16] date;
+    uint     score;
+    uint     kills;
+    uint     total_enemies;
+    uint     missions_start; // NOTE: Can be non-zero just in case drop-in multiplayer is added later.
+    uint     missions_end;
+    uint[6] reserved;
+}
+
+struct Score_Entry{
+    uint            players_count;
+    Player_Score[4] player_scores;
+}
+
+struct Variant_Scores{
+    Score_Entry[10] entries;
+}
+
+struct High_Scores{
+    uint campaign_name_hash;
+    Variant_Scores[] variant_scores;
+}
+
+uint get_total_score(Score_Entry* entry){
+    uint result;
+    foreach(player_entry; entry.player_scores[0 .. entry.players_count]){
+        result += player_entry.score;
+    }
+
+    return result;
+}
+
+// TODO: Result should be used to highlight which score was added (if any) in the results screen.
+Score_Entry* maybe_post_highscore(Variant_Scores* scores, Score_Entry* current){
+    Score_Entry* ranking;
+    auto current_total_score = get_total_score(current);
+    foreach(i, ref entry; scores.entries){
+        if(get_total_score(&entry) <= current_total_score){
+            if(i+1 < scores.entries.length){
+                memmove(&scores.entries[i+1], &scores.entries[i],
+                (scores.entries.length - i - 1)*Score_Entry.sizeof);
+
+            }
+            ranking = &scores.entries[i];
+            *ranking = *current;
+
+            break;
+        }
+    }
+
+    return ranking;
+}
+
+void load_highscores(App_State* s, String campaign_file_name){
+
 }
 
 bool load_campaign_from_file(App_State* s, String file_name){
@@ -305,145 +553,6 @@ void load_campaign_level(App_State* s, Campaign* campaign, uint mission_index){
     }
 }
 
-struct Render_Passes{
-    Render_Pass* shadow_map;
-    Render_Pass* holes;
-    Render_Pass* hole_cutouts;
-    Render_Pass* ground;
-    Render_Pass* world;
-    Render_Pass* particles;
-    Render_Pass* hud_rects;
-    Render_Pass* hud_text;
-}
-
-enum Session_State : uint{
-    Inactive,
-    Mission_Intro,
-    Mission_Start,
-    Mission_End,
-    Playing_Mission,
-    Restart_Mission,
-    Game_Over,
-}
-
-struct Session{
-    Session_State state;
-    uint  lives;
-    uint  variant_index;
-    uint  mission_index;
-    uint  map_index;
-    uint  prev_map_index;
-    float timer;
-
-    uint[Max_Players] enemies_defeated;
-    uint[Max_Players] total_enemies_defeated;
-}
-
-struct Particle{
-    Vec3  pos;
-    float angle;
-    float life;
-}
-
-// NOTE: The watermark member provides a fast way to "clear" all the particles in the ring buffer.
-// When iterating particles, all particles after the watermark are ignored. The watermark rises
-// as particles are added. We can set this field to zero to ignore all particles, avoiding the
-// need to clear the life field of each particle or call memset on the entire ring buffer.
-struct Particle_Emitter{
-    Particle[] particles;
-    uint       cursor;
-    uint       watermark;
-}
-
-struct App_State{
-    Allocator main_memory;
-    Allocator frame_memory;
-    Allocator editor_memory;
-    Allocator campaign_memory;
-
-    bool       running;
-    float      t;
-    Entity_ID  player_entity_id;
-    Vec2       mouse_pixel;
-    Vec2       mouse_world;
-    World      world;
-    Game_Mode  mode;
-    Game_Mode  next_mode;
-    Campaign   campaign;
-    Session    session;
-    Vec3       world_camera_polar;
-    Vec3       world_camera_target_pos;
-    Xorshift32 rng;
-
-    bool moving_camera;
-
-    Menu      menu;
-    Menu_ID   next_menu_id;
-    Gui_State gui;
-
-    Font font_main;
-    Font font_editor_small;
-
-    Shader_Light light;
-
-    Sound sfx_fire_bullet;
-    Sound sfx_explosion;
-    Sound sfx_treads;
-    Sound sfx_ricochet;
-    Sound sfx_mine_click;
-    Sound sfx_pop;
-
-    Particle_Emitter emitter_treadmarks;
-    Particle_Emitter emitter_bullet_contrails;
-    Particle_Emitter emitter_explosion_flames;
-
-    Shader shader;
-    Shader text_shader;
-    Shader rect_shader;
-    Shader shadow_map_shader;
-    Shader view_depth;
-
-    Mesh cube_mesh;
-    Mesh tank_base_mesh;
-    Mesh tank_top_mesh;
-    Mesh bullet_mesh;
-    Mesh ground_mesh;
-    Mesh hole_mesh;
-    Mesh half_sphere_mesh;
-
-    Tank_Materials[] materials_enemy_tank;
-    Material[2] material_player_tank;
-    Material material_block;
-    Material material_ground;
-    Material material_eraser;
-    Material material_mine;
-    Material material_breakable_block;
-
-    Texture img_blank_mesh;
-    Texture img_blank_rect;
-    Texture img_x_mark;
-    Texture img_tread_marks;
-    Texture img_wood;
-    Texture img_smoke;
-}
-
-alias Entity_ID = ulong;
-enum  Null_Entity_ID = 0;
-
-enum Entity_Type : uint{
-    None,
-    Block,
-    Tank,
-    Bullet,
-    Mine,
-}
-
-struct AI_Timer{
-    float time;
-    float min_delay;
-    float max_delay;
-}
-
 bool timer_update(AI_Timer* timer, float dt, Xorshift32* rng){
     timer.time -= dt;
     bool has_opportunity = false;
@@ -464,41 +573,6 @@ bool players_defeated(App_State* s){
     return result;
 }
 
-// Mine entity flags
-enum Entity_Flag_Mine_Active = (1<<0);
-
-struct Entity{
-    Entity_ID   id;
-    Entity_ID   parent_id;
-    ulong       flags;
-    Entity_Type type;
-    uint        tank_type_index;
-
-    Vec2     pos;
-    Vec2     extents;
-    Vec2     vel;
-    Vec2     start_pos;
-    float    angle;
-    float    turret_angle;
-    uint     health;
-    Map_Cell cell_info;
-    float    mine_timer;
-    float    total_meters_moved;
-
-    float fire_cooldown_timer;
-    float mine_cooldown_timer;
-    float action_stun_timer; // Time a tank cannot move after firing a bullet or laying a mine
-
-    // AI related data:
-    AI_Timer  fire_timer;
-    AI_Timer  place_mine_timer;
-    float     aim_timer;
-
-    Vec2      aim_target_pos;
-    float     target_angle;
-    float     target_aim_angle;
-}
-
 void destroy_entity(Entity* e){
     e.health = 0;
 }
@@ -513,19 +587,6 @@ uint get_child_entity_count(World* world, Entity_ID parent_id, Entity_Type type)
     }
 
     return result;
-}
-
-struct World{
-    Entity_ID   next_entity_id;
-    Entity[512] entities;
-    uint        entities_count;
-    Rect        bounds;
-}
-
-enum Enemy_Tank_Main_Color = Vec3(0.6f, 0.5f, 0.3f);
-
-struct Tank_Materials{
-    Material[2] materials;
 }
 
 // TODO: These are debug values. Final values should be stored in the mission file itself.
@@ -809,8 +870,6 @@ bool is_valid_block(Entity* e){
     bool result = index >= 0 && index <= 7;
     return result;
 }
-
-enum Bullet_Radius = 0.25f*0.5f;
 
 void make_entity(Entity* e, Entity_ID id, Vec2 pos, Entity_Type type){
     clear_to_zero(*e);
@@ -2671,6 +2730,26 @@ extern(C) int main(int args_count, char** args){
     auto base_path = get_path_to_executable(&s.main_memory);
     auto font_path = base_path;
     auto mesh_path = base_path;
+    s.data_path    = get_data_path(&s.main_memory);
+
+    {
+        Score_Entry make_entry(uint score){
+            Score_Entry entry;
+            entry.players_count = 1;
+            entry.player_scores[0].score = score;
+            return entry;
+        }
+
+        Variant_Scores scores;
+
+        auto a = make_entry(24);
+        auto b = make_entry(120);
+        auto c = make_entry(8);
+
+        maybe_post_highscore(&scores, &a);
+        maybe_post_highscore(&scores, &b);
+        maybe_post_highscore(&scores, &c);
+    }
 
     load_font(font_path, "test_en.fnt", &s.font_main, &s.main_memory);
     load_font(font_path, "editor_small_en.fnt", &s.font_editor_small, &s.main_memory);

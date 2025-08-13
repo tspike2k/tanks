@@ -7,7 +7,7 @@ License:   Boost Software License 1.0 (https://www.boost.org/LICENSE_1_0.txt)
 import logging;
 import meta;
 
-public import core.stdc.string : memset, memcpy, strlen;
+public import core.stdc.string : memset, memcpy, strlen, memmove;
 
 alias String = const(char)[];
 

@@ -341,6 +341,21 @@ char[] get_path_to_executable(Allocator* allocator){
     return result;
 }
 
+String get_cache_path(Allocator* allocator){
+    auto result = get_xgd_or_fallback_dir("XDG_CACHE_HOME", ".cache", allocator);
+    return result;
+}
+
+String get_data_path(Allocator* allocator){
+    auto result = get_xgd_or_fallback_dir("XDG_DATA_HOME", ".local/share", allocator);
+    return result;
+}
+
+String get_config_path(Allocator* allocator){
+    auto result = get_xgd_or_fallback_dir("XDG_CONFIG_HOME", "/.config", allocator);
+    return result;
+}
+
 private:
 
 import core.sys.linux.dlfcn;
@@ -349,6 +364,7 @@ import core.sys.linux.fcntl;
 import core.sys.posix.sys.stat;
 import core.stdc.string;
 import core.stdc.errno;
+import core.stdc.stdlib;
 
 // Default file permissions: user:rw- group:r-- other: r--
 enum Dest_File_Permissions = S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH;
@@ -453,88 +469,28 @@ bool watch_read_events(File_Watcher* watcher, Watch_Event* event){
     return read_event;
 }
 
-/+
-#include <stdlib.h> // getenv
-
-#if _GNU_SOURCE
-    #define cyu__getenv secure_getenv
-#else
-    #define cyu__getenv getenv
-#endif
-
-static Slice cyu__get_xgd_dir_or_fallback(Memory_Block* block, const char *xgd_env, const char *fallback){
+String get_xgd_or_fallback_dir(String xgd_env, String fallback, Allocator* allocator){
     // This is based on the "XDG Base Directory Specification" Freedesktop which can be read here:
     // https://specifications.freedesktop.org/basedir-spec/latest/
-    Slice result = {};
 
-    // TODO: Do better than slice_write to null terminate. If there's no space left, it will fail!
-    char *s = cyu__getenv(xgd_env);
+    // TODO: Use secure_getenv instead?
+    String result;
+    auto s = getenv(xgd_env.ptr);
     if(s){
-        size_t len = strlen(s);
-        char *text = memory_alloc(block, len+1, 0, Default_Align);
-        memcpy(text, s, len);
-        text[len] = '\0';
-
-        result = slice(text, len);
+        auto len = strlen(s);
+        if(len > 0){
+            auto dest = alloc_array!char(allocator, len+1);
+            copy(s[0 .. len], dest);
+            dest[$-1] = '\0';
+            result = dest[0..$-1];
+        }
     }
     else{
         // TODO: Append "fallback" to result of $HOME env
-        s = cyu__getenv("HOME");
-        size_t home_len   = strlen(s);
-        size_t append_len = strlen(fallback);
-
-        char *text = memory_alloc(block, home_len+append_len+1, 0, Default_Align);
-        memcpy(text, s, home_len);
-        memcpy(&text[home_len], fallback, append_len);
-        text[home_len+append_len] = '\0';
-
-        result = slice(text, home_len+append_len);
+        s = getenv("HOME");
+        auto home = trim_ending_if_char(s[0 .. strlen(s)], Dir_Char);
+        result = concat(home, to_string(Dir_Char), fallback, allocator);
     }
 
     return result;
 }
-
-Cyu_API Slice get_directory_path(Memory_Block* block, uint32_t dir_type){
-    Slice result = {};
-
-    switch(dir_type){
-        default: break;
-
-        case Dir_Type_Application:{
-            char *text = memory_alloc(block, 1, 0, Default_Align); // Make sure we're aligned
-            ssize_t count = readlink("/proc/self/exe", text, block->size - block->used);
-            if(count > 0){
-                result = slice(text, count);
-
-                // Remove the trailing binary name from the result
-                char* p = slice_get_last_char(result, '/');
-                if(p){
-                    *p = '\0';
-                    result.length = p - result.data;
-                }
-
-                block->used += result.length;
-            }
-            else{
-                // TODO: We can't get the directory, so use a relative path instead: "./"
-                // TODO: Handle errors.
-                assert(0);
-            }
-        } break;
-
-        case Dir_Type_Cache:{
-            result = cyu__get_xgd_dir_or_fallback(block, "XDG_CACHE_HOME", "/.cache");
-        } break;
-
-        case Dir_Type_Data:{
-            result = cyu__get_xgd_dir_or_fallback(block, "XDG_DATA_HOME", "/.local/share");
-        } break;
-
-        case Dir_Type_Config:{
-            result = cyu__get_xgd_dir_or_fallback(block, "XDG_CONFIG_HOME", "/.config");
-        } break;
-    }
-
-    return result;
-}
-+/
