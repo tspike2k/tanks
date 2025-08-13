@@ -159,19 +159,21 @@ struct App_State{
 
     String     data_path;
 
-    bool       running;
-    float      t;
-    Entity_ID  player_entity_id;
-    Vec2       mouse_pixel;
-    Vec2       mouse_world;
-    World      world;
-    Game_Mode  mode;
-    Game_Mode  next_mode;
-    Campaign   campaign;
-    Session    session;
-    Vec3       world_camera_polar;
-    Vec3       world_camera_target_pos;
-    Xorshift32 rng;
+    bool        running;
+    float       t;
+    Entity_ID   player_entity_id;
+    Vec2        mouse_pixel;
+    Vec2        mouse_world;
+    World       world;
+    Game_Mode   mode;
+    Game_Mode   next_mode;
+    Campaign    campaign;
+    String      campaign_file_name;
+    High_Scores high_scores;
+    Session     session;
+    Vec3        world_camera_polar;
+    Vec3        world_camera_target_pos;
+    Xorshift32  rng;
 
     bool moving_camera;
 
@@ -313,7 +315,7 @@ struct Variant_Scores{
 
 struct High_Scores{
     uint campaign_name_hash;
-    Variant_Scores[] variant_scores;
+    Variant_Scores[] variants;
 }
 
 uint get_total_score(Score_Entry* entry){
@@ -346,8 +348,82 @@ Score_Entry* maybe_post_highscore(Variant_Scores* scores, Score_Entry* current){
     return ranking;
 }
 
-void load_highscores(App_State* s, String campaign_file_name){
+enum Score_File_Version = 1;
+enum Score_File_Magic   = ('S' << 0 | 'c' << 8 | 'o' << 16 | 'r' << 24);
 
+struct Score_File_Header{
+    uint magic;
+    uint file_version;
+}
+
+bool verify_score_file_header(Score_File_Header* header, String file_name){
+    if(header.magic != Score_File_Magic){
+        log_error("Unexpected magic for score file {0}: got {1} but expected {2}", file_name, header.magic, Score_File_Magic);
+        return false;
+    }
+
+    if(header.file_version != Score_File_Version){
+        log_error("Unsupported file version for file {0}: got {1} but expected {2}", file_name, header.file_version, Score_File_Version);
+        return false;
+    }
+    return true;
+}
+
+String get_high_scores_full_path(App_State* s, Allocator* allocator){
+    auto source = s.campaign_file_name;
+    source = trim_before(source, get_last_char(source, Dir_Char));
+    source = trim_after(source, get_last_char(source, '.'));
+
+    auto sep = to_string(Dir_Char);
+    auto result = concat(s.data_path, sep, "tanks_", source, ".score", allocator);
+    return result;
+}
+
+bool load_high_scores(App_State* s){
+    auto allocator = &s.campaign_memory;
+
+    auto scratch = allocator.scratch;
+    push_frame(scratch);
+    scope(exit) pop_frame(scratch);
+
+    auto file_name = get_high_scores_full_path(s, scratch);
+
+    bool success = false;
+    auto memory = read_file_into_memory(file_name, scratch);
+    if(memory.length){
+        auto reader = Serializer(memory, allocator);
+        auto header = eat_type!Score_File_Header(&reader);
+        if(verify_score_file_header(header, file_name)){
+            read(&reader, s.high_scores);
+        }
+
+        success = !reader.errors;
+    }
+
+    if(!success){
+        log("Unable to load highscores from file {0}\n", file_name);
+    }
+
+    return success;
+}
+
+void save_high_scores(App_State* s){
+    auto allocator = &s.campaign_memory;
+
+    auto scratch = allocator.scratch;
+    push_frame(scratch);
+    scope(exit) pop_frame(scratch);
+
+    auto file_name = get_high_scores_full_path(s, scratch);
+
+    auto header = Score_File_Header(Score_File_Magic, Score_File_Version);
+
+    auto writer = Serializer(begin_reserve_all(scratch));
+    write(&writer, header);
+    write(&writer, s.high_scores);
+
+    end_reserve_all(scratch, writer.buffer, writer.buffer_used);
+    write_file_from_memory(file_name, writer.buffer[0 .. writer.buffer_used]);
 }
 
 bool load_campaign_from_file(App_State* s, String file_name){
@@ -371,6 +447,8 @@ bool load_campaign_from_file(App_State* s, String file_name){
         *allocator = Allocator(os_alloc(campaign_memory_size, 0));
         allocator.scratch = scratch;
 
+        s.campaign_file_name = dup_array(file_name, allocator);
+
         auto reader = Serializer(memory, allocator);
         auto header = eat_type!Asset_Header(&reader);
         if(verify_asset_header!Campaign_Meta(file_name, header)){
@@ -384,6 +462,10 @@ bool load_campaign_from_file(App_State* s, String file_name){
                 auto tank_mats = &s.materials_enemy_tank[i];
                 setup_basic_material(&tank_mats.materials[0], s.img_blank_mesh, entry.main_color);
                 setup_basic_material(&tank_mats.materials[1], s.img_blank_mesh, entry.alt_color, 256);
+            }
+
+            if(!load_high_scores(s)){
+                s.high_scores.variants = alloc_array!Variant_Scores(allocator, campaign.variants.length);
             }
         }
     }
@@ -2828,6 +2910,7 @@ extern(C) int main(int args_count, char** args){
 
     s.campaign.tank_types = g_tank_types[];
     load_campaign_from_file(s, Campaign_File_Name);
+    save_high_scores(s); // TODO: For testing only!
 
     s.mouse_pixel = Vec2(0, 0);
 

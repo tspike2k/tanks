@@ -413,6 +413,14 @@ String eat_line(ref Reader_Slice reader){
     return result;
 }
 
+inout(char)[] trim_before(inout(char)[] s, const(char)* place){
+    auto result = s;
+    if(place){
+        result = s[place - s.ptr +1 .. $];
+    }
+    return result;
+}
+
 inout(char)[] trim_after(inout(char)[] s, const(char)* place){
     auto result = s;
     if(place){
