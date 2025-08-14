@@ -2458,6 +2458,8 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
                 //add_index_picker(menu, "Variant", )
                 set_default_style(menu);
                 add_button(menu, "Back", Menu_Action.Change_Menu, Menu_ID.Main_Menu);
+                add_button(menu, "Test A", Menu_Action.Change_Menu, Menu_ID.Main_Menu);
+                add_button(menu, "Test B", Menu_Action.Change_Menu, Menu_ID.Main_Menu);
                 end_block(menu);
                 end_menu_def(menu);
             }

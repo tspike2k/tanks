@@ -44,10 +44,12 @@ enum Menu_Action : uint{
     Quit_Game,
 }
 
+// TODO: Settings menu?
 enum Menu_ID : uint{
     None,
     Main_Menu,
     Campaign,
+    High_Scores,
 }
 
 enum Align : uint{
@@ -405,7 +407,9 @@ void menu_update(Menu* menu, Rect canvas){
                 if(item_index + i >= style_group.items_end){
                     style_group = &style_groups[style_group_index++];
                     styles = menu.styles[style_group.style_offset .. style_group.style_end];
-                    end_row();
+
+                    if(column > 0)
+                        end_row();
                 }
                 auto style = &styles[column];
 
