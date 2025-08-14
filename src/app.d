@@ -296,7 +296,7 @@ struct Player_Score{
     uint     name_count;
     char[64] name;
     char[16] date;
-    uint     score;
+    uint     points;
     uint     kills;
     uint     total_enemies;
     uint     missions_start; // NOTE: Can be non-zero just in case drop-in multiplayer is added later.
@@ -304,13 +304,15 @@ struct Player_Score{
     uint[6] reserved;
 }
 
+enum High_Scores_Table_Size = 10;
+
 struct Score_Entry{
     uint            players_count;
     Player_Score[4] player_scores;
 }
 
 struct Variant_Scores{
-    Score_Entry[10] entries;
+    Score_Entry[High_Scores_Table_Size] entries;
 }
 
 struct High_Scores{
@@ -321,7 +323,7 @@ struct High_Scores{
 uint get_total_score(Score_Entry* entry){
     uint result;
     foreach(player_entry; entry.player_scores[0 .. entry.players_count]){
-        result += player_entry.score;
+        result += player_entry.points;
     }
 
     return result;
@@ -467,6 +469,22 @@ bool load_campaign_from_file(App_State* s, String file_name){
             if(!load_high_scores(s)){
                 s.high_scores.variants = alloc_array!Variant_Scores(allocator, campaign.variants.length);
             }
+
+            Score_Entry make_entry(uint score){
+                Score_Entry entry;
+                entry.players_count = 1;
+                entry.player_scores[0].points = score;
+                return entry;
+            }
+
+            auto a = make_entry(24);
+            auto b = make_entry(120);
+            auto c = make_entry(8);
+
+            auto target = &s.high_scores.variants[0];
+            maybe_post_highscore(target, &a);
+            maybe_post_highscore(target, &b);
+            maybe_post_highscore(target, &c);
         }
     }
 
@@ -2440,7 +2458,6 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
             auto campaign = &s.campaign;
             auto variant  = &campaign.variants[s.session.variant_index];
             if(menu_changed){
-
                 begin_menu_def(menu, menu_id);
                 begin_block(menu, 0.2f);
                 add_heading(menu, "Campaign");
@@ -2457,14 +2474,27 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
                 // will require a way to select an index. Should be interesting!
                 //add_index_picker(menu, "Variant", )
                 set_default_style(menu);
+                add_button(menu, "High Scores", Menu_Action.Change_Menu, Menu_ID.High_Scores);
                 add_button(menu, "Back", Menu_Action.Change_Menu, Menu_ID.Main_Menu);
-                add_button(menu, "Test A", Menu_Action.Change_Menu, Menu_ID.Main_Menu);
-                add_button(menu, "Test B", Menu_Action.Change_Menu, Menu_ID.Main_Menu);
                 end_block(menu);
                 end_menu_def(menu);
             }
 
             set_text(menu, &menu.items[Variant_Label_Index], variant.name);
+        } break;
+
+        case Menu_ID.High_Scores:{
+            if(menu_changed){
+                begin_menu_def(menu, menu_id);
+                begin_block(menu, 0.2f);
+                add_heading(menu, "High Scores");
+                end_block(menu);
+                begin_block(menu, 0.8f);
+                add_high_scores_viewer(menu, &s.high_scores, s.session.variant_index);
+                add_button(menu, "Back", Menu_Action.Change_Menu, Menu_ID.Campaign);
+                end_block(menu);
+                end_menu_def(menu);
+            }
         } break;
     }
 
@@ -2816,25 +2846,6 @@ extern(C) int main(int args_count, char** args){
     auto mesh_path = base_path;
     s.data_path    = get_data_path(&s.main_memory);
 
-    {
-        Score_Entry make_entry(uint score){
-            Score_Entry entry;
-            entry.players_count = 1;
-            entry.player_scores[0].score = score;
-            return entry;
-        }
-
-        Variant_Scores scores;
-
-        auto a = make_entry(24);
-        auto b = make_entry(120);
-        auto c = make_entry(8);
-
-        maybe_post_highscore(&scores, &a);
-        maybe_post_highscore(&scores, &b);
-        maybe_post_highscore(&scores, &c);
-    }
-
     load_font(font_path, "test_en.fnt", &s.font_main, &s.main_memory);
     load_font(font_path, "editor_small_en.fnt", &s.font_editor_small, &s.main_memory);
 
@@ -3079,7 +3090,7 @@ extern(C) int main(int args_count, char** args){
             } break;
 
             case Game_Mode.Menu:{
-                menu_render(&render_passes, &s.menu, s.t);
+                menu_render(&render_passes, &s.menu, s.t, &s.frame_memory);
             } break;
 
             case Game_Mode.Campaign:{

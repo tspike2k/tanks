@@ -24,8 +24,13 @@ import memory;
 import assets;
 import display;
 import math;
-import app : Render_Passes;
+import app : Render_Passes, High_Scores, High_Scores_Table_Size;
 import render;
+
+private{
+    enum Padding = 8.0f;
+    enum Margin  = 8.0f;
+}
 
 enum Menu_Item_Type : uint{
     None,
@@ -34,6 +39,7 @@ enum Menu_Item_Type : uint{
     Heading,
     Button,
     Index_Picker,
+    High_Score_Viewer,
 }
 
 enum Menu_Action : uint{
@@ -73,9 +79,12 @@ struct Menu_Item{
     Menu_Action action;
     Menu_ID     target_menu;
 
-    // TODO: This should be part of a union.
+    // TODO: The following data is only used by certain specific item types. They should
+    // probably be stored in a union.
     uint* index;
     uint  index_max;
+    High_Scores* scores;
+    uint scores_variant_index;
 }
 
 struct Style_Group{
@@ -173,15 +182,15 @@ Menu_Item* add_menu_item(Menu* menu, Menu_Item_Type type, String text){
     clear_to_zero(*result);
     result.type = type;
     set_text(menu, result, text);
+    auto font = get_font(menu, result.type);
+    result.bounds.extents.y = 0.5f*(cast(float)font.metrics.height) + Padding;
     return result;
 }
 
 void set_text(Menu* menu, Menu_Item* item, String text){
-    enum Padding = 8.0f;
     auto font   = get_font(menu, item.type);
     auto width  = get_text_width(font, text) + Padding*2.0f; // TODO: Base this on text width or, in the case of buttons, target width
-    auto height = (cast(float)font.metrics.height) + Padding*2.0f;
-    item.bounds.extents = 0.5f*Vec2(width, height);
+    item.bounds.extents.x = 0.5f*width;
     item.text = text;
 }
 
@@ -209,6 +218,15 @@ void add_index_picker(Menu* menu, uint* index, uint index_max, String text){
     auto entry = add_menu_item(menu, Menu_Item_Type.Index_Picker, text);
     entry.index     = index;
     entry.index_max = index_max;
+}
+
+void add_high_scores_viewer(Menu* menu, High_Scores* scores, uint variant_index){
+    auto entry = add_menu_item(menu, Menu_Item_Type.High_Score_Viewer, "");
+    entry.scores = scores;
+    auto font = get_font(menu, entry.type);
+    auto height = High_Scores_Table_Size*(font.metrics.height + Padding*2.0f);
+    entry.bounds.extents = Vec2(450, height)*0.5f;
+    entry.scores_variant_index = variant_index;
 }
 
 void set_style(Menu* menu, const Style[] style){
@@ -269,8 +287,14 @@ struct Menu_Event{
 
 private Menu_Event do_action(Menu_Item* item){
     Menu_Event result;
-    result.action = item.action;
-    result.target_menu = item.target_menu;
+
+    if(item.type == Menu_Item_Type.Index_Picker){
+        index_incr(item.index, item.index_max);
+    }
+    else{
+        result.action = item.action;
+        result.target_menu = item.target_menu;
+    }
     return result;
 }
 
@@ -365,7 +389,6 @@ void menu_update(Menu* menu, Rect canvas){
 
     menu.canvas = canvas;
 
-    enum Margin = 8.0f;
     auto canvas_width  = width(canvas);
     auto canvas_height = height(canvas);
     auto canvas_left   = left(canvas);
@@ -459,7 +482,7 @@ void menu_update(Menu* menu, Rect canvas){
     }
 }
 
-void menu_render(Render_Passes* rp, Menu* menu, float time){
+void menu_render(Render_Passes* rp, Menu* menu, float time, Allocator* allocator){
     Vec4[2] block_colors = [Vec4(0.25f, 0.25f, 0.25f, 1), Vec4(0, 0, 0, 1)];
     foreach(block_index, ref block; menu.blocks[0 .. menu.blocks_count]){
         auto color = block_colors[block_index % block_colors.length];
@@ -483,14 +506,41 @@ void menu_render(Render_Passes* rp, Menu* menu, float time){
                 render_text(rp.hud_text, font, p, entry.text, text_color);
             } break;
 
+            case Menu_Item_Type.Index_Picker:
             case Menu_Item_Type.Button:{
                 render_rect(rp.hud_rects, entry.bounds, Vec4(0, 1, 0, 1));
                 render_text(rp.hud_text, font, p, entry.text, text_color);
             } break;
 
-            case Menu_Item_Type.Index_Picker:{
+            case Menu_Item_Type.High_Score_Viewer:{
                 render_rect(rp.hud_rects, entry.bounds, Vec4(0, 1, 0, 1));
-                render_text(rp.hud_text, font, p, entry.text, text_color);
+                auto variant = &entry.scores.variants[entry.scores_variant_index];
+
+                auto row_extents = 0.5f*Vec2(
+                    width(entry.bounds) - Margin*2.0f,
+                    font.metrics.height + Padding*2.0f
+                );
+                auto row_center = Vec2(left(entry.bounds), top(entry.bounds)) + Vec2(row_extents.x, -row_extents.y);
+                auto row_bounds = Rect(row_center, row_extents);
+
+                foreach(score_index, ref score; variant.entries){
+                    auto ps = &score.player_scores[0]; // TODO: Support mutliplayer!
+                    if(ps.points == 0)
+                        break;
+
+                    auto place = score_index+1;
+                    auto msg = gen_string("{0}: {1} pts by {2} on {3}",
+                        place,
+                        ps.points,
+                        ps.name[0 .. ps.name_count],
+                        ps.date, // TODO: Format the date!
+                        allocator,
+                    );
+
+                    p = center_text_left(font, msg, row_bounds);
+                    render_text(rp.hud_text, font, p, msg, text_color);
+                    row_bounds.center.y -= row_bounds.extents.y;
+                }
             } break;
         }
     }
@@ -505,7 +555,7 @@ private:
 bool is_interactive(Menu_Item* item){
     bool result = false;
 
-    // TODO: For flexibility (and support for custom widgets), a bt flag should be used
+    // TODO: For flexibility (and support for custom widgets), a bit flag should be used
     // to state if a menu item is interactive or not. Interactive items are items that can
     // be navigated to using the keyboard or clicked on using the mouse.
     switch(item.type){
@@ -513,6 +563,7 @@ bool is_interactive(Menu_Item* item){
 
         case Menu_Item_Type.Button:
         case Menu_Item_Type.Index_Picker:
+        case Menu_Item_Type.High_Score_Viewer:
             result = true; break;
     }
 
@@ -527,12 +578,6 @@ Font* get_font(Menu* menu, Menu_Item_Type type){
         case Menu_Item_Type.Heading: font = menu.heading_font; break;
     }
     return font;
-}
-
-float get_item_height(Menu* menu, Menu_Item* item){
-    auto font = get_font(menu, item.type);
-    auto result = font.metrics.height; // TODO: Add padding?
-    return result;
 }
 
 void end_current_style_group(Menu* menu){
