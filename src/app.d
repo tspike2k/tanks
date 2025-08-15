@@ -176,6 +176,8 @@ struct App_State{
     Vec3        world_camera_target_pos;
     Xorshift32  rng;
 
+    Player_Name player_name;
+
     bool moving_camera;
 
     Menu      menu;
@@ -293,16 +295,20 @@ struct Tank_Materials{
     Material[2] materials;
 }
 
+struct Player_Name{
+    uint     count;
+    char[64] text;
+}
+
 struct Player_Score{
-    uint     name_count;
-    char[64] name;
-    char[16] date;
-    uint     points;
-    uint     kills;
-    uint     total_enemies;
-    uint     missions_start; // NOTE: Can be non-zero just in case drop-in multiplayer is added later.
-    uint     missions_end;
-    uint[6] reserved;
+    Player_Name name;
+    char[16]    date;
+    uint        points;
+    uint        kills;
+    uint        total_enemies;
+    uint        missions_start; // NOTE: Can be non-zero just in case drop-in multiplayer is added later.
+    uint        missions_end;
+    uint[6]     reserved;
 }
 
 enum High_Scores_Table_Size = 10;
@@ -319,6 +325,11 @@ struct Variant_Scores{
 struct High_Scores{
     uint campaign_name_hash;
     Variant_Scores[] variants;
+}
+
+void set_name(Player_Name* name, String s){
+    name.count = cast(uint)min(s.length, name.text.length);
+    copy(s[0 .. name.count], name.text[0 .. name.count]);
 }
 
 uint get_total_score(Score_Entry* entry){
@@ -1850,6 +1861,8 @@ void start_play_session(App_State* s, uint variant_index){
     s.session.state = Session_State.Mission_Intro;
     s.session.lives = variant.lives;
     s.session.variant_index = variant_index;
+    s.session.score.players_count = 1;
+    s.session.score.player_scores[0].name = s.player_name;
 
     //load_campaign_mission(s, &s.campaign, s.session.mission_index);
     load_campaign_mission(s, &s.campaign, 5);
@@ -2821,6 +2834,9 @@ extern(C) int main(int args_count, char** args){
         s.editor_memory.scratch   = &scratch_memory;
         s.campaign_memory.scratch = &scratch_memory;
     }
+
+    // NOTE: These are the default names, these should be configurable by the player.
+    set_name(&s.player_name, "Player 1");
 
     if(!open_display("Tanks", 1920, 1080, 0)){
         log_error("Unable to open display.\n");

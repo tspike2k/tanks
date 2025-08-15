@@ -532,7 +532,7 @@ void menu_render(Render_Passes* rp, Menu* menu, float time, Allocator* allocator
                     auto msg = gen_string("{0}: {1} pts by {2} on {3}",
                         place,
                         ps.points,
-                        ps.name[0 .. ps.name_count],
+                        ps.name.text[0 .. ps.name.count],
                         ps.date, // TODO: Format the date!
                         allocator,
                     );
