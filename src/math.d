@@ -87,8 +87,6 @@ Vec3 v2_to_v3(Vec2 v, float z){
 }
 
 mixin template Vec_Ops(){
-    @nogc nothrow:
-
     alias This = typeof(this);
     inout ref inout(float) opIndex(size_t i){
         return c[i];
@@ -131,9 +129,10 @@ mixin template Vec_Ops(){
         return this.opBinary!(op)(inp);
     }
 
-    void serialize(SerializerT)(SerializerT* serializer)
-    if(isSerializer!SerializerT){
-        serializer.next(c[0 .. $]);
+    void serialize(Serialize_Mode Mode)(Serializer* serializer){
+        foreach(ref member; c){
+            memory.serialize!Mode(serializer, member);
+        }
     }
 }
 

@@ -344,18 +344,21 @@ void end_building_font(Font_Builder* builder, Font_Entry *font_entry){
     section = begin_writing_section(&writer, Font_Section.Pixels);
     write(&writer, canvas.width);
     write(&writer, canvas.height);
-    copy(canvas.data, eat_array!uint(&writer, canvas.data.length));
+    copy(canvas.data, eat_array!uint(&writer, canvas.width*canvas.height));
     end_writing_section(&writer, section);
 
     section = begin_writing_section(&writer, Font_Section.Glyphs);
     uint glyphs_count = atlas.items_count;
     write(&writer, glyphs_count);
     node = atlas.items;
+    auto node_i = 0;
     while(node){
         auto entry = cast(Rasterized_Glyph*)node.source;
         write(&writer, entry.glyph);
         node = node.next;
+        node_i++;
     }
+    assert(node_i == glyphs_count);
     end_writing_section(&writer, section);
 
     if(kerning_count > 0){

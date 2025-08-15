@@ -614,7 +614,7 @@ T[] eat_array(T)(Serializer* dest, size_t count){
     return result;
 }
 
-private enum Serialize_Mode{
+enum Serialize_Mode{
     Read,
     Write,
 }
@@ -627,7 +627,7 @@ void read(T)(Serializer* serializer, ref T t){
     serialize!(Serialize_Mode.Read)(serializer, t);
 }
 
-private void serialize(Serialize_Mode Mode, T)(Serializer* serializer, ref T t){
+void serialize(Serialize_Mode Mode, T)(Serializer* serializer, ref T t){
     enum bool is_reading = Mode == Serialize_Mode.Read;
 
     void copy_data(Serializer* serializer, void[] data){
@@ -690,8 +690,11 @@ private void serialize(Serialize_Mode Mode, T)(Serializer* serializer, ref T t){
     else static if(isBuiltinType!T){
         copy_data(serializer, to_void(&t));
     }
+    else static if(__traits(hasMember, T, "serialize") && __traits(compiles, t.serialize!Mode(serializer))){
+        t.serialize!Mode(serializer);
+    }
     else{
-        static assert("Unable to serialize type " ~ T.stringof ~ ".\n");
+        static assert(0, "Unable to serialize type " ~ T.stringof ~ ".\n");
     }
 }
 

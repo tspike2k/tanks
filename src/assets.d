@@ -507,6 +507,8 @@ bool load_font_from_file(String file_name, Font* font, Pixels* pixels, Allocator
                     case Font_Section.Metrics:{
                         metrics = eat_type!Font_Metrics(&serializer);
                         font.metrics = *metrics;
+                        //read(&serializer, font.metrics);
+                        assert(section.size == Font_Metrics.sizeof);
                     } break;
 
                     case Font_Section.Glyphs:{
@@ -515,6 +517,7 @@ bool load_font_from_file(String file_name, Font* font, Pixels* pixels, Allocator
                         if(glyphs_count > 0){
                             font.glyphs = eat_array!Font_Glyph(&serializer, glyphs_count);
                         }
+                        assert(section.size == uint.sizeof + Font_Glyph.sizeof*glyphs_count);
                     } break;
 
                     case Font_Section.Kerning:{
