@@ -131,8 +131,9 @@ struct Session{
     uint  prev_map_index;
     float timer;
 
-    uint[Max_Players] enemies_defeated;
-    uint[Max_Players] total_enemies_defeated;
+    Score_Entry score;
+    uint mission_enemy_tanks_count;
+    uint[Max_Players] mission_kills;
 }
 
 struct Particle{
@@ -469,22 +470,6 @@ bool load_campaign_from_file(App_State* s, String file_name){
             if(!load_high_scores(s)){
                 s.high_scores.variants = alloc_array!Variant_Scores(allocator, campaign.variants.length);
             }
-
-            Score_Entry make_entry(uint score){
-                Score_Entry entry;
-                entry.players_count = 1;
-                entry.player_scores[0].points = score;
-                return entry;
-            }
-
-            auto a = make_entry(24);
-            auto b = make_entry(120);
-            auto c = make_entry(8);
-
-            auto target = &s.high_scores.variants[0];
-            maybe_post_highscore(target, &a);
-            maybe_post_highscore(target, &b);
-            maybe_post_highscore(target, &c);
         }
     }
 
@@ -591,14 +576,14 @@ void restart_campaign_mission(App_State* s){
     }
 }
 
-void load_campaign_level(App_State* s, Campaign* campaign, uint mission_index){
+void load_campaign_mission(App_State* s, Campaign* campaign, uint mission_index){
     auto world = &s.world;
     world.entities_count = 0;
 
-
     reset_all_particles(s);
 
-    clear_to_zero(s.session.enemies_defeated);
+    clear_to_zero(s.session.mission_kills);
+    s.session.mission_enemy_tanks_count = 0;
     s.session.mission_index = mission_index;
     auto variant = &campaign.variants[s.session.variant_index];
     auto mission = &variant.missions[s.session.mission_index];
@@ -640,6 +625,7 @@ void load_campaign_level(App_State* s, Campaign* campaign, uint mission_index){
                     foreach(ref spawner; mission.enemies){
                         if(spawner.spawn_index == tank_index){
                             spawn_tank(s, p, map_center, cell_info, spawner.type_min, spawner.type_max);
+                            s.session.mission_enemy_tanks_count++;
                             break;
                         }
                     }
@@ -1524,7 +1510,10 @@ void add_to_score_if_killed_by_player(App_State* s, Entity* tank, Entity_ID atta
         // tank
         if(attacker_id == s.player_entity_id){
             auto player_index = 0;
-            s.session.enemies_defeated[player_index]++;
+            auto score_entry = &s.session.score.player_scores[player_index];
+            score_entry.kills += 1;
+            score_entry.points += 1; // TODO: Make points based on tank type, plus proximity, plus ricochet count
+            s.session.mission_kills[player_index]++;
         }
     }
 }
@@ -1862,9 +1851,9 @@ void start_play_session(App_State* s, uint variant_index){
     s.session.lives = variant.lives;
     s.session.variant_index = variant_index;
 
-    //load_campaign_level(s, &s.campaign, s.session.mission_index);
-    load_campaign_level(s, &s.campaign, 5);
-    //load_campaign_level(s, &s.campaign, 8);
+    //load_campaign_mission(s, &s.campaign, s.session.mission_index);
+    load_campaign_mission(s, &s.campaign, 5);
+    //load_campaign_mission(s, &s.campaign, 8);
 }
 
 float rotate_tank_part(float target_rot, float speed, float* rot_remaining){
@@ -2544,6 +2533,17 @@ bool handle_event_common(App_State* s, Event* evt, float dt){
     return consumed;
 }
 
+void end_campaign(App_State* s){
+    auto variant_scores = &s.high_scores.variants[s.session.variant_index];
+    // TODO: Store the score slot somewhere so we can use it to highlight the latest high score.
+    auto score_slot = maybe_post_highscore(variant_scores, &s.session.score);
+    change_mode(s, Game_Mode.Menu);
+    change_to_menu(s, &s.menu, Menu_ID.High_Scores);
+    if(score_slot){
+        save_high_scores(s);
+    }
+}
+
 void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
     version(none){
         sockets_update((&socket)[0 .. 1], &s.frame_memory);
@@ -2699,18 +2699,13 @@ void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
                 s.session.state = Session_State.Mission_Intro;
                 s.session.mission_index++;
 
-                foreach(i; 0 .. Max_Players){
-                    s.session.total_enemies_defeated[i] += s.session.enemies_defeated[i];
-                }
-
-                load_campaign_level(s, &s.campaign, s.session.mission_index);
+                load_campaign_mission(s, &s.campaign, s.session.mission_index);
             }
         } break;
 
         case Session_State.Game_Over:{
             if(s.session.timer >= Mission_End_Max_Time){
-                // TODO: Jump to high score list instead?
-                change_mode(s, Game_Mode.Menu);
+                end_campaign(s);
             }
         } break;
 
@@ -3233,9 +3228,10 @@ extern(C) int main(int args_count, char** args){
 
                         // TODO: Show who destroyed how many tanks
                         pen.y -= cast(float)font_small.metrics.line_gap;
+                        auto kills = s.session.mission_kills[0];
                         render_text(
                             p_text, font_small, pen,
-                            gen_string("P1 {0}", s.session.enemies_defeated[0], &s.frame_memory),
+                            gen_string("P1 {0}", kills, &s.frame_memory),
                             Text_White, Text_Align.Center_X
                         );
                     } break;
