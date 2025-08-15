@@ -302,18 +302,19 @@ struct Player_Name{
 
 struct Player_Score{
     Player_Name name;
-    char[16]    date;
+    char[16]    reserved_0;
     uint        points;
     uint        kills;
     uint        total_enemies;
     uint        missions_start; // NOTE: Can be non-zero just in case drop-in multiplayer is added later.
     uint        missions_end;
-    uint[6]     reserved;
+    uint[6]     reserved_1;
 }
 
 enum High_Scores_Table_Size = 10;
 
 struct Score_Entry{
+    char[16]        date;
     uint            players_count;
     Player_Score[4] player_scores;
 }
@@ -337,6 +338,20 @@ uint get_total_score(Score_Entry* entry){
     foreach(player_entry; entry.player_scores[0 .. entry.players_count]){
         result += player_entry.points;
     }
+
+    return result;
+}
+
+char[16] get_score_date(){
+    import core.stdc.time;
+
+    char[16] result = void;
+    clear_to_zero(result);
+
+    time_t time_val;
+    time(&time_val);
+    auto time_local = localtime(&time_val);
+    strftime(result.ptr, result.length, "%Y%m%d%I%M%p", time_local);
 
     return result;
 }
@@ -2548,6 +2563,7 @@ bool handle_event_common(App_State* s, Event* evt, float dt){
 
 void end_campaign(App_State* s){
     auto variant_scores = &s.high_scores.variants[s.session.variant_index];
+    s.session.score.date = get_score_date();
     // TODO: Store the score slot somewhere so we can use it to highlight the latest high score.
     auto score_slot = maybe_post_highscore(variant_scores, &s.session.score);
     change_mode(s, Game_Mode.Menu);

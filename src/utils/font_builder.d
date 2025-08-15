@@ -326,7 +326,7 @@ void end_building_font(Font_Builder* builder, Font_Entry *font_entry){
     }
     assert(kerning_index == kerning_count);
 
-    save_to_tga("test.tga", canvas.data.ptr, canvas.width, canvas.height, allocator);
+    save_tga_file("test.tga", canvas.data.ptr, canvas.width, canvas.height, allocator);
 
     auto dest_memory = begin_reserve_all(allocator);
     auto writer = Serializer(dest_memory);
@@ -335,39 +335,39 @@ void end_building_font(Font_Builder* builder, Font_Entry *font_entry){
     header.magic        = Font_Meta.magic;
     header.file_version = Font_Meta.file_version;
     header.asset_type   = Font_Meta.type;
-    write(&writer, to_void(&header));
+    write(&writer, header);
 
     auto section = begin_writing_section(&writer, Font_Section.Metrics);
-    write(&writer, to_void(&builder.metrics));
+    write(&writer, builder.metrics);
     end_writing_section(&writer, section);
 
     section = begin_writing_section(&writer, Font_Section.Pixels);
-    write(&writer, to_void(&canvas.width));
-    write(&writer, to_void(&canvas.height));
-    write(&writer, canvas.data);
+    write(&writer, canvas.width);
+    write(&writer, canvas.height);
+    copy(canvas.data, eat_array!uint(&writer, canvas.data.length));
     end_writing_section(&writer, section);
 
     section = begin_writing_section(&writer, Font_Section.Glyphs);
     uint glyphs_count = atlas.items_count;
-    write(&writer, to_void(&glyphs_count));
+    write(&writer, glyphs_count);
     node = atlas.items;
     while(node){
         auto entry = cast(Rasterized_Glyph*)node.source;
-        write(&writer, to_void(&entry.glyph));
+        write(&writer, entry.glyph);
         node = node.next;
     }
     end_writing_section(&writer, section);
 
     if(kerning_count > 0){
         section = begin_writing_section(&writer, Font_Section.Kerning);
-        write(&writer, to_void(&kerning_count));
+        write(&writer, kerning_count);
 
         foreach(ref entry; kerning_pairs){
-            write(&writer, to_void(&entry));
+            write(&writer, entry);
         }
 
         foreach(ref entry; kerning_advance){
-            write(&writer, to_void(&entry));
+            write(&writer, entry);
         }
 
         end_writing_section(&writer, section);

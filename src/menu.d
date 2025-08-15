@@ -482,6 +482,33 @@ void menu_update(Menu* menu, Rect canvas){
     }
 }
 
+char[] make_date_pretty(char[] buffer, char[] date){
+    uint count = 0;
+    void push(String s){
+        copy(s, buffer[count .. count+s.length]);
+        count += s.length;
+    }
+
+    // The source date is in the following format:
+    // YYYY MM DD hh mm pm
+    // But we want it in the following format:
+    // hh:mm pm YYYY-MM-DD
+    push(date[8..10]);
+    push(":");
+    push(date[10..12]);
+    push(" ");
+    push(date[12..14]);
+    push(" ");
+    push(date[0 .. 4]);
+    push("-");
+    push(date[4..6]);
+    push("-");
+    push(date[6..8]);
+
+    auto result = buffer[0 .. count];
+    return result;
+}
+
 void menu_render(Render_Passes* rp, Menu* menu, float time, Allocator* allocator){
     Vec4[2] block_colors = [Vec4(0.25f, 0.25f, 0.25f, 1), Vec4(0, 0, 0, 1)];
     foreach(block_index, ref block; menu.blocks[0 .. menu.blocks_count]){
@@ -528,12 +555,15 @@ void menu_render(Render_Passes* rp, Menu* menu, float time, Allocator* allocator
                     if(ps.points == 0)
                         break;
 
+                    char[32] date_buffer;
+                    auto date = make_date_pretty(date_buffer, score.date);
+
                     auto place = score_index+1;
                     auto msg = gen_string("{0}: {1} pts by {2} on {3}",
                         place,
                         ps.points,
                         ps.name.text[0 .. ps.name.count],
-                        ps.date, // TODO: Format the date!
+                        date,
                         allocator,
                     );
 
