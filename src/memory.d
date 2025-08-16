@@ -643,7 +643,10 @@ void serialize(Serialize_Mode Mode, T)(Serializer* serializer, ref T t){
         }
     }
 
-    static if(is(T == struct)){
+    static if(__traits(hasMember, T, "serialize") && __traits(compiles, t.serialize!Mode(serializer))){
+        t.serialize!Mode(serializer);
+    }
+    else static if(is(T == struct)){
         foreach(i, ref member; t.tupleof){
             // TODO: Allow flagging members as No_Serialize
             serialize!Mode(serializer, member);
@@ -689,9 +692,6 @@ void serialize(Serialize_Mode Mode, T)(Serializer* serializer, ref T t){
     }
     else static if(isBuiltinType!T){
         copy_data(serializer, to_void(&t));
-    }
-    else static if(__traits(hasMember, T, "serialize") && __traits(compiles, t.serialize!Mode(serializer))){
-        t.serialize!Mode(serializer);
     }
     else{
         static assert(0, "Unable to serialize type " ~ T.stringof ~ ".\n");

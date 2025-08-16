@@ -400,8 +400,7 @@ bool verify_score_file_header(Score_File_Header* header, String file_name){
 
 String get_high_scores_full_path(App_State* s, Allocator* allocator){
     auto source = s.campaign_file_name;
-    source = trim_before(source, get_last_char(source, Dir_Char));
-    source = trim_after(source, get_last_char(source, '.'));
+    source = trim_file_extension(trim_leading_path(source));
 
     auto sep = to_string(Dir_Char);
     auto result = concat(s.data_path, sep, "tanks_", source, ".score", allocator);

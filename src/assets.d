@@ -460,6 +460,11 @@ struct Font{
 
 Font_Glyph* get_glyph(Font* font, uint codepoint){
     Font_Glyph* result = &font.glyphs[0]; // TODO: Use a better fallback glyph.
+
+    if(codepoint == '-'){
+        int i = 42;
+    }
+
     foreach(ref glyph; font.glyphs){
         if(glyph.codepoint == codepoint){
             result = &glyph;
@@ -834,7 +839,7 @@ void end_atlas_packing(Atlas_Packer* packer, uint padding, bool use_powers_of_tw
     // than fonts.
     auto columns = cast(uint)ceil(sqrt(cast(float)packer.items_count));
     auto average_width  = packer.items_width  / packer.items_count;
-    auto canvas_width   = (average_width  * columns) + padding*(packer.items_count+1);
+    auto canvas_width   = (average_width  * columns) + 2*padding*(packer.items_count+1);
 
     if(use_powers_of_two){
         canvas_width  = round_up_power_of_two(canvas_width);

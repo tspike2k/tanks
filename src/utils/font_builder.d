@@ -25,7 +25,6 @@ __gshared Font_Entry[] Font_Entries = [
         fill_color: Vec4(1, 1, 1, 1), stroke_color: Vec4(0.16f, 0.34f, 0.68f, 1),
         dest_file_name: "./build/test_en.fnt", source_file_name: "LiberationSans-Regular.ttf"
     },
-
     {
         height: 18, stroke: 0,
         fill_color: Vec4(1, 1, 1, 1), stroke_color: Vec4(0.16f, 0.34f, 0.68f, 1),
@@ -171,6 +170,10 @@ bool rasterize_glyph_and_copy_metrics(Font_Builder *builder, uint codepoint, Fon
     glyph.height    = pixels.height;
     glyph.advance   = (cast(uint)face.glyph.advance.x) >> 6;
 
+    if(codepoint == '-'){
+        int i = 42;
+    }
+
     // NOTE: The offset values are added to the pen position to correctly align the glyph bitmap
     // when rendering text. The x-offset is the left-side bearing of the glyph. The y-offset
     // expects glyph bitmaps to be drawn from the bottom-left, with the y-axis growing upwards.
@@ -181,7 +184,7 @@ bool rasterize_glyph_and_copy_metrics(Font_Builder *builder, uint codepoint, Fon
     // FT_BitmapGlyph.top:         top-side bearing (ascender?)
     // FT_BitmapGlyph.bitmap.rows: glyph pixel height
     glyph.offset.x  = bitmap_glyph.left;
-    glyph.offset.y  = -(cast(float)(bitmap_glyph.bitmap.rows - bitmap_glyph.top)); // Must cast before negation as the metrics are unsigned integers
+    glyph.offset.y  = -(cast(float)(bitmap_glyph.bitmap.rows) - cast(float)(bitmap_glyph.top)); // Must cast before negation as the metrics are unsigned integers
 
     uint target_color = font_entry.stroke == 0 ? builder.fill_color : builder.stroke_color;
     blit_to_dest(bitmap_glyph, pixels, target_color, 0, 0);
@@ -240,6 +243,10 @@ bool begin_building_font(Font_Builder *builder, String source_file_name, Font_En
 }
 
 void add_codepoint(Font_Builder* builder, uint codepoint){
+    if(codepoint == '-'){
+        int i = 42;
+    }
+
     auto glyph = alloc_type!Rasterized_Glyph(builder.allocator);
     if(rasterize_glyph_and_copy_metrics(builder, codepoint, &glyph.glyph, &glyph.pixels)){
         add_item(&builder.atlas, glyph.pixels.width, glyph.pixels.height, glyph);
@@ -278,7 +285,6 @@ void end_building_font(Font_Builder* builder, Font_Entry *font_entry){
             }
         }
 
-        // TODO: Sample from texel centers (add 0.5 to uv_min, subtract 0.5 from uv_max)?
         glyph_info.uv_min = Vec2(
             (cast(float)dest_x) / (cast(float)canvas.width),
             (cast(float)dest_y) / (cast(float)canvas.height)
@@ -326,7 +332,9 @@ void end_building_font(Font_Builder* builder, Font_Entry *font_entry){
     }
     assert(kerning_index == kerning_count);
 
-    save_tga_file("test.tga", canvas.data.ptr, canvas.width, canvas.height, allocator);
+    auto trimmed_file_name = trim_file_extension(trim_leading_path(font_entry.dest_file_name));
+    auto dest_tga_file_name = gen_string("{0}.tga", trimmed_file_name, allocator);
+    save_tga_file(dest_tga_file_name, canvas.data.ptr, canvas.width, canvas.height, allocator);
 
     auto dest_memory = begin_reserve_all(allocator);
     auto writer = Serializer(dest_memory);
@@ -401,6 +409,7 @@ extern(C) int main(){
                     foreach(c; '!' .. '~'+1){
                         add_codepoint(&builder, c);
                     }
+                    //add_codepoint(&builder, '-');
                     end_building_font(&builder, &entry);
                 }
             }

@@ -52,6 +52,16 @@ void[] read_file_into_memory(const(char)[] file_name, Allocator* allocator){
     return result;
 }
 
+inout(char)[] trim_leading_path(inout(char)[] file_path){
+    auto result = trim_before(file_path, get_last_char(file_path, Dir_Char));
+    return result;
+}
+
+inout(char)[] trim_file_extension(inout(char)[] file_path){
+    auto result = trim_after(file_path, get_last_char(file_path, '.'));
+    return result;
+}
+
 bool write_file_from_memory(const(char)[] file_name, void[] data){
     bool success = false;
     auto file = open_file(file_name, File_Flag_Write);

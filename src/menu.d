@@ -547,7 +547,8 @@ void menu_render(Render_Passes* rp, Menu* menu, float time, Allocator* allocator
                     width(entry.bounds) - Margin*2.0f,
                     font.metrics.height + Padding*2.0f
                 );
-                auto row_center = Vec2(left(entry.bounds), top(entry.bounds)) + Vec2(row_extents.x, -row_extents.y);
+
+                auto row_center = Vec2(entry.bounds.center.x, top(entry.bounds) -row_extents.y);
                 auto row_bounds = Rect(row_center, row_extents);
 
                 foreach(score_index, ref score; variant.entries){
