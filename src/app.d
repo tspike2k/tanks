@@ -2792,8 +2792,8 @@ struct Particle_Sort{
         //auto b_pos = world_to_render_pos(b.pos);
         //auto result = dist_sq(a_pos, camera_pos) > dist_sq(b_pos, camera_pos);
 
-        bool result = a.pos.z < b.pos.z;
-        //bool result = dist_sq(a.pos, camera_pos) > dist_sq(b.pos, camera_pos);
+        //bool result = a.pos.z < b.pos.z;
+        bool result = dist_sq(a.pos, camera_pos) < dist_sq(b.pos, camera_pos);
         return result;
     }
 }
@@ -3040,6 +3040,7 @@ extern(C) int main(int args_count, char** args){
         render_passes.ground = add_render_pass(&world_camera);
         set_shader(render_passes.ground, &s.shader);
         render_passes.ground.flags = Render_Flag_Decal_Depth_Test;
+        render_passes.ground.blend_mode = Blend_Mode.One_Minus_Source_Alpha;
 
         render_passes.world = add_render_pass(&world_camera);
         set_shader(render_passes.world, &s.shader);
@@ -3052,6 +3053,7 @@ extern(C) int main(int args_count, char** args){
         render_passes.particles = add_render_pass(&world_camera);
         set_shader(render_passes.particles, &s.text_shader);
         render_passes.particles.flags = Render_Flag_Decal_Depth_Test;
+        render_passes.particles.blend_mode = Blend_Mode.One_Minus_Source_Alpha;
 
         render_passes.hud_rects = add_render_pass(&hud_camera);
         set_shader(render_passes.hud_rects, &s.text_shader);
@@ -3061,6 +3063,7 @@ extern(C) int main(int args_count, char** args){
         render_passes.hud_text  = add_render_pass(&hud_camera);
         set_shader(render_passes.hud_text, &s.text_shader);
         render_passes.hud_text.flags = Render_Flag_Disable_Depth_Test;
+        render_passes.hud_text.blend_mode = Blend_Mode.One_Minus_Source_Alpha;
 
         final switch(s.mode){
             case Game_Mode.None:

@@ -123,8 +123,7 @@ File open_file(const(char)[] file_name, uint flags){
         result.flags |= flags|File_Flag_Is_Open;
     }
     else{
-        // TODO: Better logging
-        log_error("Unable to open {0}\n", file_name);
+        log_error("Unable to open {0}\n", file_name.ptr);
     }
     return result;
 }

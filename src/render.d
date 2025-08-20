@@ -54,6 +54,12 @@ enum{
     Render_Flag_Decal_Depth_Test   = (1 << 3),
 }
 
+enum Blend_Mode : uint{
+    None,
+    Addative,
+    One_Minus_Source_Alpha,
+};
+
 // To keep from having to juggle seperate vertex formats between quads and meshes,
 // the first attribute could either hold color or normal information, depending
 // on which one the shader needs.
@@ -82,6 +88,7 @@ struct Render_Pass{
     Camera*       camera;
     ulong         flags;
     Render_Target render_target;
+    Blend_Mode    blend_mode;
 
     Render_Cmd* cmd_next;
     Render_Cmd* cmd_last;
@@ -754,8 +761,6 @@ version(opengl){
         glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
         glDebugMessageCallback(&debug_msg_callback, null);
 
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA); // Using premultiplied alpha
         //glEnable(GL_SCISSOR_TEST);
 
         glEnable(GL_CULL_FACE);
@@ -934,6 +939,22 @@ version(opengl){
 
             if(pass.flags & Render_Flag_Decal_Depth_Test){
                 glDepthFunc(GL_LEQUAL);
+            }
+
+            if(pass.blend_mode != Blend_Mode.None){
+                glEnable(GL_BLEND);
+
+                switch(pass.blend_mode){
+                    default: assert(0);
+
+                    case Blend_Mode.Addative:{
+                        glBlendFunc(GL_ONE, GL_ONE);
+                    } break;
+
+                    case Blend_Mode.One_Minus_Source_Alpha:{
+                        glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA); // Using premultiplied alpha
+                    } break;
+                }
             }
 
             Material* material;
@@ -1213,6 +1234,10 @@ version(opengl){
 
             if(pass.flags & Render_Flag_Decal_Depth_Test){
                 glDepthFunc(GL_LESS);
+            }
+
+            if(pass.blend_mode != Blend_Mode.None){
+                glDisable(GL_BLEND);
             }
 
             pass = pass.next;
