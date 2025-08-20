@@ -2750,12 +2750,13 @@ void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
     player_input.place_mine  = false;
 }
 
-Texture load_texture_from_file(String file_name, uint flags, Allocator* allocator){
+Texture load_texture_from_file(String file_name, uint flags, Allocator* allocator, bool premultiply = true){
     push_frame(allocator);
     scope(exit) pop_frame(allocator);
 
     auto pixels = load_tga_file(file_name, allocator);
-    premultiply_alpha(pixels.data);
+    if(premultiply)
+        premultiply_alpha(pixels.data);
     auto result = create_texture(pixels.data, pixels.width, pixels.height, flags);
     return result;
 }
@@ -3040,6 +3041,10 @@ extern(C) int main(int args_count, char** args){
         render_passes.ground = add_render_pass(&world_camera);
         set_shader(render_passes.ground, &s.shader);
         render_passes.ground.flags = Render_Flag_Decal_Depth_Test;
+        // TODO: The ground itself doesn't need blending, this is only true for the decals.
+        // Should we have a seperate decals render pass?
+        //
+        // TODO: Disable depth writes on ground decals!
         render_passes.ground.blend_mode = Blend_Mode.One_Minus_Source_Alpha;
 
         render_passes.world = add_render_pass(&world_camera);
@@ -3051,9 +3056,10 @@ extern(C) int main(int args_count, char** args){
         set_texture(g_debug_render_pass, s.img_blank_rect);
 
         render_passes.particles = add_render_pass(&world_camera);
-        set_shader(render_passes.particles, &s.text_shader);
-        render_passes.particles.flags = Render_Flag_Decal_Depth_Test;
+        set_shader(render_passes.particles, &s.text_shader); // TODO: Particles shader?
+        render_passes.particles.flags = Render_Flag_Decal_Depth_Test|Render_Flag_Disable_Depth_Writes;
         render_passes.particles.blend_mode = Blend_Mode.One_Minus_Source_Alpha;
+        //render_passes.particles.blend_mode = Blend_Mode.Addative;
 
         render_passes.hud_rects = add_render_pass(&hud_camera);
         set_shader(render_passes.hud_rects, &s.text_shader);
@@ -3142,8 +3148,8 @@ extern(C) int main(int args_count, char** args){
                 }
 
                 auto bullet_particles = get_particles(&s.emitter_bullet_contrails);
-                auto particle_sort = Particle_Sort(world_camera.center);
-                quick_sort!(particle_sort)(bullet_particles);
+                //auto particle_sort = Particle_Sort(world_camera.center);
+                //quick_sort!(particle_sort)(bullet_particles);
                 foreach(ref p; bullet_particles){
                     if(p.life > 0){
                         auto t = 1.0f-normalized_range_clamp(p.life, 0, Bullet_Smoke_Lifetime);

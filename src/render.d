@@ -48,10 +48,11 @@ enum Z_Near = -Z_Far;
 alias Texture = ulong;
 
 enum{
-    Render_Flag_Disable_Culling    = (1 << 0),
-    Render_Flag_Disable_Color      = (1 << 1),
-    Render_Flag_Disable_Depth_Test = (1 << 2),
-    Render_Flag_Decal_Depth_Test   = (1 << 3),
+    Render_Flag_Disable_Culling      = (1 << 0),
+    Render_Flag_Disable_Color        = (1 << 1),
+    Render_Flag_Disable_Depth_Test   = (1 << 2),
+    Render_Flag_Decal_Depth_Test     = (1 << 3),
+    Render_Flag_Disable_Depth_Writes = (1 << 4),
 }
 
 enum Blend_Mode : uint{
@@ -957,6 +958,10 @@ version(opengl){
                 }
             }
 
+            if(pass.flags & Render_Flag_Disable_Depth_Writes){
+                glDepthMask(GL_FALSE);
+            }
+
             Material* material;
             Shader* shader;
             Shader_Light* light;
@@ -1238,6 +1243,10 @@ version(opengl){
 
             if(pass.blend_mode != Blend_Mode.None){
                 glDisable(GL_BLEND);
+            }
+
+            if(pass.flags & Render_Flag_Disable_Depth_Writes){
+                glDepthMask(GL_TRUE);
             }
 
             pass = pass.next;
