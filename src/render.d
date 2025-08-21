@@ -253,18 +253,14 @@ void set_world_view(Camera* camera, Vec3 camera_polar, Vec3 camera_target, Vec3 
     camera.view.mat = make_lookat_matrix(camera_world, camera_target, up);
     camera.view.inv = invert_view_matrix(camera.view.mat);
     camera.center   = camera_world;
-    /+
-    camera.center = Vec3(
-        camera.view.mat.m[0][3],
-        camera.view.mat.m[1][3],
-        camera.view.mat.m[2][3]
-    );+/
+    camera.facing   = get_camera_facing(camera);
 }
 
 void set_world_view(Camera* camera, Vec3 camera_center, float camera_x_rot){
     camera.view.mat = mat4_rot_x(camera_x_rot*(PI/180.0f))*mat4_translate(-1.0f*camera_center);
     camera.view.inv = invert_view_matrix(camera.view.mat);
     camera.center   = camera_center;
+    camera.facing   = get_camera_facing(camera);
 }
 
 void set_hud_camera(Camera* camera, float camera_w, float camera_h){
@@ -274,6 +270,7 @@ void set_hud_camera(Camera* camera, float camera_w, float camera_h){
     camera.view.mat = Mat4_Identity;
     camera.view.inv = invert_view_matrix(Mat4_Identity);
     camera.center = Vec3(0, 0, 0); // TODO: Is this the correct center for the HUD?
+    camera.facing = Vec3(0, 0, 1); // TODO: Should z be -1?
 }
 
 void set_shadow_map_camera(Camera* camera, Shader_Light* light, Vec3 camera_target, Vec3 up){

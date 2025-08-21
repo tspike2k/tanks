@@ -617,6 +617,11 @@ float squared(Vec2 v){
     return result;
 }
 
+float squared(Vec3 v){
+    float result = v.x*v.x + v.y*v.y + v.z*v.z;
+    return result;
+}
+
 /+
 T wrap(T a, T min, T max){
     // Inspired by this thread:
@@ -724,9 +729,13 @@ bool ray_vs_rect(Vec2 start, Vec2 delta, Rect bounds, float* tMin, Vec2* collisi
     return false;
 }
 
-float length(in Vec2 v)
-{
+float length(Vec2 v){
     float result = sqrt(v.x * v.x + v.y * v.y);
+    return result;
+}
+
+float length(Vec3 v){
+    float result = sqrt(v.x*v.x + v.y*v.y + v.z*v.z);
     return result;
 }
 

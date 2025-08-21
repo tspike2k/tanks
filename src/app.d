@@ -106,6 +106,7 @@ struct Render_Passes{
     Render_Pass* holes;
     Render_Pass* hole_cutouts;
     Render_Pass* ground;
+    Render_Pass* ground_decals;
     Render_Pass* world;
     Render_Pass* particles;
     Render_Pass* hud_rects;
@@ -1824,7 +1825,7 @@ void render_entity(App_State* s, Entity* e, Render_Passes rp, bool highlighted =
             }
             else{
                 auto bounds = Rect(e.pos, Vec2(0.5f, 0.5f));
-                render_ground_decal(rp.ground, bounds, Vec4(1, 1, 1, 1), 0, s.img_x_mark);
+                render_ground_decal(rp.ground_decals, bounds, Vec4(1, 1, 1, 1), 0, s.img_x_mark);
             }
         } break;
 
@@ -2778,23 +2779,28 @@ void change_mode(App_State* s, Game_Mode mode){
 
 struct Particle_Sort{
     Vec3 camera_pos;
+    Vec3 camera_facing;
 
-    this(Vec3 p){
-        camera_pos = p;
+    this(Vec3 p, Vec3 facing){
+        camera_pos   = p;
+        camera_facing = facing;
     }
 
     // TODO: Rename this to be something like "compare?" We're using opcall so that we
     // can take either a function or an object, but I don't know if that's really needed.
     bool opCall(ref Particle a, ref Particle b){
-        // TODO: For some reason, sorting by distance from camera center doesn't seem to work at
-        // all. Fix this. Perhaps we need to project the positions of the particles onto the camera
-        // plane?
-        //auto a_pos = world_to_render_pos(a.pos);
-        //auto b_pos = world_to_render_pos(b.pos);
-        //auto result = dist_sq(a_pos, camera_pos) > dist_sq(b_pos, camera_pos);
+        // Here we wish to sort particles from their distance to the camera, where the furthest
+        // particle will be drawn first and particles closer will be drawn after. This is
+        // done so that blending on semi-transparent particles will be correct. Intuition
+        // would lead one to use the distance from the camera center to the particle center,
+        // but this doesn't work because this game uses an orthographic camera. We can instead
+        // project the particle center onto a ray from the camera's center towards it's facing
+        // direction. This appears to work quite well, though this technique doesn't appear to be
+        // mentioned anywhere on the Internet as near as I can tell.
+        auto dist_a = dot(camera_facing, a.pos - camera_pos);
+        auto dist_b = dot(camera_facing, b.pos - camera_pos);
 
-        //bool result = a.pos.z < b.pos.z;
-        bool result = dist_sq(a.pos, camera_pos) < dist_sq(b.pos, camera_pos);
+        bool result = dist_a < dist_b;
         return result;
     }
 }
@@ -3025,51 +3031,66 @@ extern(C) int main(int args_count, char** args){
         render_begin_frame(window.width, window.height, Vec4(0, 0.05f, 0.12f, 1), &s.frame_memory);
 
         Render_Passes render_passes;
-        render_passes.shadow_map = add_render_pass(&shadow_map_camera);
-        set_shader(render_passes.shadow_map, &s.shadow_map_shader);
-        clear_target_to_color(render_passes.shadow_map, Vec4(0, 0, 0, 0));
-        render_passes.shadow_map.flags = Render_Flag_Disable_Color;
-        render_passes.shadow_map.render_target = Render_Target.Shadow_Map;
 
-        render_passes.holes = add_render_pass(&world_camera);
-        set_shader(render_passes.holes, &s.shader);
+        auto pass = add_render_pass(&shadow_map_camera);
+        render_passes.shadow_map = pass;
+        set_shader(pass, &s.shadow_map_shader);
+        clear_target_to_color(pass, Vec4(0, 0, 0, 0));
+        pass.flags = Render_Flag_Disable_Color;
+        pass.render_target = Render_Target.Shadow_Map;
 
-        render_passes.hole_cutouts = add_render_pass(&world_camera);
-        set_shader(render_passes.hole_cutouts, &s.shader); // TODO: We should use a more stripped-down shader for this. We don't need lighting!
-        render_passes.hole_cutouts.flags = Render_Flag_Disable_Culling|Render_Flag_Disable_Color;
+        pass = add_render_pass(&world_camera);
+        render_passes.holes = pass;
+        set_shader(pass, &s.shader);
 
-        render_passes.ground = add_render_pass(&world_camera);
-        set_shader(render_passes.ground, &s.shader);
-        render_passes.ground.flags = Render_Flag_Decal_Depth_Test;
-        // TODO: The ground itself doesn't need blending, this is only true for the decals.
-        // Should we have a seperate decals render pass?
-        //
-        // TODO: Disable depth writes on ground decals!
-        render_passes.ground.blend_mode = Blend_Mode.One_Minus_Source_Alpha;
+        pass = add_render_pass(&world_camera);
+        render_passes.hole_cutouts = pass;
+        set_shader(pass, &s.shader); // TODO: We should use a more stripped-down shader for this. We don't need lighting!
+        pass.flags = Render_Flag_Disable_Culling|Render_Flag_Disable_Color;
 
-        render_passes.world = add_render_pass(&world_camera);
-        set_shader(render_passes.world, &s.shader);
-        set_light(render_passes.world, &s.light);
+        pass = add_render_pass(&world_camera);
+        render_passes.ground = pass;
+        set_shader(pass, &s.shader);
 
-        g_debug_render_pass = add_render_pass(&world_camera);
-        set_shader(g_debug_render_pass, &s.text_shader);
-        set_texture(g_debug_render_pass, s.img_blank_rect);
+        pass = add_render_pass(&world_camera);
+        render_passes.ground_decals = pass;
+        set_shader(pass, &s.shader);
+        set_light(pass, &s.light);
 
-        render_passes.particles = add_render_pass(&world_camera);
-        set_shader(render_passes.particles, &s.text_shader); // TODO: Particles shader?
-        render_passes.particles.flags = Render_Flag_Decal_Depth_Test|Render_Flag_Disable_Depth_Writes;
-        render_passes.particles.blend_mode = Blend_Mode.One_Minus_Source_Alpha;
-        //render_passes.particles.blend_mode = Blend_Mode.Addative;
+        pass = add_render_pass(&world_camera);
+        render_passes.ground_decals = pass;
+        set_shader(pass, &s.text_shader);
+        //set_light(pass, &s.light);
+        pass.flags = Render_Flag_Disable_Depth_Writes|Render_Flag_Decal_Depth_Test;
+        pass.blend_mode = Blend_Mode.One_Minus_Source_Alpha;
 
-        render_passes.hud_rects = add_render_pass(&hud_camera);
-        set_shader(render_passes.hud_rects, &s.text_shader);
-        set_texture(render_passes.hud_rects, s.img_blank_rect);
-        render_passes.hud_rects.flags = Render_Flag_Disable_Depth_Test;
+        pass = add_render_pass(&world_camera);
+        render_passes.world = pass;
+        set_shader(pass, &s.shader);
+        set_light(pass, &s.light);
 
-        render_passes.hud_text  = add_render_pass(&hud_camera);
-        set_shader(render_passes.hud_text, &s.text_shader);
-        render_passes.hud_text.flags = Render_Flag_Disable_Depth_Test;
-        render_passes.hud_text.blend_mode = Blend_Mode.One_Minus_Source_Alpha;
+        pass = add_render_pass(&world_camera);
+        g_debug_render_pass = pass;
+        set_shader(pass, &s.text_shader);
+        set_texture(pass, s.img_blank_rect);
+
+        pass = add_render_pass(&world_camera);
+        render_passes.particles = pass;
+        set_shader(pass, &s.text_shader); // TODO: Particles shader?
+        pass.flags = Render_Flag_Disable_Depth_Writes;
+        pass.blend_mode = Blend_Mode.One_Minus_Source_Alpha;
+
+        pass = add_render_pass(&hud_camera);
+        render_passes.hud_rects = pass;
+        set_shader(pass, &s.text_shader);
+        set_texture(pass, s.img_blank_rect);
+        pass.flags = Render_Flag_Disable_Depth_Test;
+
+        pass = add_render_pass(&hud_camera);
+        render_passes.hud_text = pass;
+        set_shader(pass, &s.text_shader);
+        pass.flags = Render_Flag_Disable_Depth_Test;
+        pass.blend_mode = Blend_Mode.One_Minus_Source_Alpha;
 
         final switch(s.mode){
             case Game_Mode.None:
@@ -3131,25 +3152,22 @@ extern(C) int main(int args_count, char** args){
             case Game_Mode.Campaign:{
                 if(s.session.state != Session_State.Mission_Intro){
                     render_ground(s, render_passes.ground, s.world.bounds);
-                    // Prepare the ground render pass for decals
-                    set_shader(render_passes.ground, &s.text_shader); // TODO: Do we need a decals shader?
+                    foreach(ref p; get_particles(&s.emitter_treadmarks)){
+                        auto pos = render_to_world_pos(p.pos);
+                        render_ground_decal(
+                            render_passes.ground_decals, Rect(pos, Vec2(0.25f, 0.10f)),
+                            Vec4(1, 1, 1, 1), p.angle, s.img_tread_marks
+                        );
+                    }
 
                     foreach(ref e; iterate_entities(&s.world)){
                         render_entity(s, &e, render_passes);
                     }
                 }
 
-                foreach(ref p; get_particles(&s.emitter_treadmarks)){
-                    auto pos = render_to_world_pos(p.pos);
-                    render_ground_decal(
-                        render_passes.ground, Rect(pos, Vec2(0.25f, 0.10f)),
-                        Vec4(1, 1, 1, 1), p.angle, s.img_tread_marks
-                    );
-                }
-
                 auto bullet_particles = get_particles(&s.emitter_bullet_contrails);
-                //auto particle_sort = Particle_Sort(world_camera.center);
-                //quick_sort!(particle_sort)(bullet_particles);
+                auto particle_sort = Particle_Sort(world_camera.center, world_camera.facing);
+                quick_sort!(particle_sort)(bullet_particles);
                 foreach(ref p; bullet_particles){
                     if(p.life > 0){
                         auto t = 1.0f-normalized_range_clamp(p.life, 0, Bullet_Smoke_Lifetime);
