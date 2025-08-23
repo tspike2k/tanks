@@ -93,6 +93,9 @@ enum Default_World_Camera_Polar = Vec3(90, -45, 1);
 
 enum Skip_Level_Intros = true; // TODO: We should make this based on if we're in the debug mode.
 //enum Skip_Level_Intros = false;
+enum bool Immortal = true; // TODO: Make this toggleable
+//enum bool Immortal = false;
+
 
 enum Game_Mode : uint{
     None,
@@ -1578,11 +1581,15 @@ void resolve_collision(App_State* s, Entity* a, Entity* b, Vec2 normal, float de
         default: break;
 
         case make_collision_id(Entity_Type.Tank, Entity_Type.Bullet):{
-            emit_tank_explosion(&s.emitter_explosion_flames, a.pos, &s.rng);
-            play_sfx(&s.sfx_explosion, 0, 1.0f);
-            destroy_entity(a);
-            destroy_entity(b);
-            add_to_score_if_killed_by_player(s, a, b.parent_id);
+            bool is_immortal = a.id == s.player_entity_id && Immortal;
+
+            if(!is_immortal){
+                emit_tank_explosion(&s.emitter_explosion_flames, a.pos, &s.rng);
+                play_sfx(&s.sfx_explosion, 0, 1.0f);
+                destroy_entity(a);
+                destroy_entity(b);
+                add_to_score_if_killed_by_player(s, a, b.parent_id);
+            }
         } break;
 
         case make_collision_id(Entity_Type.Bullet, Entity_Type.Bullet):{
@@ -2574,6 +2581,8 @@ void end_campaign(App_State* s){
 }
 
 void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
+    mixin(Perf_Function!());
+
     version(none){
         sockets_update((&socket)[0 .. 1], &s.frame_memory);
 
@@ -2777,6 +2786,7 @@ void change_mode(App_State* s, Game_Mode mode){
     s.next_mode = mode;
 }
 
+/+
 struct Particle_Sort{
     Vec3 camera_pos;
     Vec3 camera_facing;
@@ -2803,7 +2813,7 @@ struct Particle_Sort{
         bool result = dist_a < dist_b;
         return result;
     }
-}
+}+/
 
 bool is_circle_inside_block(World* world, Vec2 pos, float radius){
     // TODO: We could speed this up by partitioning entities on a grid. The map is using grid
@@ -2826,6 +2836,56 @@ void test_timers(){
     log("testing in\n");
     mixin(Perf_Function!());
     log("testing out\n");
+}
+
+void sort_and_render_bullet_particles(Particle_Emitter* emitter, Render_Pass* pass, Texture texture, Allocator* scratch){
+    mixin(Perf_Function!());
+
+    push_frame(scratch);
+    scope(exit) pop_frame(scratch);
+
+    struct Sort_Entry{
+        uint  index;
+        float sort_key;
+    }
+
+    auto particles = get_particles(emitter);
+    auto sort_list = alloc_array!Sort_Entry(scratch, particles.length, Alloc_Flag_No_Clear);
+    uint sort_list_count;
+    foreach(p_index, ref p; particles){
+        if(p.life > 0){
+            auto entry = &sort_list[sort_list_count++];
+            entry.index = cast(uint)p_index;
+
+            // Here we wish to sort particles by their distance to the camera, where the furthest
+            // particle will be drawn first and particles closer will be drawn after. This is
+            // done so that blending on semi-transparent particles will be correct. Intuition
+            // would lead one to use the distance from the camera center to the particle center,
+            // but this doesn't work because this game uses an orthographic camera. We can instead
+            // project the particle center onto a ray from the camera's center towards it's facing
+            // direction. This appears to work quite well, though this technique doesn't appear to be
+            // mentioned anywhere on the Internet as near as I can tell.
+            entry.sort_key = dot(pass.camera.facing, p.pos - pass.camera.center);
+        }
+    }
+
+    quick_sort!("a.sort_key < b.sort_key")(sort_list[0 .. sort_list_count]);
+
+    foreach(ref entry; sort_list[0 .. sort_list_count]){
+        auto p = &particles[entry.index];
+        assert(p.life > 0);
+
+        auto t = 1.0f-normalized_range_clamp(p.life, 0, Bullet_Smoke_Lifetime);
+        auto alpha = 0.0f;
+        if(t < 0.15f){
+            alpha = normalized_range_clamp(t, 0, 0.15f);
+        }
+        else{
+            alpha = 1.0f-normalized_range_clamp(t, 0.15f, 1);
+        }
+
+        render_particle(pass, p.pos, Vec2(0.25f, 0.25f), Vec4(1, 1, 1, alpha), texture, p.angle);
+    }
 }
 
 extern(C) int main(int args_count, char** args){
@@ -3144,13 +3204,11 @@ extern(C) int main(int args_count, char** args){
             } break;
 
             case Game_Mode.Campaign:{
-                auto perf_update_timer = begin_perf_timer("campaign_simulate");
                 campaign_simulate(s, &player_input, target_dt);
-                end_perf_timer(&perf_update_timer);
             } break;
         }
 
-        auto perf_timer_render = begin_perf_timer("Render");
+        auto perf_render_prep = begin_perf_timer("Render Prep");
         final switch(s.mode){
             case Game_Mode.None: assert(0);
 
@@ -3178,28 +3236,11 @@ extern(C) int main(int args_count, char** args){
                     }
                 }
 
-                auto bullet_particles = get_particles(&s.emitter_bullet_contrails);
-                auto particle_sort = Particle_Sort(world_camera.center, world_camera.facing);
-                quick_sort!(particle_sort)(bullet_particles);
-                foreach(ref p; bullet_particles){
-                    if(p.life > 0){
-                        auto t = 1.0f-normalized_range_clamp(p.life, 0, Bullet_Smoke_Lifetime);
-                        auto alpha = 0.0f;
-                        if(t < 0.15f){
-                            alpha = normalized_range_clamp(t, 0, 0.15f);
-                        }
-                        else{
-                            alpha = 1.0f-normalized_range_clamp(t, 0.15f, 1);
-                        }
+                sort_and_render_bullet_particles(
+                    &s.emitter_bullet_contrails, render_passes.particles,
+                    s.img_smoke, s.main_memory.scratch
+                );
 
-                        render_particle(
-                            render_passes.particles, p.pos, Vec2(0.25f, 0.25f), Vec4(1, 1, 1, alpha),
-                            s.img_smoke, p.angle
-                        );
-                    }
-                }
-
-                //quick_sort!(particle_sort)(get_particles(&s.emitter_explosion_flames));
                 foreach(ref p; get_particles(&s.emitter_explosion_flames)){
                     if(p.life > 0){
                         enum color_red_0  = Vec4(1, 0.0f, 0.0f, 1.0f);
@@ -3339,8 +3380,8 @@ extern(C) int main(int args_count, char** args){
             render_debug_obb(g_debug_render_pass, target_p, target_extents, color, target_angle);
         }+/
 
+        end_perf_timer(&perf_render_prep);
         render_end_frame();
-        end_perf_timer(&perf_timer_render);
 
         audio_update();
 

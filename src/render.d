@@ -18,6 +18,7 @@ TODO:
 
 import memory;
 import assets;
+import testing;
 private{
     import display;
     import logging;
@@ -876,6 +877,8 @@ version(opengl){
     }
 
     void render_end_frame(){
+        mixin(Perf_Function!());
+
         auto pass = g_render_pass_first;
 
         {
