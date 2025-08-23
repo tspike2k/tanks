@@ -414,6 +414,8 @@ Bool XQueryExtension(Display*, const(char)*, int*, int*, int*);
 int XPutImage(Display* display, Drawable d, GC gc, XImage* image, int src_x, int src_y, int dest_x, int dest_y, uint width, uint height);
 int XMapWindow(Display*, Window);
 int XGetErrorText(Display* display, int code, char* buffer, int length); // TODO: What length?
+int XSetInputFocus(Display* display, Window focus, int revert_to, Time time);
+int XGetInputFocus(Display* display, Window* focus, int* revert_to);
 
 int XLookupString(XKeyEvent* event_struct, char* buffer_return, int	bytes_buffer, KeySym* keysym_return, XComposeStatus* status_in_out);
 char* XSetLocaleModifiers(const(char)* modifier_list);
@@ -1182,6 +1184,11 @@ struct XIRawEvent
     XIValuatorState valuators;
     double        *raw_values;
 }
+
+/* Used in SetInputFocus, GetInputFocus */
+enum RevertToNone		 = cast(int)None;
+enum RevertToPointerRoot = cast(int)PointerRoot;
+enum RevertToParent      = 2;
 
 /* Event types */
 enum XI_DeviceChanged                 = 1;

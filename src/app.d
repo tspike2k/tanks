@@ -93,8 +93,8 @@ enum Default_World_Camera_Polar = Vec3(90, -45, 1);
 
 enum Skip_Level_Intros = true; // TODO: We should make this based on if we're in the debug mode.
 //enum Skip_Level_Intros = false;
-enum bool Immortal = true; // TODO: Make this toggleable
-//enum bool Immortal = false;
+//enum bool Immortal = true; // TODO: Make this toggleable
+enum bool Immortal = false;
 
 
 enum Game_Mode : uint{
@@ -2832,12 +2832,6 @@ bool is_circle_inside_block(World* world, Vec2 pos, float radius){
     return result;
 }
 
-void test_timers(){
-    log("testing in\n");
-    mixin(Perf_Function!());
-    log("testing out\n");
-}
-
 void sort_and_render_bullet_particles(Particle_Emitter* emitter, Render_Pass* pass, Texture texture, Allocator* scratch){
     mixin(Perf_Function!());
 
@@ -2891,8 +2885,6 @@ void sort_and_render_bullet_particles(Particle_Emitter* emitter, Render_Pass* pa
 extern(C) int main(int args_count, char** args){
     auto app_memory = os_alloc(Total_Memory_Size, 0);
     scope(exit) os_dealloc(app_memory);
-
-    test_timers();
 
     version(none){
         bool is_host;
@@ -3204,6 +3196,7 @@ extern(C) int main(int args_count, char** args){
             } break;
 
             case Game_Mode.Campaign:{
+                hide_and_grab_cursor_this_frame();
                 campaign_simulate(s, &player_input, target_dt);
             } break;
         }
@@ -3401,7 +3394,7 @@ extern(C) int main(int args_count, char** args){
 
         end_perf_timer(&perf_timer_frame);
 
-        print_and_reset_perf_info();
+        update_perf_info(g_debug_mode);
     }
 
     return 0;

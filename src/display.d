@@ -277,11 +277,15 @@ void insert_text(Text_Buffer* buffer, uint start, char[] text){
 private:
 
 import math : min, max;
+import memory : clear_to_zero;
 import logging;
 import core.stdc.string : strlen, memcpy, memmove; // TODO: Have a strlen of our own?
 
 __gshared Window g_window_info;
 __gshared bool   g_text_input_enabled;
+__gshared bool   g_hide_and_grab_cursor;
+__gshared bool   g_is_cursor_grabbed_and_hidden;
+__gshared bool   g_has_focus;
 
 version(linux){
     pragma(lib, "Xext");
@@ -349,6 +353,8 @@ version(linux){
     __gshared bool     g_use_XI2_for_mouse;
     __gshared void*    g_event_data_to_free;
     __gshared char[32] g_text_buffer;
+    __gshared Cursor   g_x11_hidden_cursor;
+    __gshared Pixmap   g_x11_hidden_cursor_pixmap;
 
     __gshared Xlib_Window g_xlib_window;
 
@@ -440,6 +446,27 @@ version(linux){
 
         load_opengl_functions(cast(OpenGL_Load_Sym_Func)&glXGetProcAddressARB);
 
+        // TODO: Get hidden cursor working!
+        XColor hidden_cursor_color = void;
+        clear_to_zero(hidden_cursor_color);
+        char[1] hidden_cursor_data = void;
+        hidden_cursor_data[0] = 0;
+        g_x11_hidden_cursor_pixmap = XCreateBitmapFromData(g_x11_display, g_xlib_window.handle, hidden_cursor_data.ptr, 1, 1);
+        g_x11_hidden_cursor = XCreatePixmapCursor(
+            g_x11_display, g_x11_hidden_cursor_pixmap, g_x11_hidden_cursor_pixmap, &hidden_cursor_color, &hidden_cursor_color, 0, 0
+        );
+
+        XWindow focus_window;
+        int focus_window_revert;
+        XGetInputFocus(g_x11_display, &focus_window, &focus_window_revert);
+        g_has_focus = g_xlib_window.handle == focus_window;
+
+        // We need to make sure that at least one FocusIn event is generated in order to ensure
+        // g_has_focus is accurate.
+        // TODO: Is there a better way to do this? Can we assume the window will have input focus?
+        // Can we queury for which window has focus?
+        XSetInputFocus(g_x11_display, DefaultRootWindow(g_x11_display), RevertToPointerRoot, CurrentTime);
+
         //log("OpenGL context: {0}\n", fmt_cstr((const char*)glGetString(GL_VERSION)));
         //log("OpenGL shader version: {0}\n", fmt_cstr((const char*)glGetString(GL_SHADING_LANGUAGE_VERSION)));
 
@@ -453,7 +480,7 @@ version(linux){
 
     extern(C) int xext_error_handler(Display* display, const(char)* ext_name, const(char)* msg){
         char[256] buffer ;
-        log("Error.\n");
+        log_error("{0}:{1}\n", ext_name, msg);
         //log(Cyu_Err "{0}: {1}\n", fmt_cstr(ext_name), fmt_cstr(msg));
         return 0;
     }
@@ -631,13 +658,20 @@ version(linux){
     }
 
     public void close_display(){
+        XFreePixmap(g_x11_display, g_x11_hidden_cursor_pixmap);
         close_window(&g_xlib_window);
         //if(g_glx_context) glXDestroyContext(g_x11_display, g_glx_context);
         if(g_x11_display) XCloseDisplay(g_x11_display);
     }
 
     public void begin_frame(){
-
+        if(g_has_focus){
+            if(g_hide_and_grab_cursor && !g_is_cursor_grabbed_and_hidden)
+                set_cursor_grab_and_hide(true);
+            else if(!g_hide_and_grab_cursor && g_is_cursor_grabbed_and_hidden)
+                set_cursor_grab_and_hide(false);
+        }
+        g_hide_and_grab_cursor = false;
     }
 
     public void end_frame(){
@@ -690,6 +724,31 @@ version(linux){
         fsEvt.xclient.data.l[1]    = g_x11_atom_WMStateFullscreen;
 
         XSendEvent(g_x11_display, DefaultRootWindow(g_x11_display), False, SubstructureRedirectMask | SubstructureNotifyMask, &fsEvt);
+    }
+
+    void set_cursor_grab_and_hide(bool should_hide){
+        auto window = g_xlib_window.handle;
+        if(should_hide && !g_is_cursor_grabbed_and_hidden){
+            auto grab_result = XGrabPointer(
+                g_x11_display, window, True, 0, GrabModeAsync,
+                GrabModeAsync, window, g_x11_hidden_cursor, CurrentTime
+            );
+            if(grab_result == GrabSuccess){
+                XDefineCursor(g_x11_display, window, g_x11_hidden_cursor);
+                g_is_cursor_grabbed_and_hidden = true;
+            }
+            XFlush(g_x11_display);
+        }
+        else if(!should_hide && g_is_cursor_grabbed_and_hidden){
+            XUngrabPointer(g_x11_display, CurrentTime);
+            XUndefineCursor(g_x11_display, window);
+            g_is_cursor_grabbed_and_hidden = false;
+            XFlush(g_x11_display);
+        }
+    }
+
+    public void hide_and_grab_cursor_this_frame(){
+        g_hide_and_grab_cursor = true;
     }
 
     public bool next_event(Event* evt){
@@ -829,6 +888,16 @@ version(linux){
                 // motion.
                 g_last_mouse_x = xevt.xmotion.x;
                 g_last_mouse_y = xevt.xmotion.y;
+            } break;
+
+            case FocusIn:{
+                g_has_focus = true;
+                set_cursor_grab_and_hide(g_hide_and_grab_cursor);
+            } break;
+
+            case FocusOut:{
+                g_has_focus = false;
+                set_cursor_grab_and_hide(false);
             } break;
 
             case KeyPress:

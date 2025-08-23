@@ -96,22 +96,25 @@ template Perf_Function(){
     };
 }
 
-void print_and_reset_perf_info(){
+void update_perf_info(bool should_display){
     import logging;
     auto frame = &g_perf_frames[0];
 
-    int indent = -1;
-    foreach(ref entry; frame.entries[0 .. frame.entries_count]){
-        if(entry.event == Perf_Event.Begin_Timer){
-            indent++;
+    // TODO: Make this print to the screen rather than STDOUT.
+    if(should_display){
+        int indent = -1;
+        foreach(ref entry; frame.entries[0 .. frame.entries_count]){
+            if(entry.event == Perf_Event.Begin_Timer){
+                indent++;
 
-            foreach(i; 0 .. indent){
-                log(" "); // This is just for testing. It's grossly inneficient!
+                foreach(i; 0 .. indent){
+                    log(" "); // This is just for testing. It's grossly inneficient!
+                }
+                log("{0}: cycles: {1}\n", entry.name, entry.cycles);
             }
-            log("{0}: cycles: {1}\n", entry.name, entry.cycles);
-        }
-        else if(entry.event == Perf_Event.End_Timer){
-            indent--;
+            else if(entry.event == Perf_Event.End_Timer){
+                indent--;
+            }
         }
     }
 
