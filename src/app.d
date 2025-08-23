@@ -1825,7 +1825,7 @@ void render_entity(App_State* s, Entity* e, Render_Passes rp, bool highlighted =
             }
             else{
                 auto bounds = Rect(e.pos, Vec2(0.5f, 0.5f));
-                render_ground_decal(rp.ground_decals, bounds, Vec4(1, 1, 1, 1), 0, s.img_x_mark);
+                //render_ground_decal(rp.ground_decals, bounds, Vec4(1, 1, 1, 1), 0, s.img_x_mark);
             }
         } break;
 
@@ -2789,7 +2789,7 @@ struct Particle_Sort{
     // TODO: Rename this to be something like "compare?" We're using opcall so that we
     // can take either a function or an object, but I don't know if that's really needed.
     bool opCall(ref Particle a, ref Particle b){
-        // Here we wish to sort particles from their distance to the camera, where the furthest
+        // Here we wish to sort particles by their distance to the camera, where the furthest
         // particle will be drawn first and particles closer will be drawn after. This is
         // done so that blending on semi-transparent particles will be correct. Intuition
         // would lead one to use the distance from the camera center to the particle center,
@@ -2822,9 +2822,17 @@ bool is_circle_inside_block(World* world, Vec2 pos, float radius){
     return result;
 }
 
+void test_timers(){
+    log("testing in\n");
+    mixin(Perf_Function!());
+    log("testing out\n");
+}
+
 extern(C) int main(int args_count, char** args){
     auto app_memory = os_alloc(Total_Memory_Size, 0);
     scope(exit) os_dealloc(app_memory);
+
+    test_timers();
 
     version(none){
         bool is_host;
@@ -2984,6 +2992,8 @@ extern(C) int main(int args_count, char** args){
     s.world_camera_polar = Default_World_Camera_Polar; // TODO: Make these in radian eventually
 
     while(s.running){
+        auto perf_timer_frame = begin_perf_timer("Entire Frame");
+
         begin_frame();
 
         push_frame(&s.frame_memory);
@@ -3061,7 +3071,7 @@ extern(C) int main(int args_count, char** args){
         render_passes.ground_decals = pass;
         set_shader(pass, &s.text_shader);
         //set_light(pass, &s.light);
-        pass.flags = Render_Flag_Disable_Depth_Writes|Render_Flag_Decal_Depth_Test;
+        pass.flags = Render_Flag_Disable_Depth_Writes;
         pass.blend_mode = Blend_Mode.One_Minus_Source_Alpha;
 
         pass = add_render_pass(&world_camera);
@@ -3134,10 +3144,13 @@ extern(C) int main(int args_count, char** args){
             } break;
 
             case Game_Mode.Campaign:{
+                auto perf_update_timer = begin_perf_timer("campaign_simulate");
                 campaign_simulate(s, &player_input, target_dt);
+                end_perf_timer(&perf_update_timer);
             } break;
         }
 
+        auto perf_timer_render = begin_perf_timer("Render");
         final switch(s.mode){
             case Game_Mode.None: assert(0);
 
@@ -3327,21 +3340,27 @@ extern(C) int main(int args_count, char** args){
         }+/
 
         render_end_frame();
+        end_perf_timer(&perf_timer_render);
+
         audio_update();
 
         // TODO: Sometimes the game becomes a stuttering mess, and the only way to fix it is
         // to minimize the window and restore it. Figure out what's causing this.
         current_timestamp = ns_timestamp();
-        ulong frame_time = cast(ulong)(dt*1000000000.0f);
+        ulong target_frame_time = cast(ulong)(dt*1000000000.0f);
         ulong elapsed_time = current_timestamp - prev_timestamp;
-        if(elapsed_time < frame_time){
-            ns_sleep(frame_time - elapsed_time); // TODO: Better sleep time.
+        if(elapsed_time < target_frame_time){
+            ns_sleep(target_frame_time - elapsed_time); // TODO: Better sleep time.
         }
         prev_timestamp = current_timestamp;
 
         if(!g_debug_pause)
             render_submit_frame();
         end_frame();
+
+        end_perf_timer(&perf_timer_frame);
+
+        print_and_reset_perf_info();
     }
 
     return 0;

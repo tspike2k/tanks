@@ -51,8 +51,7 @@ enum{
     Render_Flag_Disable_Culling      = (1 << 0),
     Render_Flag_Disable_Color        = (1 << 1),
     Render_Flag_Disable_Depth_Test   = (1 << 2),
-    Render_Flag_Decal_Depth_Test     = (1 << 3),
-    Render_Flag_Disable_Depth_Writes = (1 << 4),
+    Render_Flag_Disable_Depth_Writes = (1 << 3),
 }
 
 enum Blend_Mode : uint{
@@ -935,10 +934,6 @@ version(opengl){
                 glDisable(GL_DEPTH_TEST);
             }
 
-            if(pass.flags & Render_Flag_Decal_Depth_Test){
-                glDepthFunc(GL_LEQUAL);
-            }
-
             if(pass.blend_mode != Blend_Mode.None){
                 glEnable(GL_BLEND);
 
@@ -1232,10 +1227,6 @@ version(opengl){
 
             if(pass.flags & Render_Flag_Disable_Depth_Test){
                 glEnable(GL_DEPTH_TEST);
-            }
-
-            if(pass.flags & Render_Flag_Decal_Depth_Test){
-                glDepthFunc(GL_LESS);
             }
 
             if(pass.blend_mode != Blend_Mode.None){
