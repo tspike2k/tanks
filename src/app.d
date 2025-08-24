@@ -232,6 +232,7 @@ struct App_State{
     Texture img_tread_marks;
     Texture img_wood;
     Texture img_smoke;
+    Texture img_crosshair;
 }
 
 alias Entity_ID = ulong;
@@ -2664,6 +2665,11 @@ void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
                     switch(key.id){
                         default: break;
 
+                        case Key_ID_Escape:{
+                            // TODO: Show pause menu istead!
+                            end_campaign(s);
+                        } break;
+
                         case Key_ID_A:{
                             if(key.pressed)
                                 player_input.turn_angle = deg_to_rad(90);
@@ -2970,6 +2976,7 @@ extern(C) int main(int args_count, char** args){
     s.img_tread_marks = load_texture_from_file("./build/tread_marks.tga", 0, &s.frame_memory);
     s.img_wood        = load_texture_from_file("./build/wood.tga", 0, &s.frame_memory);
     s.img_smoke       = load_texture_from_file("./build/smoke.tga", 0, &s.frame_memory);
+    s.img_crosshair   = load_texture_from_file("./build/crosshair.tga", 0, &s.frame_memory);
 
     Vec3 light_color = Vec3(1.0f, 1.0f, 1.0f);
     s.light.ambient  = light_color*0.15f;
@@ -3196,7 +3203,8 @@ extern(C) int main(int args_count, char** args){
             } break;
 
             case Game_Mode.Campaign:{
-                hide_and_grab_cursor_this_frame();
+                if(!g_debug_mode)
+                    hide_and_grab_cursor_this_frame();
                 campaign_simulate(s, &player_input, target_dt);
             } break;
         }
@@ -3341,6 +3349,13 @@ extern(C) int main(int args_count, char** args){
                         );
                     } break;
                 }
+
+                if(!g_debug_mode){
+                    auto crosshair_color = Vec4(1, 0, 0, 0.65f); // TODO: This should be based off the player color.
+                    auto cursor_p = Vec2(s.mouse_pixel.x, window.height - s.mouse_pixel.y);
+                    set_texture(render_passes.hud_text, s.img_crosshair);
+                    render_rect(render_passes.hud_text, Rect(cursor_p, Vec2(30, 30)), crosshair_color);
+                }
             } break;
         }
 
@@ -3351,27 +3366,6 @@ extern(C) int main(int args_count, char** args){
             set_shader(render_passes.hud_rects, &s.view_depth);
             render_rect(render_passes.hud_rects, Rect(Vec2(200, 200), Vec2(100, 100)), Vec4(1, 1, 1, 1));
         }
-
-        // Circle vs OBB test
-        /+
-        {
-            auto test_p = s.mouse_world;
-            auto test_r = 0.25f;
-
-            auto target_p = Vec2(4, 2);
-            auto target_extents = Vec2(0.1, 6);
-            //auto target_angle = deg_to_rad(45);
-            auto target_angle = s.t*0.5f;
-            //auto target_angle = 0;
-
-            auto color = Vec4(1, 1, 1, 1);
-            if(circle_overlaps_obb(test_p, test_r, target_p, target_extents, target_angle)){
-                color = Vec4(1, 0, 0, 1);
-            }
-
-            render_debug_obb(g_debug_render_pass, test_p, Vec2(test_r, test_r), color, 0);
-            render_debug_obb(g_debug_render_pass, target_p, target_extents, color, target_angle);
-        }+/
 
         end_perf_timer(&perf_render_prep);
         render_end_frame();
