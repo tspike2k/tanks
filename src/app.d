@@ -32,7 +32,6 @@ Enemy AI:
 
 Sound effects:
     - Firing missile (Can we just up-pitch the normal shot sound?)
-    - Mine exploding
 
     Interesting article on frequency of packet transmission in multiplayer games
     used in Source games.
@@ -199,6 +198,7 @@ struct App_State{
     Sound sfx_ricochet;
     Sound sfx_mine_click;
     Sound sfx_pop;
+    Sound sfx_mine_explosion;
 
     Particle_Emitter emitter_treadmarks;
     Particle_Emitter emitter_bullet_contrails;
@@ -1586,7 +1586,7 @@ void resolve_collision(App_State* s, Entity* a, Entity* b, Vec2 normal, float de
 
             if(!is_immortal){
                 emit_tank_explosion(&s.emitter_explosion_flames, a.pos, &s.rng);
-                play_sfx(&s.sfx_explosion, 0, 1.0f);
+                play_sfx(&s.sfx_explosion, 0, 2.0f);
                 destroy_entity(a);
                 destroy_entity(b);
                 add_to_score_if_killed_by_player(s, a, b.parent_id);
@@ -1637,7 +1637,6 @@ void resolve_collision(App_State* s, Entity* a, Entity* b, Vec2 normal, float de
             if(is_exploding(b)){
                 destroy_entity(a);
                 add_to_score_if_killed_by_player(s, a, b.parent_id);
-                // TODO: Show explosion? Or is the mine explosion enough?
             }
         } break;
     }
@@ -2291,11 +2290,17 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
 
                 case Entity_Type.Mine:{
                     if(e.flags & Entity_Flag_Mine_Active){
+                        bool was_exploding = is_exploding(&e);
                         e.mine_timer += dt;
                         if(e.mine_timer > Mine_Explosion_End_Time){
                             destroy_entity(&e);
                         }
                         else if(is_exploding(&e)){
+                            if(!was_exploding){
+                                auto pitch = random_f32_between(&s.rng, 1.0f - 0.10f, 1.0f + 0.10f);
+                                play_sfx(&s.sfx_mine_explosion, 0, 1.0f, pitch);
+                            }
+
                             auto t = normalized_range_clamp(e.mine_timer, Mine_Detonation_Time, Mine_Explosion_End_Time);
                             auto radius = Mine_Explosion_Radius * sin(t);
                             e.extents = Vec2(radius, radius);
@@ -2963,12 +2968,13 @@ extern(C) int main(int args_count, char** args){
     load_shader(&s.shadow_map_shader, "shadow_map", shaders_dir, &s.frame_memory);
     load_shader(&s.view_depth, "view_depth", shaders_dir, &s.frame_memory);
 
-    s.sfx_fire_bullet = load_wave_file("./build/fire_bullet.wav", Audio_Frames_Per_Sec, &s.main_memory);
-    s.sfx_explosion   = load_wave_file("./build/explosion.wav", Audio_Frames_Per_Sec, &s.main_memory);
-    s.sfx_treads      = load_wave_file("./build/treads.wav", Audio_Frames_Per_Sec, &s.main_memory);
-    s.sfx_ricochet    = load_wave_file("./build/ricochet.wav", Audio_Frames_Per_Sec, &s.main_memory);
-    s.sfx_mine_click  = load_wave_file("./build/mine_click.wav", Audio_Frames_Per_Sec, &s.main_memory);
-    s.sfx_pop         = load_wave_file("./build/pop.wav", Audio_Frames_Per_Sec, &s.main_memory);
+    s.sfx_fire_bullet    = load_wave_file("./build/fire_bullet.wav", Audio_Frames_Per_Sec, &s.main_memory);
+    s.sfx_explosion      = load_wave_file("./build/explosion.wav", Audio_Frames_Per_Sec, &s.main_memory);
+    s.sfx_treads         = load_wave_file("./build/treads.wav", Audio_Frames_Per_Sec, &s.main_memory);
+    s.sfx_ricochet       = load_wave_file("./build/ricochet.wav", Audio_Frames_Per_Sec, &s.main_memory);
+    s.sfx_mine_click     = load_wave_file("./build/mine_click.wav", Audio_Frames_Per_Sec, &s.main_memory);
+    s.sfx_pop            = load_wave_file("./build/pop.wav", Audio_Frames_Per_Sec, &s.main_memory);
+    s.sfx_mine_explosion = load_wave_file("./build/mine_explosion.wav", Audio_Frames_Per_Sec, &s.main_memory);
 
     s.img_blank_mesh  = generate_solid_texture(0xff000000, 0);
     s.img_blank_rect  = generate_solid_texture(0xffffffff, 0);
