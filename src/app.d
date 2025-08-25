@@ -62,7 +62,7 @@ enum Total_Memory_Size   = Main_Memory_Size + Frame_Memory_Size + Editor_Memory_
 
 enum Audio_Frames_Per_Sec = 44100;
 
-enum Campaign_File_Name = "./build/main.camp"; // TODO: Use a specific folder for campaigns?
+enum Campaign_File_Name = "main.camp"; // TODO: Use a specific folder for campaigns?
 
 enum Mine_Detonation_Time    = 10.0f;
 enum Mine_Explosion_End_Time = Mine_Detonation_Time + 0.5f;
@@ -162,6 +162,8 @@ struct App_State{
     Allocator campaign_memory;
 
     String     data_path;
+    String     asset_path;
+    String     campaigns_path;
 
     bool        running;
     float       t;
@@ -461,15 +463,14 @@ void save_high_scores(App_State* s){
 
 bool load_campaign_from_file(App_State* s, String file_name){
     auto allocator = &s.campaign_memory;
-
-    auto scratch = allocator.scratch;
-    push_frame(scratch);
-    scope(exit) pop_frame(scratch);
-
     auto campaign = &s.campaign;
 
+    mixin(Scratch_Frame!());
+
+    auto full_path = concat(trim_path(s.campaigns_path), to_string(Dir_Char), file_name, scratch);
+
     bool success = false;
-    auto memory = read_file_into_memory(file_name, scratch);
+    auto memory = read_file_into_memory(full_path, scratch);
     if(memory.length){
         if(allocator.memory){
             os_dealloc(allocator.memory);
@@ -480,7 +481,7 @@ bool load_campaign_from_file(App_State* s, String file_name){
         *allocator = Allocator(os_alloc(campaign_memory_size, 0));
         allocator.scratch = scratch;
 
-        s.campaign_file_name = dup_array(file_name, allocator);
+        s.campaign_file_name = dup_array(full_path, allocator);
 
         auto reader = Serializer(memory, allocator);
         auto header = eat_type!Asset_Header(&reader);
@@ -1685,10 +1686,7 @@ String trim_path(String path){
 }
 
 bool load_font(String file_path, String file_name, Font* font, Allocator* allocator){
-    auto scratch = allocator.scratch;
-    push_frame(scratch);
-    scope(exit) pop_frame(scratch);
-
+    mixin(Scratch_Frame!());
     auto full_path = concat(trim_path(file_path), to_string(Dir_Char), file_name, scratch);
 
     bool result = false;
@@ -2771,11 +2769,24 @@ void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
     player_input.place_mine  = false;
 }
 
-Texture load_texture_from_file(String file_name, uint flags, Allocator* allocator, bool premultiply = true){
+Sound load_sfx(String path, String file_name, Allocator* allocator){
+    mixin(Scratch_Frame!());
+    auto full_path = concat(trim_path(path), to_string(Dir_Char), file_name, allocator.scratch);
+
+    auto result = load_wave_file(full_path, Audio_Frames_Per_Sec, allocator);
+    return result;
+}
+
+Texture load_texture(String path, String file_name, uint flags, Allocator* allocator, bool premultiply = true){
+    mixin(Scratch_Frame!());
+    auto full_path = concat(trim_path(path), to_string(Dir_Char), file_name, allocator.scratch);
+
+    // NOTE: We must use the allocator directly for leading a TGA file. This is because the
+    // function uses scratch memory to load the file into memory, then the pixel data is
+    // allocated by the allocator itself.
     push_frame(allocator);
     scope(exit) pop_frame(allocator);
-
-    auto pixels = load_tga_file(file_name, allocator);
+    auto pixels = load_tga_file(full_path, allocator);
     if(premultiply)
         premultiply_alpha(pixels.data);
     auto result = create_texture(pixels.data, pixels.width, pixels.height, flags);
@@ -2945,44 +2956,45 @@ extern(C) int main(int args_count, char** args){
 
     seed(&s.rng, 1247865); // TODO: Seed using current time value?
 
-    auto base_path = get_path_to_executable(&s.main_memory);
-    auto font_path = base_path;
-    auto mesh_path = base_path;
-    s.data_path    = get_data_path(&s.main_memory);
+    auto base_path    = get_path_to_executable(&s.main_memory);
+    auto asset_path   = concat(trim_path(base_path), to_string(Dir_Char), "assets", to_string(Dir_Char), &s.main_memory);
+    auto shaders_path = concat(trim_path(base_path), to_string(Dir_Char), "shaders", to_string(Dir_Char), &s.main_memory);
+    s.data_path       = get_data_path(&s.main_memory);
+    s.asset_path      = asset_path;
+    s.campaigns_path  = concat(trim_path(base_path), to_string(Dir_Char), "campaigns", to_string(Dir_Char), &s.main_memory);
 
-    load_font(font_path, "test_en.fnt", &s.font_main, &s.main_memory);
-    load_font(font_path, "editor_small_en.fnt", &s.font_editor_small, &s.main_memory);
+    load_font(asset_path, "test_en.fnt", &s.font_main, &s.main_memory);
+    load_font(asset_path, "editor_small_en.fnt", &s.font_editor_small, &s.main_memory);
 
-    s.cube_mesh        = load_mesh_from_obj(mesh_path, "cube.obj", &s.main_memory);
-    s.tank_base_mesh   = load_mesh_from_obj(mesh_path, "tank_base.obj", &s.main_memory);
-    s.tank_top_mesh    = load_mesh_from_obj(mesh_path, "tank_top.obj", &s.main_memory);
-    s.bullet_mesh      = load_mesh_from_obj(mesh_path, "bullet.obj", &s.main_memory);
-    s.ground_mesh      = load_mesh_from_obj(mesh_path, "ground.obj", &s.main_memory);
-    s.hole_mesh        = load_mesh_from_obj(mesh_path, "hole.obj", &s.main_memory);
-    s.half_sphere_mesh = load_mesh_from_obj(mesh_path, "half_sphere.obj", &s.main_memory);
+    s.cube_mesh        = load_mesh_from_obj(asset_path, "cube.obj", &s.main_memory);
+    s.tank_base_mesh   = load_mesh_from_obj(asset_path, "tank_base.obj", &s.main_memory);
+    s.tank_top_mesh    = load_mesh_from_obj(asset_path, "tank_top.obj", &s.main_memory);
+    s.bullet_mesh      = load_mesh_from_obj(asset_path, "bullet.obj", &s.main_memory);
+    s.ground_mesh      = load_mesh_from_obj(asset_path, "ground.obj", &s.main_memory);
+    s.hole_mesh        = load_mesh_from_obj(asset_path, "hole.obj", &s.main_memory);
+    s.half_sphere_mesh = load_mesh_from_obj(asset_path, "half_sphere.obj", &s.main_memory);
 
-    auto shaders_dir = "./build/shaders/"; // TODO: Get base directory using absolute path.
-    load_shader(&s.shader, "default", shaders_dir, &s.frame_memory);
-    load_shader(&s.text_shader, "text", shaders_dir, &s.frame_memory);
-    load_shader(&s.rect_shader, "rect", shaders_dir, &s.frame_memory);
-    load_shader(&s.shadow_map_shader, "shadow_map", shaders_dir, &s.frame_memory);
-    load_shader(&s.view_depth, "view_depth", shaders_dir, &s.frame_memory);
+    load_shader(&s.shader, "default", shaders_path, &s.frame_memory);
+    load_shader(&s.text_shader, "text", shaders_path, &s.frame_memory);
+    load_shader(&s.rect_shader, "rect", shaders_path, &s.frame_memory);
+    load_shader(&s.shadow_map_shader, "shadow_map", shaders_path, &s.frame_memory);
+    load_shader(&s.view_depth, "view_depth", shaders_path, &s.frame_memory);
 
-    s.sfx_fire_bullet    = load_wave_file("./build/fire_bullet.wav", Audio_Frames_Per_Sec, &s.main_memory);
-    s.sfx_explosion      = load_wave_file("./build/explosion.wav", Audio_Frames_Per_Sec, &s.main_memory);
-    s.sfx_treads         = load_wave_file("./build/treads.wav", Audio_Frames_Per_Sec, &s.main_memory);
-    s.sfx_ricochet       = load_wave_file("./build/ricochet.wav", Audio_Frames_Per_Sec, &s.main_memory);
-    s.sfx_mine_click     = load_wave_file("./build/mine_click.wav", Audio_Frames_Per_Sec, &s.main_memory);
-    s.sfx_pop            = load_wave_file("./build/pop.wav", Audio_Frames_Per_Sec, &s.main_memory);
-    s.sfx_mine_explosion = load_wave_file("./build/mine_explosion.wav", Audio_Frames_Per_Sec, &s.main_memory);
+    s.sfx_fire_bullet    = load_sfx(asset_path, "fire_bullet.wav", &s.main_memory);
+    s.sfx_explosion      = load_sfx(asset_path, "explosion.wav", &s.main_memory);
+    s.sfx_treads         = load_sfx(asset_path, "treads.wav", &s.main_memory);
+    s.sfx_ricochet       = load_sfx(asset_path, "ricochet.wav", &s.main_memory);
+    s.sfx_mine_click     = load_sfx(asset_path, "mine_click.wav", &s.main_memory);
+    s.sfx_pop            = load_sfx(asset_path, "pop.wav", &s.main_memory);
+    s.sfx_mine_explosion = load_sfx(asset_path, "mine_explosion.wav", &s.main_memory);
 
     s.img_blank_mesh  = generate_solid_texture(0xff000000, 0);
     s.img_blank_rect  = generate_solid_texture(0xffffffff, 0);
-    s.img_x_mark      = load_texture_from_file("./build/x_mark.tga", 0, &s.frame_memory);
-    s.img_tread_marks = load_texture_from_file("./build/tread_marks.tga", 0, &s.frame_memory);
-    s.img_wood        = load_texture_from_file("./build/wood.tga", 0, &s.frame_memory);
-    s.img_smoke       = load_texture_from_file("./build/smoke.tga", 0, &s.frame_memory);
-    s.img_crosshair   = load_texture_from_file("./build/crosshair.tga", 0, &s.frame_memory);
+    s.img_x_mark      = load_texture(asset_path, "x_mark.tga", 0, &s.frame_memory);
+    s.img_tread_marks = load_texture(asset_path, "tread_marks.tga", 0, &s.frame_memory);
+    s.img_wood        = load_texture(asset_path, "wood.tga", 0, &s.frame_memory);
+    s.img_smoke       = load_texture(asset_path, "smoke.tga", 0, &s.frame_memory);
+    s.img_crosshair   = load_texture(asset_path, "crosshair.tga", 0, &s.frame_memory);
 
     Vec3 light_color = Vec3(1.0f, 1.0f, 1.0f);
     s.light.ambient  = light_color*0.15f;

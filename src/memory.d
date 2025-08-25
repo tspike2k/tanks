@@ -62,13 +62,14 @@ void copy(T)(const(T[]) src, T[] dest){
     }
 }
 
+/+
 char[] concat(String a, String b, Allocator* allocator){
     auto result = alloc_array!(char)(allocator, a.length+b.length+1);
     copy(a[0 .. $], result[0 .. a.length]);
     copy(b[0 .. $], result[a.length .. a.length + b.length]);
     result[$-1] = '\0';
     return result;
-}
+}+/
 
 // NOTE: This function null termiates the string, but returns a slice without the null terminator.
 char[] concat(Args...)(Args args, Allocator* allocator)
@@ -310,6 +311,14 @@ void push_frame(Allocator* allocator){
 void pop_frame(Allocator* allocator){
     allocator.used = allocator.last_frame.used;
     allocator.last_frame = allocator.last_frame.next;
+}
+
+// This is just a convenience "macro" so that we can combine three lines of code into two.
+template Scratch_Frame(string name = "allocator"){
+    enum Scratch_Frame = q{auto scratch = } ~ name ~ q{.scratch;
+        push_frame(scratch);
+        scope(exit) pop_frame(scratch);
+    };
 }
 
 Allocator make_sub_allocator(Allocator* allocator, size_t size, uint flags = 0){
