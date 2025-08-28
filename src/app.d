@@ -22,6 +22,12 @@ TODO:
       camera.
     - Support playing custom campaigns.
     - Pause menu which allows us to exit to main menu (shouldn't actually pause in multiplayer, though)
+    - Menus must handle different resolutions somehow. Resolution independant scaling? Scrollbars
+      for out-of-frame content?
+    - Textured button rendering. This is often done using a technique called "9-slicing", though
+      the technique itself predates the term and was used at least as far back as Chrono Cross
+      for the textbox "frames".
+
 
 Enemy AI:
     - Improved bullet prediction. Right now, even enemies with good aim stats are surprisingly
@@ -33,9 +39,9 @@ Enemy AI:
 Sound effects:
     - Firing missile (Can we just up-pitch the normal shot sound?)
 
-    Interesting article on frequency of packet transmission in multiplayer games
-    used in Source games.
-    https://developer.valvesoftware.com/wiki/Source_Multiplayer_Networking
+Interesting article on frequency of packet transmission in multiplayer games
+used in Source games.
+https://developer.valvesoftware.com/wiki/Source_Multiplayer_Networking
 +/
 
 import display;
@@ -166,7 +172,7 @@ struct App_State{
     String     campaigns_path;
 
     bool        running;
-    float       t;
+    float       time;
     Entity_ID   player_entity_id;
     Vec2        mouse_pixel;
     Vec2        mouse_world;
@@ -191,6 +197,7 @@ struct App_State{
 
     Font font_main;
     Font font_editor_small;
+    Font font_title;
 
     Shader_Light light;
 
@@ -2239,8 +2246,8 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
     auto world_bounds = rect_from_min_max(Vec2(0, 0), Vec2(map.width, map.height));
 
     float light_radius = 12.0f;
-    s.light.pos.x = world_bounds.center.x + cos(s.t*0.25f)*light_radius;
-    s.light.pos.z = world_bounds.center.y + sin(s.t*0.25f)*light_radius;
+    s.light.pos.x = world_bounds.center.x + cos(s.time*0.25f)*light_radius;
+    s.light.pos.z = world_bounds.center.y + sin(s.time*0.25f)*light_radius;
 
     foreach(ref e; iterate_entities(&s.world)){
         if(is_dynamic_entity(e.type) && !is_destroyed(&e)){
@@ -2460,6 +2467,8 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
     auto menu_id = s.next_menu_id;
     bool menu_changed = menu.current_menu_id != menu_id;
 
+    float title_block_height = 0.30f;
+
     switch(menu_id){
         default: break;
 
@@ -2468,11 +2477,12 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
         case Menu_ID.Main_Menu:{
             if(menu_changed){
                 begin_menu_def(menu, menu_id);
-                begin_block(menu, 0.40f);
+                begin_block(menu, title_block_height);
                 add_title(menu, "Tanks!");
                 end_block(menu);
-                begin_block(menu, 0.60f);
+                begin_block(menu, 0.70f);
                 add_button(menu, "Campaign", Menu_Action.Change_Menu, Menu_ID.Campaign);
+                add_button(menu, "Scores", Menu_Action.Change_Menu, Menu_ID.High_Scores);
                 add_button(menu, "Editor", Menu_Action.Open_Editor, Menu_ID.None);
                 add_button(menu, "Quit", Menu_Action.Quit_Game, Menu_ID.None);
                 end_block(menu);
@@ -2481,16 +2491,19 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
         } break;
 
         case Menu_ID.Campaign:{
-            enum Variant_Label_Index = 3;
+            enum Variant_Label_Index = 4;
 
             auto campaign = &s.campaign;
             auto variant  = &campaign.variants[s.session.variant_index];
             if(menu_changed){
                 begin_menu_def(menu, menu_id);
-                begin_block(menu, 0.2f);
+                begin_block(menu, title_block_height);
+                add_title(menu, "Tanks!");
+                end_block(menu);
+                begin_block(menu, 0.1f);
                 add_heading(menu, "Campaign");
                 end_block(menu);
-                begin_block(menu, 0.8f);
+                begin_block(menu, 0.6f);
                 add_button(menu, "Start", Menu_Action.Begin_Campaign, Menu_ID.None);
                 immutable row_style = [Style(0.5f, Align.Right), Style(0.5f, Align.Left)]; // We have to use immutable so D doesn't try to use the GC
                 set_style(menu, row_style[]);
@@ -2502,7 +2515,6 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
                 // will require a way to select an index. Should be interesting!
                 //add_index_picker(menu, "Variant", )
                 set_default_style(menu);
-                add_button(menu, "High Scores", Menu_Action.Change_Menu, Menu_ID.High_Scores);
                 add_button(menu, "Back", Menu_Action.Change_Menu, Menu_ID.Main_Menu);
                 end_block(menu);
                 end_menu_def(menu);
@@ -2514,12 +2526,15 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
         case Menu_ID.High_Scores:{
             if(menu_changed){
                 begin_menu_def(menu, menu_id);
-                begin_block(menu, 0.2f);
+                begin_block(menu, title_block_height);
+                add_title(menu, "Tanks!");
+                end_block(menu);
+                begin_block(menu, 0.1f);
                 add_heading(menu, "High Scores");
                 end_block(menu);
-                begin_block(menu, 0.8f);
+                begin_block(menu, 0.6f);
                 add_high_scores_viewer(menu, &s.high_scores, s.session.variant_index);
-                add_button(menu, "Back", Menu_Action.Change_Menu, Menu_ID.Campaign);
+                add_button(menu, "Back", Menu_Action.Change_Menu, Menu_ID.Main_Menu);
                 end_block(menu);
                 end_menu_def(menu);
             }
@@ -2965,6 +2980,7 @@ extern(C) int main(int args_count, char** args){
 
     load_font(asset_path, "test_en.fnt", &s.font_main, &s.main_memory);
     load_font(asset_path, "editor_small_en.fnt", &s.font_editor_small, &s.main_memory);
+    load_font(asset_path, "title_font.fnt", &s.font_title, &s.main_memory);
 
     s.cube_mesh        = load_mesh_from_obj(asset_path, "cube.obj", &s.main_memory);
     s.tank_base_mesh   = load_mesh_from_obj(asset_path, "tank_base.obj", &s.main_memory);
@@ -3057,7 +3073,7 @@ extern(C) int main(int args_count, char** args){
     s.mode = Game_Mode.Menu;
     s.next_mode = s.mode;
     s.menu.heading_font = &s.font_main;
-    s.menu.title_font   = &s.font_main;
+    s.menu.title_font   = &s.font_title;
     s.menu.button_font  = &s.font_editor_small;
     change_to_menu(s, &s.menu, Menu_ID.Main_Menu);
 
@@ -3080,7 +3096,7 @@ extern(C) int main(int args_count, char** args){
         auto window_aspect_ratio = (cast(float)window.width)/(cast(float)window.height);
 
         auto dt = target_dt;
-        s.t += dt;
+        s.time += dt;
 
         g_debug_pause = g_debug_pause_next;
         if(s.mode != s.next_mode){
@@ -3115,7 +3131,7 @@ extern(C) int main(int args_count, char** args){
         auto mouse_world_3d = camera_ray_vs_plane(&world_camera, s.mouse_pixel, window.width, window.height);
         s.mouse_world = Vec2(mouse_world_3d.x, -mouse_world_3d.z);
 
-        render_begin_frame(window.width, window.height, Vec4(0, 0.05f, 0.12f, 1), &s.frame_memory);
+        render_begin_frame(window.width, window.height, Vec4(0, 0.05f, 0.12f, 1), s.time, &s.frame_memory);
 
         Render_Passes render_passes;
 
@@ -3236,7 +3252,7 @@ extern(C) int main(int args_count, char** args){
             } break;
 
             case Game_Mode.Menu:{
-                menu_render(&render_passes, &s.menu, s.t, &s.frame_memory);
+                menu_render(&render_passes, &s.menu, s.time, &s.frame_memory);
             } break;
 
             case Game_Mode.Campaign:{
