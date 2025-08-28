@@ -511,12 +511,13 @@ char[] make_date_pretty(char[] buffer, char[] date){
 
 void menu_render(Render_Passes* rp, Menu* menu, float time, Allocator* allocator){
     Vec4[2] block_colors = [Vec4(0.25f, 0.25f, 0.25f, 1), Vec4(0, 0, 0, 1)];
+    /+
     foreach(block_index, ref block; menu.blocks[0 .. menu.blocks_count]){
         auto color = block_colors[block_index % block_colors.length];
 
         auto bounds = rect_from_min_max(Vec2(0, block.end_y), Vec2(1920, block.start_y));
         render_rect(rp.hud_rects, bounds, color);
-    }
+    }+/
 
     foreach(entry_index, ref entry; menu.items[0 .. menu.items_count]){
         auto font = get_font(menu, entry.type);

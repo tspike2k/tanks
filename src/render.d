@@ -47,8 +47,6 @@ enum Vec3_Up = Vec3(0, 1, 0); // TODO: Is this correct? If it is, in the future 
 enum Z_Far  =  1000.0f;
 enum Z_Near = -Z_Far;
 
-alias Texture = ulong;
-
 enum{
     Render_Flag_Disable_Culling      = (1 << 0),
     Render_Flag_Disable_Color        = (1 << 1),
@@ -61,6 +59,12 @@ enum Blend_Mode : uint{
     Addative,
     One_Minus_Source_Alpha,
 };
+
+alias Texture = ulong;
+
+enum{
+    Texture_Flag_Wrap = (1 << 0),
+}
 
 // To keep from having to juggle seperate vertex formats between quads and meshes,
 // the first attribute could either hold color or normal information, depending
@@ -735,14 +739,15 @@ version(opengl){
         glTexImage2D(GL_TEXTURE_2D, 0, internal_format, width, height, 0, source_format, GL_UNSIGNED_BYTE, pixels.ptr);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, Default_Texture_Filter);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, Default_Texture_Filter);
-        //if(!repeat){
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        /+}
-        else{
+        if(flags & Texture_Flag_Wrap){
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-        }+/
+        }
+        else{
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        }
+
         Texture result = handle;
         return result;
     }

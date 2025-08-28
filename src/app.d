@@ -117,6 +117,7 @@ struct Render_Passes{
     Render_Pass* ground_decals;
     Render_Pass* world;
     Render_Pass* particles;
+    Render_Pass* bg_scroll;
     Render_Pass* hud_rects;
     Render_Pass* hud_text;
 }
@@ -218,6 +219,7 @@ struct App_State{
     Shader rect_shader;
     Shader shadow_map_shader;
     Shader view_depth;
+    Shader shader_bg_scroll;
 
     Mesh cube_mesh;
     Mesh tank_base_mesh;
@@ -242,6 +244,7 @@ struct App_State{
     Texture img_wood;
     Texture img_smoke;
     Texture img_crosshair;
+    Texture img_tank_icon;
 }
 
 alias Entity_ID = ulong;
@@ -2995,6 +2998,7 @@ extern(C) int main(int args_count, char** args){
     load_shader(&s.rect_shader, "rect", shaders_path, &s.frame_memory);
     load_shader(&s.shadow_map_shader, "shadow_map", shaders_path, &s.frame_memory);
     load_shader(&s.view_depth, "view_depth", shaders_path, &s.frame_memory);
+    load_shader(&s.shader_bg_scroll, "bg_scroll", shaders_path, &s.frame_memory);
 
     s.sfx_fire_bullet    = load_sfx(asset_path, "fire_bullet.wav", &s.main_memory);
     s.sfx_explosion      = load_sfx(asset_path, "explosion.wav", &s.main_memory);
@@ -3011,6 +3015,7 @@ extern(C) int main(int args_count, char** args){
     s.img_wood        = load_texture(asset_path, "wood.tga", 0, &s.frame_memory);
     s.img_smoke       = load_texture(asset_path, "smoke.tga", 0, &s.frame_memory);
     s.img_crosshair   = load_texture(asset_path, "crosshair.tga", 0, &s.frame_memory);
+    s.img_tank_icon   = load_texture(asset_path, "tank_icon.tga", Texture_Flag_Wrap, &s.frame_memory);
 
     Vec3 light_color = Vec3(1.0f, 1.0f, 1.0f);
     s.light.ambient  = light_color*0.15f;
@@ -3183,6 +3188,15 @@ extern(C) int main(int args_count, char** args){
         pass.flags = Render_Flag_Disable_Depth_Writes;
         pass.blend_mode = Blend_Mode.One_Minus_Source_Alpha;
 
+        if(s.mode == Game_Mode.Menu){
+            pass = add_render_pass(&hud_camera);
+            render_passes.bg_scroll = pass;
+            set_shader(pass, &s.shader_bg_scroll);
+            set_texture(pass, s.img_tank_icon);
+            pass.flags = Render_Flag_Disable_Depth_Test;
+            pass.blend_mode = Blend_Mode.One_Minus_Source_Alpha;
+        }
+
         pass = add_render_pass(&hud_camera);
         render_passes.hud_rects = pass;
         set_shader(pass, &s.text_shader);
@@ -3252,6 +3266,8 @@ extern(C) int main(int args_count, char** args){
             } break;
 
             case Game_Mode.Menu:{
+                auto scroll_bounds = rect_from_min_max(Vec2(0, 0), Vec2(window.width, window.height));
+                render_rect(render_passes.bg_scroll, scroll_bounds, Vec4(0.10f, 0.15f, 0.22f, 1));
                 menu_render(&render_passes, &s.menu, s.time, &s.frame_memory);
             } break;
 
