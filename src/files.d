@@ -365,29 +365,6 @@ String get_config_path(Allocator* allocator){
     return result;
 }
 
-private:
-
-import core.sys.linux.dlfcn;
-import core.sys.linux.unistd;
-import core.sys.linux.fcntl;
-import core.sys.posix.sys.stat;
-import core.stdc.string;
-import core.stdc.errno;
-import core.stdc.stdlib;
-
-// Default file permissions: user:rw- group:r-- other: r--
-enum Dest_File_Permissions = S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH;
-
-int* fd_from_file(File *file){
-    int* result = cast(int*)&file.internal;
-    return result;
-}
-
-import logging;
-import core.sys.posix.poll;
-import core.stdc.string : strlen;
-import core.sys.linux.sys.inotify;
-
 struct File_Watcher{
     int    inotify_fd;
     bool   can_read;
@@ -409,13 +386,13 @@ struct Watch_Event{
     const(char)[] name;
 }
 
-File_Watcher watch_begin(char[] read_buffer){
+File_Watcher watch_begin(void[] read_buffer){
     File_Watcher watcher;
     watcher.inotify_fd = inotify_init1(IN_NONBLOCK);
     if(watcher.inotify_fd == -1)
         log_warn("Failed to create Inotify fd.\n");
 
-    watcher.read_buffer = read_buffer;
+    watcher.read_buffer = cast(char[])read_buffer;
     return watcher;
 }
 
@@ -459,7 +436,7 @@ void watch_update(File_Watcher* watcher){
     }
 }
 
-bool watch_read_events(File_Watcher* watcher, Watch_Event* event){
+bool watch_read_event(File_Watcher* watcher, Watch_Event* event){
     bool read_event = false;
     if(watcher.inotify_fd != -1 && watcher.can_read){
         // For some reason, I could only get reads to work if I used a buffer. Trying to only read a single event
@@ -477,6 +454,29 @@ bool watch_read_events(File_Watcher* watcher, Watch_Event* event){
     }
     return read_event;
 }
+
+private:
+
+import core.sys.linux.dlfcn;
+import core.sys.linux.unistd;
+import core.sys.linux.fcntl;
+import core.sys.posix.sys.stat;
+import core.stdc.string;
+import core.stdc.errno;
+import core.stdc.stdlib;
+
+// Default file permissions: user:rw- group:r-- other: r--
+enum Dest_File_Permissions = S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH;
+
+int* fd_from_file(File *file){
+    int* result = cast(int*)&file.internal;
+    return result;
+}
+
+import logging;
+import core.sys.posix.poll;
+import core.stdc.string : strlen;
+import core.sys.linux.sys.inotify;
 
 String get_xgd_or_fallback_dir(String xgd_env, String fallback, Allocator* allocator){
     // This is based on the "XDG Base Directory Specification" Freedesktop which can be read here:

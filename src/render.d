@@ -29,7 +29,6 @@ private{
     __gshared Texture      g_current_texture;
     __gshared Render_Pass* g_render_pass_first;
     __gshared Render_Pass* g_render_pass_last;
-    __gshared float        g_shader_time;
 
     enum Shadow_Map_Width  = 1024;
     enum Shadow_Map_Height = 1024;
@@ -107,6 +106,7 @@ struct Shader_Constants{
     Mat4  mat_camera;
     Vec3  camera_pos;
     float time;
+    Vec2  screen_size;
     Mat4  mat_model;
     Mat4  mat_light;
 }
@@ -723,7 +723,6 @@ version(opengl){
 
     struct Shader{
         private:
-
         GLuint handle;
         GLint  uniform_loc_texture_diffuse;
     }
@@ -873,25 +872,27 @@ version(opengl){
 
     }
 
-    void render_begin_frame(uint viewport_width, uint viewport_height, Vec4 clear_color, float time, Allocator* memory){
+    void render_begin_frame(uint viewport_width, uint viewport_height, Vec4 clear_color, float time, Vec2 screen_size, Allocator* memory){
         // TODO: Set viewport and the like?
         g_allocator = memory;
         g_render_pass_first = null;
         g_render_pass_last  = null;
         g_base_viewport     = rect_from_min_max(Vec2(0, 0), Vec2(viewport_width, viewport_height));
         g_clear_color       = clear_color;
-        g_shader_time       = time;
+
+        glBindBuffer(GL_UNIFORM_BUFFER, g_shader_constants_buffer);
+        glBufferSubData(
+            GL_UNIFORM_BUFFER, Shader_Constants.time.offsetof, float.sizeof, &time
+        );
+        glBufferSubData(
+            GL_UNIFORM_BUFFER, Shader_Constants.screen_size.offsetof, Vec2.sizeof, &screen_size
+        );
     }
 
     void render_end_frame(){
         mixin(Perf_Function!());
 
         auto pass = g_render_pass_first;
-
-        glBindBuffer(GL_UNIFORM_BUFFER, g_shader_constants_buffer);
-        glBufferSubData(
-            GL_UNIFORM_BUFFER, Shader_Constants.time.offsetof, float.sizeof, &g_shader_time
-        );
 
         {
             auto color = g_clear_color;
@@ -1332,8 +1333,11 @@ version(opengl){
     }
 
     void destroy_shader(Shader* shader){
-        glDeleteProgram(*cast(GLuint*)shader);
-        shader.handle = 0;
+        if(shader.handle != 0){
+            glDeleteProgram(shader.handle);
+            shader.handle = 0;
+            shader.uniform_loc_texture_diffuse = 0; // TODO: Is zero the correct null index? Or is it -1?
+        }
     }
 
     Render_Pass* add_render_pass(Camera* camera){

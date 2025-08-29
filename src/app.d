@@ -162,6 +162,15 @@ struct Particle_Emitter{
     uint       watermark;
 }
 
+String[] Shader_Names = [
+    "default",
+    "text",
+    "rect",
+    "shadow_map",
+    "view_depth",
+    "bg_scroll",
+];
+
 struct App_State{
     Allocator main_memory;
     Allocator frame_memory;
@@ -214,12 +223,17 @@ struct App_State{
     Particle_Emitter emitter_bullet_contrails;
     Particle_Emitter emitter_explosion_flames;
 
-    Shader shader;
-    Shader text_shader;
-    Shader rect_shader;
-    Shader shadow_map_shader;
-    Shader view_depth;
-    Shader shader_bg_scroll;
+    union{
+        struct{
+            Shader shader;
+            Shader text_shader;
+            Shader rect_shader;
+            Shader shadow_map_shader;
+            Shader view_depth;
+            Shader shader_bg_scroll;
+        }
+        Shader[6] shaders;
+    }
 
     Mesh cube_mesh;
     Mesh tank_base_mesh;
@@ -1153,6 +1167,8 @@ Mesh load_mesh_from_obj(String dir_path, String file_name, Allocator* allocator)
 bool load_shader(Shader* shader, String name, String path, Allocator* allocator){
     push_frame(allocator.scratch);
     scope(exit) pop_frame(allocator.scratch);
+
+    destroy_shader(shader);
 
     auto scratch = allocator.scratch;
     auto sep = to_string(Dir_Char);
@@ -2957,6 +2973,11 @@ extern(C) int main(int args_count, char** args){
         s.campaign_memory.scratch = &scratch_memory;
     }
 
+    File_Watcher file_watcher = watch_begin(alloc_array!void(&s.main_memory, 2048));
+    scope(exit) watch_end(&file_watcher);
+
+    auto shaders_watch_fd = watch_add(&file_watcher, "./build/shaders/", Watch_Event_Modified);
+
     // NOTE: These are the default names, these should be configurable by the player.
     set_name(&s.player_name, "Player 1");
 
@@ -2993,12 +3014,9 @@ extern(C) int main(int args_count, char** args){
     s.hole_mesh        = load_mesh_from_obj(asset_path, "hole.obj", &s.main_memory);
     s.half_sphere_mesh = load_mesh_from_obj(asset_path, "half_sphere.obj", &s.main_memory);
 
-    load_shader(&s.shader, "default", shaders_path, &s.frame_memory);
-    load_shader(&s.text_shader, "text", shaders_path, &s.frame_memory);
-    load_shader(&s.rect_shader, "rect", shaders_path, &s.frame_memory);
-    load_shader(&s.shadow_map_shader, "shadow_map", shaders_path, &s.frame_memory);
-    load_shader(&s.view_depth, "view_depth", shaders_path, &s.frame_memory);
-    load_shader(&s.shader_bg_scroll, "bg_scroll", shaders_path, &s.frame_memory);
+    foreach(shader_index, ref shader; s.shaders){
+        load_shader(&shader, Shader_Names[shader_index], shaders_path, &s.frame_memory);
+    }
 
     s.sfx_fire_bullet    = load_sfx(asset_path, "fire_bullet.wav", &s.main_memory);
     s.sfx_explosion      = load_sfx(asset_path, "explosion.wav", &s.main_memory);
@@ -3136,7 +3154,10 @@ extern(C) int main(int args_count, char** args){
         auto mouse_world_3d = camera_ray_vs_plane(&world_camera, s.mouse_pixel, window.width, window.height);
         s.mouse_world = Vec2(mouse_world_3d.x, -mouse_world_3d.z);
 
-        render_begin_frame(window.width, window.height, Vec4(0, 0.05f, 0.12f, 1), s.time, &s.frame_memory);
+        render_begin_frame(
+            window.width, window.height, Vec4(0, 0.05f, 0.12f, 1),
+            s.time, Vec2(window.width, window.height), &s.frame_memory
+        );
 
         Render_Passes render_passes;
 
@@ -3267,7 +3288,7 @@ extern(C) int main(int args_count, char** args){
 
             case Game_Mode.Menu:{
                 auto scroll_bounds = rect_from_min_max(Vec2(0, 0), Vec2(window.width, window.height));
-                render_rect(render_passes.bg_scroll, scroll_bounds, Vec4(0.10f, 0.15f, 0.22f, 1));
+                render_rect(render_passes.bg_scroll, scroll_bounds, Vec4(0.05f, 0.10f, 0.16f, 1));
                 menu_render(&render_passes, &s.menu, s.time, &s.frame_memory);
             } break;
 
@@ -3437,8 +3458,25 @@ extern(C) int main(int args_count, char** args){
         end_frame();
 
         end_perf_timer(&perf_timer_frame);
-
         update_perf_info(g_debug_mode);
+
+        watch_update(&file_watcher);
+        Watch_Event w_evt;
+        while(watch_read_event(&file_watcher, &w_evt)){
+            if(w_evt.event & Watch_Event_Modified){
+                auto name = trim_file_extension(w_evt.name);
+                if(ends_with(name, "_frag") || ends_with(name, "_vert")){
+                    name = name[0 .. $-5];
+                }
+                foreach(shader_index, shader_name; Shader_Names){
+                    if(name == shader_name){
+                        log("Reloading shader {0}!\n", w_evt.name);
+                        load_shader(&s.shaders[shader_index], name, shaders_path, &s.frame_memory);
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     return 0;

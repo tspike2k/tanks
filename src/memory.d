@@ -91,8 +91,16 @@ char[] put_raw_string(String s, Allocator* allocator){
 
 bool begins_with(String a, String b){
     bool result = false;
-    if(a.length >= b.length){
+    if(a.length >= b.length && b.length > 0){
         result = a[0 .. b.length] == b[0 .. $];
+    }
+    return result;
+}
+
+bool ends_with(String a, String b){
+    bool result = false;
+    if(a.length >= b.length && b.length > 0){
+        result = a[$-b.length .. $] == b[0 .. $];
     }
     return result;
 }
