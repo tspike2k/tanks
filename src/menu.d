@@ -44,7 +44,8 @@ enum Menu_Item_Type : uint{
 
 enum Menu_Action : uint{
     None,
-    Change_Menu,
+    Push_Menu,
+    Pop_Menu,
     Begin_Campaign,
     Open_Editor,
     Quit_Game,
@@ -114,10 +115,12 @@ struct Menu{
     Font*         heading_font;
     Font*         title_font;
 
-    Rect    canvas;
-    bool    mouse_moved;
-    Vec2    mouse_p;
-    Menu_ID current_menu_id;
+    bool       changed;
+    Rect       canvas;
+    bool       mouse_moved;
+    Vec2       mouse_p;
+    uint       menu_id_stack_index;
+    Menu_ID[8] menu_id_stack;
 
     uint           hover_item_index;
     uint           items_count;
@@ -130,10 +133,26 @@ struct Menu{
     Style[32]      styles;
 }
 
-void begin_menu_def(Menu* menu, Menu_ID menu_id){
+void push_menu(Menu* menu, Menu_ID id){
+    menu.menu_id_stack_index++;
+    menu.menu_id_stack[menu.menu_id_stack_index] = id;
+    menu.changed = true;
+}
+
+void pop_menu(Menu* menu){
+    assert(menu.menu_id_stack_index > 0);
+    menu.menu_id_stack_index--;
+    menu.changed = true;
+}
+
+Menu_ID get_top_menu_id(Menu* menu){
+    auto result = menu.menu_id_stack[menu.menu_id_stack_index];
+    return result;
+}
+
+void begin_menu_def(Menu* menu){
     menu.blocks_count = 0;
     menu.items_count  = 0;
-    menu.current_menu_id = menu_id;
 
     menu.style_groups_count = 1;
     menu.styles_count       = 1;
@@ -282,10 +301,9 @@ uint get_next_hover_index(Menu* menu){
 
 struct Menu_Event{
     Menu_Action action;
-    Menu_ID     target_menu;
 }
 
-private Menu_Event do_action(Menu_Item* item){
+private Menu_Event do_action(Menu* menu, Menu_Item* item){
     Menu_Event result;
 
     if(item.type == Menu_Item_Type.Index_Picker){
@@ -293,7 +311,17 @@ private Menu_Event do_action(Menu_Item* item){
     }
     else{
         result.action = item.action;
-        result.target_menu = item.target_menu;
+        switch(item.action){
+            default: break;
+
+            case Menu_Action.Push_Menu:{
+                push_menu(menu, item.target_menu);
+            } break;
+
+            case Menu_Action.Pop_Menu:{
+                pop_menu(menu);
+            } break;
+        }
     }
     return result;
 }
@@ -339,7 +367,17 @@ Menu_Event menu_handle_event(Menu* menu, Event* event){
                     case Key_ID_Enter:{
                         auto item = get_hover_item(menu);
                         if(item){
-                            result = do_action(item);
+                            result = do_action(menu, item);
+                        }
+                    } break;
+
+                    case Key_ID_Escape:{
+                        if(menu.menu_id_stack_index > 0){
+                            pop_menu(menu);
+                            result = Menu_Event(Menu_Action.Pop_Menu);
+                        }
+                        else{
+                            result = Menu_Event(Menu_Action.Quit_Game);
                         }
                     } break;
                 }
@@ -355,7 +393,7 @@ Menu_Event menu_handle_event(Menu* menu, Event* event){
                     case Button_ID.Mouse_Left:{
                         auto item = get_hover_item(menu);
                         if(item && is_point_inside_rect(menu.mouse_p, item.bounds)){
-                            result = do_action(item);
+                            result = do_action(menu, item);
                         }
                     } break;
                 }
@@ -373,6 +411,8 @@ Menu_Event menu_handle_event(Menu* menu, Event* event){
 }
 
 void menu_update(Menu* menu, Rect canvas){
+    menu.changed = false;
+
     if(menu.mouse_moved){
         foreach(item_index, ref item; menu.items[0 .. menu.items_count]){
             if(is_interactive(&item) && is_point_inside_rect(menu.mouse_p, item.bounds)){

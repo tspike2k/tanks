@@ -13,8 +13,8 @@ TODO:
     - Temp saves
     - More editor features (tank params, level size, etc)
     - Debug collision volume display?
-    - Bullet can get lodged between two blocks, destroying it before the player sees it reflected.
-    - Improved collision handling
+    - Improved collision handling. For instance, bullets can get lodged between two blocks,
+      destroying it before the player sees it reflected.
     - Switch to high-score list on game over. Highlight your current score if it's been added.
     - Finish porting over tank params
     - Decals aren't affected by light. Is that worth fixing?
@@ -24,9 +24,7 @@ TODO:
     - Pause menu which allows us to exit to main menu (shouldn't actually pause in multiplayer, though)
     - Menus must handle different resolutions somehow. Resolution independant scaling? Scrollbars
       for out-of-frame content?
-    - Textured button rendering. This is often done using a technique called "9-slicing", though
-      the technique itself predates the term and was used at least as far back as Chrono Cross
-      for the textbox "frames".
+    - Backspace or escape key (or both) should be used to back out of a menu.
 
 
 Enemy AI:
@@ -100,7 +98,6 @@ enum Skip_Level_Intros = true; // TODO: We should make this based on if we're in
 //enum Skip_Level_Intros = false;
 //enum bool Immortal = true; // TODO: Make this toggleable
 enum bool Immortal = false;
-
 
 enum Game_Mode : uint{
     None,
@@ -202,10 +199,10 @@ struct App_State{
     bool moving_camera;
 
     Menu      menu;
-    Menu_ID   next_menu_id;
     Gui_State gui;
 
-    Font font_main;
+    Font font_menu_large;
+    Font font_menu_small;
     Font font_editor_small;
     Font font_title;
 
@@ -2476,18 +2473,12 @@ void init_particles(Particle_Emitter* emitter, uint count, Allocator* allocator)
     emitter.particles = alloc_array!Particle(allocator, count);
 }
 
-void change_to_menu(App_State* s, Menu* menu, Menu_ID menu_id){
-    s.next_menu_id = menu_id;
-}
-
 void simulate_menu(App_State* s, float dt, Rect canvas){
     auto menu = &s.menu;
-
-    auto menu_id = s.next_menu_id;
-    bool menu_changed = menu.current_menu_id != menu_id;
-
     float title_block_height = 0.30f;
 
+    bool menu_changed = menu.changed;
+    auto menu_id = get_top_menu_id(menu);
     switch(menu_id){
         default: break;
 
@@ -2495,13 +2486,13 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
 
         case Menu_ID.Main_Menu:{
             if(menu_changed){
-                begin_menu_def(menu, menu_id);
+                begin_menu_def(menu);
                 begin_block(menu, title_block_height);
                 add_title(menu, "Tanks!");
                 end_block(menu);
                 begin_block(menu, 0.70f);
-                add_button(menu, "Campaign", Menu_Action.Change_Menu, Menu_ID.Campaign);
-                add_button(menu, "Scores", Menu_Action.Change_Menu, Menu_ID.High_Scores);
+                add_button(menu, "Campaign", Menu_Action.Push_Menu, Menu_ID.Campaign);
+                add_button(menu, "Scores", Menu_Action.Push_Menu, Menu_ID.High_Scores);
                 add_button(menu, "Editor", Menu_Action.Open_Editor, Menu_ID.None);
                 add_button(menu, "Quit", Menu_Action.Quit_Game, Menu_ID.None);
                 end_block(menu);
@@ -2515,7 +2506,7 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
             auto campaign = &s.campaign;
             auto variant  = &campaign.variants[s.session.variant_index];
             if(menu_changed){
-                begin_menu_def(menu, menu_id);
+                begin_menu_def(menu);
                 begin_block(menu, title_block_height);
                 add_title(menu, "Tanks!");
                 end_block(menu);
@@ -2534,7 +2525,7 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
                 // will require a way to select an index. Should be interesting!
                 //add_index_picker(menu, "Variant", )
                 set_default_style(menu);
-                add_button(menu, "Back", Menu_Action.Change_Menu, Menu_ID.Main_Menu);
+                add_button(menu, "Back", Menu_Action.Pop_Menu, Menu_ID.None);
                 end_block(menu);
                 end_menu_def(menu);
             }
@@ -2544,7 +2535,7 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
 
         case Menu_ID.High_Scores:{
             if(menu_changed){
-                begin_menu_def(menu, menu_id);
+                begin_menu_def(menu);
                 begin_block(menu, title_block_height);
                 add_title(menu, "Tanks!");
                 end_block(menu);
@@ -2553,7 +2544,7 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
                 end_block(menu);
                 begin_block(menu, 0.6f);
                 add_high_scores_viewer(menu, &s.high_scores, s.session.variant_index);
-                add_button(menu, "Back", Menu_Action.Change_Menu, Menu_ID.Main_Menu);
+                add_button(menu, "Back", Menu_Action.Pop_Menu, Menu_ID.None);
                 end_block(menu);
                 end_menu_def(menu);
             }
@@ -2612,7 +2603,11 @@ void end_campaign(App_State* s){
     // TODO: Store the score slot somewhere so we can use it to highlight the latest high score.
     auto score_slot = maybe_post_highscore(variant_scores, &s.session.score);
     change_mode(s, Game_Mode.Menu);
-    change_to_menu(s, &s.menu, Menu_ID.High_Scores);
+    // TODO: This is a hackey way of switching to the high scores menu. Should we remove the menu
+    // stack concept and instead have funciton that will tell which menu is the parent of a given
+    // menu_id? That may be ideal.
+    s.menu.menu_id_stack_index = 0;
+    push_menu(&s.menu, Menu_ID.High_Scores);
     if(score_slot){
         save_high_scores(s);
     }
@@ -3002,8 +2997,9 @@ extern(C) int main(int args_count, char** args){
     s.asset_path      = asset_path;
     s.campaigns_path  = concat(trim_path(base_path), to_string(Dir_Char), "campaigns", to_string(Dir_Char), &s.main_memory);
 
-    load_font(asset_path, "test_en.fnt", &s.font_main, &s.main_memory);
     load_font(asset_path, "editor_small_en.fnt", &s.font_editor_small, &s.main_memory);
+    load_font(asset_path, "menu_large_en.fnt", &s.font_menu_large, &s.main_memory);
+    load_font(asset_path, "menu_small_en.fnt", &s.font_menu_small, &s.main_memory);
     load_font(asset_path, "title_font.fnt", &s.font_title, &s.main_memory);
 
     s.cube_mesh        = load_mesh_from_obj(asset_path, "cube.obj", &s.main_memory);
@@ -3095,10 +3091,11 @@ extern(C) int main(int args_count, char** args){
     //s.mode = Game_Mode.Campaign;
     s.mode = Game_Mode.Menu;
     s.next_mode = s.mode;
-    s.menu.heading_font = &s.font_main;
-    s.menu.title_font   = &s.font_title;
-    s.menu.button_font  = &s.font_editor_small;
-    change_to_menu(s, &s.menu, Menu_ID.Main_Menu);
+    s.menu.heading_font     = &s.font_menu_large;
+    s.menu.title_font       = &s.font_title;
+    s.menu.button_font      = &s.font_menu_small;
+    s.menu.menu_id_stack[0] = Menu_ID.Main_Menu;
+    s.menu.changed = true;
 
     float target_dt = 1.0f/60.0f;
     ulong current_timestamp = ns_timestamp();
@@ -3254,10 +3251,6 @@ extern(C) int main(int args_count, char** args){
                                 change_mode(s, Game_Mode.Editor);
                             } break;
 
-                            case Menu_Action.Change_Menu:{
-                                change_to_menu(s, &s.menu, menu_evt.target_menu);
-                            } break;
-
                             case Menu_Action.Begin_Campaign:{
                                 change_mode(s, Game_Mode.Campaign);
                             } break;
@@ -3349,8 +3342,8 @@ extern(C) int main(int args_count, char** args){
                         auto variant = &s.campaign.variants[s.session.variant_index];
                         auto mission = &variant.missions[s.session.mission_index];
 
-                        auto font_large = &s.font_main; // TODO: Actually have a large font
-                        auto font_small = &s.font_editor_small; // TODO: Actually have a small font
+                        auto font_large = &s.font_menu_large;
+                        auto font_small = &s.font_menu_small;
                         auto p_text = render_passes.hud_text;
 
                         auto pen = Vec2(window.width, window.height)*0.5f;
@@ -3385,15 +3378,15 @@ extern(C) int main(int args_count, char** args){
                             // TODO: Fade the text in/out over time
                             auto pen = Vec2(window.width, window.height)*0.5f;
                             render_text(
-                                render_passes.hud_text, &s.font_main, pen,
+                                render_passes.hud_text, &s.font_menu_large, pen,
                                 "Start!", Text_White, Text_Align.Center_X
                             );
                         }
                     } break;
 
                     case Session_State.Mission_End:{
-                        auto font_large = &s.font_main; // TODO: Actually have a large font
-                        auto font_small = &s.font_editor_small; // TODO: Actually have a small font
+                        auto font_large = &s.font_menu_large;
+                        auto font_small = &s.font_menu_small;
                         auto p_text = render_passes.hud_text;
 
                         auto pen = Vec2(window.width, window.height)*0.5f;

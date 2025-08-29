@@ -22,14 +22,19 @@ version(linux){
 
 __gshared Font_Entry[] Font_Entries = [
     {
-        height: 82, stroke: 2,
-        fill_color: Vec4(1, 1, 1, 1), stroke_color: Vec4(0.4f, 0.4f, 0.4f, 1),
-        dest_file_name: "./build/assets/test_en.fnt", source_file_name: "LiberationSans-Regular.ttf"
-    },
-    {
         height: 18, stroke: 0,
         fill_color: Vec4(1, 1, 1, 1), stroke_color: Vec4(0.16f, 0.34f, 0.68f, 1),
         dest_file_name: "./build/assets/editor_small_en.fnt", source_file_name: "DejaVuSerif.ttf"
+    },
+    {
+        height: 82, stroke: 2,
+        fill_color: Vec4(1, 1, 1, 1), stroke_color: Vec4(0.4f, 0.4f, 0.4f, 1),
+        dest_file_name: "./build/assets/menu_large_en.fnt", source_file_name: "LiberationSans-Regular.ttf"
+    },
+    {
+        height: 24, stroke: 1,
+        fill_color: Vec4(1, 1, 1, 1), stroke_color: Vec4(0.5f, 0.5f, 0.5f, 1),
+        dest_file_name: "./build/assets/menu_small_en.fnt", source_file_name: "DejaVuSerif.ttf"
     },
     {
         height: 148, stroke: 0,
