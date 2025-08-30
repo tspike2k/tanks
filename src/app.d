@@ -24,7 +24,6 @@ TODO:
     - Pause menu which allows us to exit to main menu (shouldn't actually pause in multiplayer, though)
     - Menus must handle different resolutions somehow. Resolution independant scaling? Scrollbars
       for out-of-frame content?
-    - Backspace or escape key (or both) should be used to back out of a menu.
 
 
 Enemy AI:
@@ -2477,12 +2476,13 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
     auto menu = &s.menu;
     float title_block_height = 0.30f;
 
-    bool menu_changed = menu.changed;
-    auto menu_id = get_top_menu_id(menu);
+    bool menu_changed = menu.changed_menu;
+    auto menu_id = menu.active_menu_id;
     switch(menu_id){
         default: break;
 
-        case Menu_ID.None: assert(0);
+        case Menu_ID.None:
+            assert(!s.running); break;
 
         case Menu_ID.Main_Menu:{
             if(menu_changed){
@@ -2603,11 +2603,7 @@ void end_campaign(App_State* s){
     // TODO: Store the score slot somewhere so we can use it to highlight the latest high score.
     auto score_slot = maybe_post_highscore(variant_scores, &s.session.score);
     change_mode(s, Game_Mode.Menu);
-    // TODO: This is a hackey way of switching to the high scores menu. Should we remove the menu
-    // stack concept and instead have funciton that will tell which menu is the parent of a given
-    // menu_id? That may be ideal.
-    s.menu.menu_id_stack_index = 0;
-    push_menu(&s.menu, Menu_ID.High_Scores);
+    open_menu(&s.menu, Menu_ID.High_Scores);
     if(score_slot){
         save_high_scores(s);
     }
@@ -3094,8 +3090,7 @@ extern(C) int main(int args_count, char** args){
     s.menu.heading_font     = &s.font_menu_large;
     s.menu.title_font       = &s.font_title;
     s.menu.button_font      = &s.font_menu_small;
-    s.menu.menu_id_stack[0] = Menu_ID.Main_Menu;
-    s.menu.changed = true;
+    open_menu(&s.menu, Menu_ID.Main_Menu);
 
     float target_dt = 1.0f/60.0f;
     ulong current_timestamp = ns_timestamp();

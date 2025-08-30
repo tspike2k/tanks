@@ -17,7 +17,6 @@ TODO: Explain the rest after we finilize things!
 
 TODO:
     - What happens when we don't have any interactive elements? Do we crash if we hit enter?
-
 +/
 
 import memory;
@@ -115,12 +114,11 @@ struct Menu{
     Font*         heading_font;
     Font*         title_font;
 
-    bool       changed;
-    Rect       canvas;
-    bool       mouse_moved;
-    Vec2       mouse_p;
-    uint       menu_id_stack_index;
-    Menu_ID[8] menu_id_stack;
+    bool    changed_menu;
+    Rect    canvas;
+    bool    mouse_moved;
+    Vec2    mouse_p;
+    Menu_ID active_menu_id;
 
     uint           hover_item_index;
     uint           items_count;
@@ -133,20 +131,46 @@ struct Menu{
     Style[32]      styles;
 }
 
+bool menu_is_closed(Menu* menu){
+    auto result = menu.active_menu_id == Menu_ID.None;
+    return result;
+}
+
+void open_menu(Menu* menu, Menu_ID id){
+    assert(menu_is_closed(menu));
+    push_menu(menu, id);
+}
+
+void close_menu(Menu* menu){
+    assert(!menu_is_closed(menu));
+    menu.active_menu_id = Menu_ID.None;
+}
+
 void push_menu(Menu* menu, Menu_ID id){
-    menu.menu_id_stack_index++;
-    menu.menu_id_stack[menu.menu_id_stack_index] = id;
-    menu.changed = true;
+    menu.active_menu_id = id;
+    menu.changed_menu = true;
 }
 
 void pop_menu(Menu* menu){
-    assert(menu.menu_id_stack_index > 0);
-    menu.menu_id_stack_index--;
-    menu.changed = true;
+    menu.active_menu_id = get_parent_menu_id(menu.active_menu_id);
+    menu.changed_menu = true;
 }
 
-Menu_ID get_top_menu_id(Menu* menu){
-    auto result = menu.menu_id_stack[menu.menu_id_stack_index];
+Menu_ID get_parent_menu_id(Menu_ID id){
+    Menu_ID result = void;
+
+    switch(id){
+        default:
+            result = Menu_ID.None; break;
+
+        case Menu_ID.None:
+            assert(0);
+
+        case Menu_ID.Campaign:
+        case Menu_ID.High_Scores:
+            result = Menu_ID.Main_Menu; break;
+    }
+
     return result;
 }
 
@@ -372,13 +396,12 @@ Menu_Event menu_handle_event(Menu* menu, Event* event){
                     } break;
 
                     case Key_ID_Escape:{
-                        if(menu.menu_id_stack_index > 0){
-                            pop_menu(menu);
-                            result = Menu_Event(Menu_Action.Pop_Menu);
-                        }
-                        else{
+                        if(menu.active_menu_id == Menu_ID.Main_Menu)
                             result = Menu_Event(Menu_Action.Quit_Game);
-                        }
+                        else
+                            result = Menu_Event(Menu_Action.Pop_Menu);
+
+                        pop_menu(menu);
                     } break;
                 }
             }
@@ -411,7 +434,7 @@ Menu_Event menu_handle_event(Menu* menu, Event* event){
 }
 
 void menu_update(Menu* menu, Rect canvas){
-    menu.changed = false;
+    menu.changed_menu = false;
 
     if(menu.mouse_moved){
         foreach(item_index, ref item; menu.items[0 .. menu.items_count]){
