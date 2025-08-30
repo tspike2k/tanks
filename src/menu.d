@@ -138,26 +138,29 @@ bool menu_is_closed(Menu* menu){
     return result;
 }
 
-void open_menu(Menu* menu, Menu_ID id){
-    assert(menu_is_closed(menu));
-    push_menu(menu, id);
+void set_menu(Menu* menu, Menu_ID id){
+    menu.active_menu_id = id;
+    menu.changed_menu = true;
+
+    if(id == Menu_ID.None){
+        menu.blocks_count = 0;
+        menu.items_count  = 0;
+    }
 }
 
 void close_menu(Menu* menu){
     assert(!menu_is_closed(menu));
     menu.active_menu_id = Menu_ID.None;
-    menu.blocks_count = 0;
-    menu.items_count  = 0;
+
 }
 
 void push_menu(Menu* menu, Menu_ID id){
-    menu.active_menu_id = id;
-    menu.changed_menu = true;
+    set_menu(menu, id);
 }
 
 void pop_menu(Menu* menu){
-    menu.active_menu_id = get_parent_menu_id(menu.active_menu_id);
-    menu.changed_menu = true;
+    auto parent_id = get_parent_menu_id(menu.active_menu_id);
+    set_menu(menu, parent_id);
 }
 
 Menu_ID get_parent_menu_id(Menu_ID id){
@@ -359,7 +362,7 @@ private Menu_Item* get_hover_item(Menu* menu){
     return result;
 }
 
-Menu_Event menu_handle_event(Menu* menu, Event* event){
+Menu_Event menu_process_event(Menu* menu, Event* event){
     Menu_Event result;
 
     switch(event.type){

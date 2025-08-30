@@ -435,14 +435,17 @@ auto iterate_widgets(Window* window){
     return result;
 }
 
-bool handle_event(Gui_State* gui, Event* evt){
+void handle_event(Gui_State* gui, Event* evt){
+    if(evt.consumed) return;
+
     auto display_window = get_window_info();
 
     bool consumed = false;
-    // Unfortunately, D can't deduce which handle_event function we mean without specifying
-    // the module name.
-    if(is_text_input_enabled() && display.handle_event(&gui.text_buffer, evt)){
-        consumed = true;
+    if(is_text_input_enabled()){
+        // Unfortunately, D can't deduce which handle_event function we mean without specifying
+        // the module name.
+        display.handle_event(&gui.text_buffer, evt);
+        consumed = evt.consumed;
     }
     else{
         switch(evt.type){
@@ -549,7 +552,7 @@ bool handle_event(Gui_State* gui, Event* evt){
         }
     }
 
-    return consumed;
+    evt.consumed = consumed;
 }
 
 void do_layout(Window* window){

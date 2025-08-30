@@ -242,7 +242,8 @@ public bool editor_simulate(App_State* s, float dt){
     Event evt;
     bool text_buffer_updated = false;
     while(next_event(&evt)){
-        if(!handle_event_common(s, &evt, dt)){
+        handle_event_common(s, &evt, dt);
+        if(!evt.consumed){
             switch(evt.type){
                 default: break;
 

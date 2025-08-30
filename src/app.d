@@ -21,7 +21,6 @@ TODO:
     - Shadows cut off at the edges of 16:9 maps. This is probably an issue with the shadow map
       camera.
     - Support playing custom campaigns.
-    - Pause menu which allows us to exit to main menu (shouldn't actually pause in multiplayer, though)
     - Menus must handle different resolutions somehow. Resolution independant scaling? Scrollbars
       for out-of-frame content?
 
@@ -2566,17 +2565,18 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
     menu_update(menu, canvas);
 }
 
-bool handle_event_common(App_State* s, Event* evt, float dt){
-    bool consumed = handle_event(&s.gui, evt); // TODO: This should honestly be done internally and not pushed on the user of the display library. This is really silly!
-    if(!consumed){
+void handle_event_common(App_State* s, Event* evt, float dt){
+    handle_event(&s.gui, evt);
+
+    if(!evt.consumed){
         switch(evt.type){
             default: break;
 
             case Event_Type.Window_Close:{
                 // TODO: If the game is running, make a temp save.
                 // TODO: If the editor is running, make a temp save?
-                s.running = false;
-                consumed  = true;
+                s.running    = false;
+                evt.consumed = true;
             } break;
 
             case Event_Type.Button:{
@@ -2584,7 +2584,7 @@ bool handle_event_common(App_State* s, Event* evt, float dt){
                 if(btn.id == Button_ID.Mouse_Right){
                     if(can_move_camera(s) && btn.pressed){
                         s.moving_camera = true;
-                        consumed = true;
+                        evt.consumed = true;
                     }
                     else
                         s.moving_camera = false;
@@ -2606,18 +2606,48 @@ bool handle_event_common(App_State* s, Event* evt, float dt){
             } break;
         }
     }
-    return consumed;
 }
 
-void end_campaign(App_State* s){
+void end_campaign(App_State* s, bool aborted){
     auto variant_scores = &s.high_scores.variants[s.session.variant_index];
     s.session.score.date = get_score_date();
     // TODO: Store the score slot somewhere so we can use it to highlight the latest high score.
     auto score_slot = maybe_post_highscore(variant_scores, &s.session.score);
     change_mode(s, Game_Mode.Menu);
-    open_menu(&s.menu, Menu_ID.High_Scores);
-    if(score_slot){
-        save_high_scores(s);
+    if(!aborted){
+        set_menu(&s.menu, Menu_ID.High_Scores);
+        if(score_slot){
+            save_high_scores(s);
+        }
+    }
+    else{
+        set_menu(&s.menu, Menu_ID.Campaign);
+    }
+}
+
+void handle_menu_event(App_State* s, Event* evt){
+    if(evt.consumed) return;
+
+    auto menu_evt = menu_process_event(&s.menu, evt);
+    switch(menu_evt.action){
+        default: break;
+
+        case Menu_Action.Open_Editor:{
+            change_mode(s, Game_Mode.Editor);
+        } break;
+
+        case Menu_Action.Begin_Campaign:{
+            set_menu(&s.menu, Menu_ID.None);
+            change_mode(s, Game_Mode.Campaign);
+        } break;
+
+        case Menu_Action.Abort_Campaign:{
+            end_campaign(s, true);
+        } break;
+
+        case Menu_Action.Quit_Game:{
+            s.running = false;
+        } break;
     }
 }
 
@@ -2669,7 +2699,8 @@ void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
 
     Event evt;
     while(next_event(&evt)){
-        if(!handle_event_common(s, &evt, dt)){
+        handle_event_common(s, &evt, dt);
+        if(!evt.consumed){
             switch(evt.type){
                 default: break;
 
@@ -2682,10 +2713,12 @@ void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
                             // TODO: Buffer player inputs (other than movement)?
                             case Button_ID.Mouse_Right:{
                                 player_input.place_mine = true;
+                                evt.consumed = true;
                             } break;
 
                             case Button_ID.Mouse_Left:{
                                 player_input.fire_bullet = true;
+                                evt.consumed = true;
                             } break;
                         }
                     }
@@ -2708,11 +2741,12 @@ void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
                         case Key_ID_Escape:{
                             if(key.pressed){
                                 if(menu_is_closed(&s.menu)){
-                                    open_menu(&s.menu, Menu_ID.Campaign_Pause);
+                                    set_menu(&s.menu, Menu_ID.Campaign_Pause);
                                 }
                                 else{
-                                    close_menu(&s.menu);
+                                    set_menu(&s.menu, Menu_ID.None);
                                 }
+                                evt.consumed = true;
                             }
                         } break;
 
@@ -2721,6 +2755,7 @@ void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
                                 player_input.turn_angle = deg_to_rad(90);
                             else if(player_input.turn_angle > 0.0f)
                                 player_input.turn_angle = 0.0f;
+                            evt.consumed = true;
                         } break;
 
                         case Key_ID_D:{
@@ -2728,14 +2763,17 @@ void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
                                 player_input.turn_angle = -deg_to_rad(90);
                             else if(player_input.turn_angle < 0.0f)
                                 player_input.turn_angle = 0.0f;
+                            evt.consumed = true;
                         } break;
 
                         case Key_ID_W:{
                             handle_dir_key(key.pressed, &player_input.move_dir, 1);
+                            evt.consumed = true;
                         } break;
 
                         case Key_ID_S:{
                             handle_dir_key(key.pressed, &player_input.move_dir, -1);
+                            evt.consumed = true;
                         } break;
 
                         case Key_ID_F2:
@@ -2745,14 +2783,20 @@ void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
                                 if(!g_debug_mode){
                                     s.world_camera_polar = Default_World_Camera_Polar;
                                 }
+                                evt.consumed = true;
                             }
                             break;
                     }
                 } break;
             }
         }
+        handle_menu_event(s, &evt);
     }
+    auto window = get_window_info();
+    auto window_bounds = rect_from_min_max(Vec2(0, 0), Vec2(window.width, window.height));
+
     update_gui(&s.gui, dt);
+    simulate_menu(s, dt, window_bounds);
 
     s.session.timer += dt;
     final switch(s.session.state){
@@ -2797,7 +2841,7 @@ void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
 
         case Session_State.Game_Over:{
             if(s.session.timer >= Mission_End_Max_Time){
-                end_campaign(s);
+                end_campaign(s, false);
             }
         } break;
 
@@ -3110,7 +3154,7 @@ extern(C) int main(int args_count, char** args){
     s.menu.heading_font     = &s.font_menu_large;
     s.menu.title_font       = &s.font_title;
     s.menu.button_font      = &s.font_menu_small;
-    open_menu(&s.menu, Menu_ID.Main_Menu);
+    set_menu(&s.menu, Menu_ID.Main_Menu);
 
     float target_dt = 1.0f/60.0f;
     ulong current_timestamp = ns_timestamp();
@@ -3256,25 +3300,8 @@ extern(C) int main(int args_count, char** args){
                 auto window_bounds = rect_from_min_max(Vec2(0, 0), Vec2(window.width, window.height));
                 Event evt;
                 while(next_event(&evt)){
-                    if(!handle_event_common(s, &evt, dt)){
-                        auto menu_evt = menu_handle_event(&s.menu, &evt);
-                        switch(menu_evt.action){
-                            default: break;
-
-                            case Menu_Action.Open_Editor:{
-                                change_mode(s, Game_Mode.Editor);
-                            } break;
-
-                            case Menu_Action.Begin_Campaign:{
-                                close_menu(&s.menu);
-                                change_mode(s, Game_Mode.Campaign);
-                            } break;
-
-                            case Menu_Action.Quit_Game:{
-                                s.running = false;
-                            } break;
-                        }
-                    }
+                    handle_event_common(s, &evt, dt);
+                    handle_menu_event(s, &evt);
                 }
                 simulate_menu(s, dt, window_bounds);
             } break;

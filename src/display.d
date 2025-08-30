@@ -132,13 +132,16 @@ struct Event_Text{
     char[] data; // TODO: Should these be utf-32 codepoints instead?
 }
 
-union Event{
-    Event_Type         type;
-    Event_Key          key;
-    Event_Mouse_Motion mouse_motion;
-    Event_Button       button;
-    Event_Paste        paste;
-    Event_Text         text;
+struct Event{
+    bool consumed;
+    union{
+        Event_Type         type;
+        Event_Key          key;
+        Event_Mouse_Motion mouse_motion;
+        Event_Button       button;
+        Event_Paste        paste;
+        Event_Text         text;
+    }
 }
 
 struct Window{
@@ -176,7 +179,7 @@ void set_buffer(Text_Buffer* buffer, char[] source, uint used, uint cursor){
     buffer.used    = used;
 }
 
-bool handle_event(Text_Buffer* buffer, Event* evt){
+void handle_event(Text_Buffer* buffer, Event* evt){
     bool consumed_event = false;
     switch(evt.type){
         default: break;
@@ -233,7 +236,7 @@ bool handle_event(Text_Buffer* buffer, Event* evt){
             insert_text(buffer, buffer.cursor, cast(char[])evt.paste.data);
         } break;
     }
-    return consumed_event;
+    evt.consumed = consumed_event;
 }
 
 void remove_text(Text_Buffer* buffer, uint start, uint count){
@@ -753,7 +756,6 @@ version(linux){
 
     public bool next_event(Event* evt){
         bool event_translated = false;
-
         // Some translated events need to pass data allocated by Xlib to the caller. This data
         // needs to be freed, but the caller shouldn't have to deal with that (especially since
         // it could be different on other platforms). This is the simplest way to support that.
@@ -771,6 +773,7 @@ version(linux){
             event_translated = process_event(&xevt, evt);
         }
 
+        evt.consumed = false;
         return event_translated;
     }
 
