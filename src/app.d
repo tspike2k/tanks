@@ -2479,10 +2479,8 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
     bool menu_changed = menu.changed_menu;
     auto menu_id = menu.active_menu_id;
     switch(menu_id){
-        default: break;
-
         case Menu_ID.None:
-            assert(!s.running); break;
+        default: break;
 
         case Menu_ID.Main_Menu:{
             if(menu_changed){
@@ -2549,13 +2547,27 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
                 end_menu_def(menu);
             }
         } break;
+
+        case Menu_ID.Campaign_Pause:{
+            if(menu_changed){
+                begin_menu_def(menu);
+                begin_block(menu, title_block_height);
+                add_heading(menu, "Paused");
+                end_block(menu);
+                begin_block(menu, 1.0f-title_block_height);
+                add_button(menu, "Resume", Menu_Action.Pop_Menu, Menu_ID.None);
+                add_button(menu, "Quit", Menu_Action.Abort_Campaign, Menu_ID.None);
+                end_block(menu);
+                end_menu_def(menu);
+            }
+        } break;
     }
 
     menu_update(menu, canvas);
 }
 
 bool handle_event_common(App_State* s, Event* evt, float dt){
-    bool consumed = handle_event(&s.gui, evt);
+    bool consumed = handle_event(&s.gui, evt); // TODO: This should honestly be done internally and not pushed on the user of the display library. This is really silly!
     if(!consumed){
         switch(evt.type){
             default: break;
@@ -2694,8 +2706,14 @@ void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
                         default: break;
 
                         case Key_ID_Escape:{
-                            // TODO: Show pause menu istead!
-                            end_campaign(s);
+                            if(key.pressed){
+                                if(menu_is_closed(&s.menu)){
+                                    open_menu(&s.menu, Menu_ID.Campaign_Pause);
+                                }
+                                else{
+                                    close_menu(&s.menu);
+                                }
+                            }
                         } break;
 
                         case Key_ID_A:{
@@ -2742,7 +2760,9 @@ void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
             break;
 
         case Session_State.Playing_Mission:{
-            if(!g_debug_pause){
+            // TODO: The pause menu should only stop the simulation if this is a single-player
+            // campaign.
+            if(!g_debug_pause && menu_is_closed(&s.menu)){
                 simulate_world(s, player_input, dt);
             }
         } break;
@@ -3140,7 +3160,6 @@ extern(C) int main(int args_count, char** args){
 
         Camera world_camera = void;
         set_world_projection(&world_camera, map.width+2, map.height+2, window_aspect_ratio);
-        //set_world_view(&world_camera, map_bounds.center, 45.0f);
         set_world_view(&world_camera, s.world_camera_polar, s.world_camera_target_pos, world_up_vector);
 
         auto mouse_world_3d = camera_ray_vs_plane(&world_camera, s.mouse_pixel, window.width, window.height);
@@ -3247,6 +3266,7 @@ extern(C) int main(int args_count, char** args){
                             } break;
 
                             case Menu_Action.Begin_Campaign:{
+                                close_menu(&s.menu);
                                 change_mode(s, Game_Mode.Campaign);
                             } break;
 
@@ -3275,9 +3295,8 @@ extern(C) int main(int args_count, char** args){
             } break;
 
             case Game_Mode.Menu:{
-                auto scroll_bounds = rect_from_min_max(Vec2(0, 0), Vec2(window.width, window.height));
-                render_rect(render_passes.bg_scroll, scroll_bounds, Vec4(0.05f, 0.10f, 0.16f, 1));
-                menu_render(&render_passes, &s.menu, s.time, &s.frame_memory);
+                auto bg_bounds = rect_from_min_max(Vec2(0, 0), Vec2(window.width, window.height));
+                render_rect(render_passes.bg_scroll, bg_bounds, Vec4(0.05f, 0.10f, 0.16f, 1));
             } break;
 
             case Game_Mode.Campaign:{
@@ -3419,6 +3438,7 @@ extern(C) int main(int args_count, char** args){
         }
 
         render_gui(&s.gui, &hud_camera, &s.rect_shader, &s.text_shader);
+        menu_render(&render_passes, &s.menu, s.time, &s.frame_memory);
 
         // Render the shadow map
         if(g_debug_mode){

@@ -48,6 +48,7 @@ enum Menu_Action : uint{
     Begin_Campaign,
     Open_Editor,
     Quit_Game,
+    Abort_Campaign,
 }
 
 // TODO: Settings menu?
@@ -56,6 +57,7 @@ enum Menu_ID : uint{
     Main_Menu,
     Campaign,
     High_Scores,
+    Campaign_Pause,
 }
 
 enum Align : uint{
@@ -144,6 +146,8 @@ void open_menu(Menu* menu, Menu_ID id){
 void close_menu(Menu* menu){
     assert(!menu_is_closed(menu));
     menu.active_menu_id = Menu_ID.None;
+    menu.blocks_count = 0;
+    menu.items_count  = 0;
 }
 
 void push_menu(Menu* menu, Menu_ID id){
