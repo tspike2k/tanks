@@ -101,14 +101,14 @@ struct Render_Pass{
 
 enum Max_Quads_Per_Batch = 2048; // TODO: Isn't this a bit high? 512 would be a lot.
 
-// TODO: Ensure members are correctly aligned with both HLSL and GLSL requirements
 struct Shader_Constants{
-    Mat4  mat_camera;
-    Vec3  camera_pos;
-    float time;
-    Vec2  screen_size;
-    Mat4  mat_model;
-    Mat4  mat_light;
+    Mat4    mat_camera;
+    Vec3    camera_pos;
+    float   time;
+    Vec2    screen_size;
+    uint[2] pad_0;
+    Mat4    mat_model;
+    Mat4    mat_light;
 }
 
 struct Material{
