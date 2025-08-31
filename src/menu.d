@@ -121,6 +121,8 @@ struct Menu{
     bool    mouse_moved;
     Vec2    mouse_p;
     Menu_ID active_menu_id;
+    float   scroll_offset_y;
+    float   content_height;
 
     uint           hover_item_index;
     uint           items_count;
@@ -440,6 +442,11 @@ Menu_Event menu_process_event(Menu* menu, Event* event){
     return result;
 }
 
+bool should_scroll(Menu* menu){
+    auto result = menu.content_height > height(menu.canvas);
+    return result;
+}
+
 void menu_update(Menu* menu, Rect canvas){
     menu.changed_menu = false;
 
@@ -472,6 +479,8 @@ void menu_update(Menu* menu, Rect canvas){
     auto style_group = &style_groups[style_group_index++];
     auto styles = menu.styles[style_group.style_offset .. style_group.style_end];
 
+    Menu_Item* last_item;
+    float lowest_item_y = 0.0f;
     foreach(ref block; menu.blocks[0 .. menu.blocks_count]){
         auto items   = menu.items[item_index .. block.items_end];
         if(items.length > 0){
@@ -506,25 +515,25 @@ void menu_update(Menu* menu, Rect canvas){
                 }
                 auto style = &styles[column];
 
-                float target_width = (canvas_width - pen_x);
+                float target_column_width = (canvas_width - pen_x);
                 if(style.size != 0.0f){
-                    target_width = canvas_width*style.size;
+                    target_column_width = canvas_width*style.size;
                 }
 
                 float center_x = void;
                 final switch(style.alignment){
                     case Align.Center:
-                        center_x = pen_x + target_width*0.5f; break;
+                        center_x = pen_x + target_column_width*0.5f; break;
 
                     case Align.Right:
-                        center_x = pen_x + target_width - width*0.5f - Margin; break;
+                        center_x = pen_x + target_column_width - width*0.5f - Margin; break;
 
                     case Align.Left:
                         center_x = pen_x + width*0.5f + Margin; break;
                 }
 
                 bounds.center = Vec2(center_x, item_pen_y - bounds.extents.y);
-                pen_x += target_width;
+                pen_x += target_column_width;
 
                 column++;
                 if(column >= styles.length){
@@ -534,8 +543,9 @@ void menu_update(Menu* menu, Rect canvas){
             total_height += Margin*(cast(float)items.length-1);
 
             assert(block.height > 0 && block.height <= 1);
-            auto block_height = canvas_height*block.height;
+            auto block_height = max(canvas_height*block.height, total_height);
             auto block_end = block_pen_y - block_height;
+            menu.content_height += total_height;
 
             // Debug values
             block.start_y = block_pen_y;
@@ -545,10 +555,20 @@ void menu_update(Menu* menu, Rect canvas){
             block_pen_y = block_end;
             foreach(ref item; items){
                 item.bounds.center = floor(item.bounds.center + block_offset);
+                last_item = &item;
             }
         }
 
         item_index = block.items_end;
+    }
+
+    menu.content_height = 0.0f;
+    if(last_item){
+        menu.content_height = top(canvas) - bottom(last_item.bounds);
+    }
+
+    if(!should_scroll(menu)){
+        menu.scroll_offset_y = 0.0f;
     }
 }
 
@@ -589,9 +609,13 @@ void menu_render(Render_Passes* rp, Menu* menu, float time, Allocator* allocator
         render_rect(rp.hud_rects, bounds, color);
     }+/
 
+    auto offset = Vec2(0, menu.scroll_offset_y);
+
     foreach(entry_index, ref entry; menu.items[0 .. menu.items_count]){
+        auto bounds = Rect(entry.bounds.center + offset, entry.bounds.extents);
+
         auto font = get_font(menu, entry.type);
-        auto p = center_text(font, entry.text, entry.bounds);
+        auto p = center_text(font, entry.text, bounds) + offset;
 
         auto text_color = Vec4(1, 1, 1, 1);
         if(entry_index == menu.hover_item_index){
@@ -606,20 +630,20 @@ void menu_render(Render_Passes* rp, Menu* menu, float time, Allocator* allocator
 
             case Menu_Item_Type.Index_Picker:
             case Menu_Item_Type.Button:{
-                render_rect(rp.hud_rects, entry.bounds, Vec4(0, 1, 0, 1));
+                render_rect(rp.hud_rects, bounds, Vec4(0, 1, 0, 1));
                 render_text(rp.hud_text, font, p, entry.text, text_color);
             } break;
 
             case Menu_Item_Type.High_Score_Viewer:{
-                render_rect(rp.hud_rects, entry.bounds, Vec4(0, 1, 0, 1));
+                render_rect(rp.hud_rects, bounds, Vec4(0, 1, 0, 1));
                 auto variant = &entry.scores.variants[entry.scores_variant_index];
 
                 auto row_extents = 0.5f*Vec2(
-                    width(entry.bounds) - Margin*2.0f,
+                    width(bounds) - Margin*2.0f,
                     font.metrics.height + Padding*2.0f
                 );
 
-                auto row_center = Vec2(entry.bounds.center.x, top(entry.bounds) -row_extents.y);
+                auto row_center = Vec2(bounds.center.x, top(bounds) -row_extents.y);
                 auto row_bounds = Rect(row_center, row_extents);
 
                 foreach(score_index, ref score; variant.entries){
@@ -646,6 +670,14 @@ void menu_render(Render_Passes* rp, Menu* menu, float time, Allocator* allocator
             } break;
         }
     }
+
+    if(should_scroll(menu)){
+        auto scroll_region = get_scroll_region_y(menu.canvas);
+        render_rect(rp.hud_rects, scroll_region, Vec4(1, 1, 1, 1));
+
+        auto scroll_bar = get_scrollbar_y(menu, scroll_region);
+        render_rect(rp.hud_rects, scroll_bar, Vec4(1, 0, 0, 1));
+    }
 }
 
 ////
@@ -653,6 +685,30 @@ void menu_render(Render_Passes* rp, Menu* menu, float time, Allocator* allocator
 private:
 //
 ////
+
+enum Scrollbar_Size = 18.0f;
+
+Rect get_scroll_region_y(Rect canvas){
+
+    auto result = rect_from_min_wh(
+        Vec2(right(canvas) - Scrollbar_Size, bottom(canvas)),
+        Scrollbar_Size, height(canvas)
+    );
+    return result;
+}
+
+Rect get_scrollbar_y(Menu* menu, Rect scroll_region){
+    auto region_height  = height(scroll_region);
+    auto height_percent = min(0.85f, region_height / menu.content_height);
+
+    auto bar_height = max(region_height*height_percent, Scrollbar_Size);
+    auto bar_bottom = region_height - (menu.scroll_offset_y / menu.content_height)*region_height - bar_height;
+    auto result = rect_from_min_wh(
+        Vec2(left(scroll_region), bar_bottom),
+        Scrollbar_Size, bar_height
+    );
+    return result;
+}
 
 bool is_interactive(Menu_Item* item){
     bool result = false;

@@ -22,7 +22,7 @@ TODO:
       camera.
     - Support playing custom campaigns.
     - Menus must handle different resolutions somehow. Resolution independant scaling? Scrollbars
-      for out-of-frame content?
+      for out-of-frame content? (Go with scrollbars)
 
 
 Enemy AI:
