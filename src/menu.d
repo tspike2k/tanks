@@ -124,6 +124,8 @@ struct Menu{
     Vec2    scroll_offset;
     float   content_height;
     bool    is_scrolling_y;
+    uint    hover_item_stack_count;
+    uint[8] hover_item_stack;
 
     uint           hover_item_index;
     uint           items_count;
@@ -154,16 +156,19 @@ void set_menu(Menu* menu, Menu_ID id){
 void close_menu(Menu* menu){
     assert(!menu_is_closed(menu));
     menu.active_menu_id = Menu_ID.None;
-
 }
 
 void push_menu(Menu* menu, Menu_ID id){
     set_menu(menu, id);
+    menu.hover_item_stack[menu.hover_item_stack_count++] = menu.hover_item_index;
 }
 
 void pop_menu(Menu* menu){
     auto parent_id = get_parent_menu_id(menu.active_menu_id);
     set_menu(menu, parent_id);
+
+    menu.hover_item_stack_count--;
+    menu.hover_item_index = menu.hover_item_stack[menu.hover_item_stack_count];
 }
 
 Menu_ID get_parent_menu_id(Menu_ID id){
@@ -199,9 +204,12 @@ void begin_menu_def(Menu* menu){
 }
 
 void end_menu_def(Menu* menu){
-    // Find the first interactive item and set the hover_item_index to it's slot.
-    menu.hover_item_index = Null_Menu_Index;
-    menu.hover_item_index = get_next_hover_index(menu);
+    if(menu.hover_item_index >= menu.items_count
+    || !is_interactive(&menu.items[menu.hover_item_index])){
+        // Find the first interactive item and set the hover_item_index to it's slot.
+        menu.hover_item_index = Null_Menu_Index;
+        menu.hover_item_index = get_next_hover_index(menu);
+    }
 
     end_current_style_group(menu);
 }
@@ -581,7 +589,7 @@ void menu_update(Menu* menu, Rect canvas){
 
     menu.content_height = 0.0f;
     if(last_item){
-        menu.content_height = top(canvas) - bottom(last_item.bounds);
+        menu.content_height = top(canvas) - (bottom(last_item.bounds)) + Margin;
     }
 
     if(!should_scroll(menu)){

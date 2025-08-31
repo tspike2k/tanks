@@ -21,9 +21,14 @@ TODO:
     - Shadows cut off at the edges of 16:9 maps. This is probably an issue with the shadow map
       camera.
     - Support playing custom campaigns.
-    - Menus must handle different resolutions somehow. Resolution independant scaling? Scrollbars
-      for out-of-frame content? (Go with scrollbars)
 
+Menus:
+    - Campaign menu should show text for campaign info.
+    - High scores menu should allow the player to view each variant without changing the
+      chosen campaign variant.
+    - Menu buttons should be themed.
+    - Menus should scroll when navigating using the keyboard.
+    - Resizing the window should put the scroll focus on the current hover menu item.
 
 Enemy AI:
     - Improved bullet prediction. Right now, even enemies with good aim stats are surprisingly
