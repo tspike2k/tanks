@@ -588,11 +588,13 @@ void menu_update(Menu* menu, Rect canvas){
         menu.is_scrolling_y = false;
         menu.scroll_offset.y = 0.0f;
     }
-    else if(menu.is_scrolling_y){
+    else{
         auto scroll_region = get_scroll_region_y(menu.canvas);
         auto region_height = height(scroll_region);
-        auto click_percent = menu.mouse_p.y / region_height;
-        menu.scroll_offset.y = (1.0f-click_percent)*(menu.content_height - region_height);
+        if(menu.is_scrolling_y){
+            auto click_percent = menu.mouse_p.y / region_height;
+            menu.scroll_offset.y = (1.0f-click_percent)*(menu.content_height - region_height);
+        }
         menu.scroll_offset.y = clamp(menu.scroll_offset.y, 0, menu.content_height - region_height);
     }
 }
