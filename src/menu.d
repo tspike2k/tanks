@@ -387,10 +387,12 @@ Menu_Event menu_process_event(Menu* menu, Event* event){
 
                     case Key_ID_Arrow_Down:{
                         menu.hover_item_index = get_next_hover_index(menu);
+                        center_on_active_item(menu);
                     } break;
 
                     case Key_ID_Arrow_Up:{
                         menu.hover_item_index = get_prev_hover_index(menu);
+                        center_on_active_item(menu);
                     } break;
 
                     case Key_ID_Arrow_Left:
@@ -473,8 +475,6 @@ bool should_scroll(Menu* menu){
 }
 
 void menu_update(Menu* menu, Rect canvas){
-    menu.changed_menu = false;
-
     if(menu.mouse_moved){
         foreach(item_index, ref item; menu.items[0 .. menu.items_count]){
             if(is_interactive(&item) && is_point_inside_rect(menu.mouse_p - menu.scroll_offset, item.bounds)){
@@ -489,11 +489,20 @@ void menu_update(Menu* menu, Rect canvas){
     // TODO: Only run the layout algorithm if the canvas position or size has changed
     // since the last update.
 
-    menu.canvas = canvas;
-
     auto canvas_width  = width(canvas);
     auto canvas_height = height(canvas);
     auto canvas_left   = left(canvas);
+
+    bool canvas_changed = canvas_width != width(menu.canvas)
+        || canvas_height != height(menu.canvas)
+        || canvas.center.x != menu.canvas.center.x
+        || canvas.center.y != menu.canvas.center.y;
+
+    menu.canvas = canvas;
+
+    if(canvas_changed){
+        center_on_active_item(menu);
+    }
 
     uint item_index = 0;
     float block_pen_y = top(canvas);
@@ -587,6 +596,10 @@ void menu_update(Menu* menu, Rect canvas){
         item_index = block.items_end;
     }
 
+    if(menu.changed_menu){
+        center_on_active_item(menu); // TODO: This doesn't work with the high score table. It puts it at the bottom of the table!
+    }
+
     menu.content_height = 0.0f;
     if(last_item){
         menu.content_height = top(canvas) - (bottom(last_item.bounds)) + Margin;
@@ -605,6 +618,8 @@ void menu_update(Menu* menu, Rect canvas){
         }
         menu.scroll_offset.y = clamp(menu.scroll_offset.y, 0, menu.content_height - region_height);
     }
+
+    menu.changed_menu = false;
 }
 
 char[] make_date_pretty(char[] buffer, char[] date){
@@ -723,8 +738,14 @@ private:
 
 enum Scrollbar_Size = 18.0f;
 
-Rect get_scroll_region_y(Rect canvas){
+void center_on_active_item(Menu* menu){
+    if(should_scroll(menu)){
+        auto item = &menu.items[menu.hover_item_index];
+        menu.scroll_offset.y = -bottom(item.bounds) + Margin;
+    }
+}
 
+Rect get_scroll_region_y(Rect canvas){
     auto result = rect_from_min_wh(
         Vec2(right(canvas) - Scrollbar_Size, bottom(canvas)),
         Scrollbar_Size, height(canvas)

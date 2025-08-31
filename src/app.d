@@ -27,8 +27,6 @@ Menus:
     - High scores menu should allow the player to view each variant without changing the
       chosen campaign variant.
     - Menu buttons should be themed.
-    - Menus should scroll when navigating using the keyboard.
-    - Resizing the window should put the scroll focus on the current hover menu item.
 
 Enemy AI:
     - Improved bullet prediction. Right now, even enemies with good aim stats are surprisingly
