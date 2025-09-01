@@ -13,7 +13,7 @@ The basic idea is there are menu items (text, buttons, sliders, etc) and there a
 A container is a vertical slice of the screen region and can hold one or more menu items.
 Containers are not displayed, they're only used to place menu items.
 
-TODO: Explain the rest after we finilize things!
+TODO: Explain the rest after we finalize things!
 
 TODO:
     - What happens when we don't have any interactive elements? Do we crash if we hit enter?
@@ -75,7 +75,7 @@ struct Menu_Item{
     Menu_Item_Type type;
     String         text;
     Rect           bounds; // Set by the layout algorithm
-    uint           flags;
+    uint           user_id;
 
     // Data for interactive menu items
     Menu_Action action;
@@ -147,28 +147,28 @@ void set_menu(Menu* menu, Menu_ID id){
     menu.active_menu_id = id;
     menu.changed_menu = true;
 
+    // Close the menu
     if(id == Menu_ID.None){
         menu.blocks_count = 0;
         menu.items_count  = 0;
+        menu.hover_item_index = 0;
     }
-}
-
-void close_menu(Menu* menu){
-    assert(!menu_is_closed(menu));
-    menu.active_menu_id = Menu_ID.None;
 }
 
 void push_menu(Menu* menu, Menu_ID id){
     set_menu(menu, id);
     menu.hover_item_stack[menu.hover_item_stack_count++] = menu.hover_item_index;
+    menu.hover_item_index = 0;
 }
 
 void pop_menu(Menu* menu){
     auto parent_id = get_parent_menu_id(menu.active_menu_id);
     set_menu(menu, parent_id);
 
-    menu.hover_item_stack_count--;
-    menu.hover_item_index = menu.hover_item_stack[menu.hover_item_stack_count];
+    if(menu.hover_item_stack_count > 0){
+        menu.hover_item_stack_count--;
+        menu.hover_item_index = menu.hover_item_stack[menu.hover_item_stack_count];
+    }
 }
 
 Menu_ID get_parent_menu_id(Menu_ID id){
@@ -251,6 +251,10 @@ Menu_Item* add_menu_item(Menu* menu, Menu_Item_Type type, String text){
 void set_text(Menu* menu, Menu_Item* item, String text){
     auto font   = get_font(menu, item.type);
     auto width  = get_text_width(font, text) + Padding*2.0f; // TODO: Base this on text width or, in the case of buttons, target width
+    if(item.type == Menu_Item_Type.Button){
+        width = max(width, Button_Width);
+    }
+
     item.bounds.extents.x = 0.5f*width;
     item.text = text;
 }
@@ -259,9 +263,10 @@ void add_title(Menu* menu, String text){
     auto entry = add_menu_item(menu, Menu_Item_Type.Title, text);
 }
 
-uint add_label(Menu* menu, String text){
+uint add_label(Menu* menu, String text, uint user_id = 0){
     auto index = menu.items_count;
     auto entry = add_menu_item(menu, Menu_Item_Type.Label, text);
+    entry.user_id = user_id;
     return index;
 }
 
@@ -736,6 +741,7 @@ private:
 //
 ////
 
+enum Button_Width   = 250.0f;
 enum Scrollbar_Size = 18.0f;
 
 void center_on_active_item(Menu* menu){

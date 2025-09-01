@@ -21,11 +21,12 @@ TODO:
     - Shadows cut off at the edges of 16:9 maps. This is probably an issue with the shadow map
       camera.
     - Support playing custom campaigns.
+    - Should variants have descriptions? Author info?
 
 Menus:
     - Campaign menu should show text for campaign info.
     - High scores menu should allow the player to view each variant without changing the
-      chosen campaign variant.
+      selected campaign variant.
     - Menu buttons should be themed.
 
 Enemy AI:
@@ -167,6 +168,7 @@ String[] Shader_Names = [
     "shadow_map",
     "view_depth",
     "bg_scroll",
+    "menu_button",
 ];
 
 struct App_State{
@@ -229,8 +231,9 @@ struct App_State{
             Shader shadow_map_shader;
             Shader view_depth;
             Shader shader_bg_scroll;
+            Shader shader_menu_button;
         }
-        Shader[6] shaders;
+        Shader[7] shaders;
     }
 
     Mesh cube_mesh;
@@ -2478,6 +2481,8 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
     auto menu = &s.menu;
     float title_block_height = 0.30f;
 
+    immutable two_column_style = [Style(0.5f, Align.Right), Style(0.5f, Align.Left)]; // We have to use immutable so D doesn't try to use the GC
+
     bool menu_changed = menu.changed_menu;
     auto menu_id = menu.active_menu_id;
     switch(menu_id){
@@ -2501,7 +2506,13 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
         } break;
 
         case Menu_ID.Campaign:{
-            enum Variant_Label_Index = 4;
+            enum {
+                Label_Campaign_Variant_Name = 1,
+                Label_Campaign_Name,
+                Label_Campaign_Author,
+                Label_Campaign_Version,
+                Label_Campaign_Description,
+            }
 
             auto campaign = &s.campaign;
             auto variant  = &campaign.variants[s.session.variant_index];
@@ -2514,13 +2525,20 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
                 add_heading(menu, "Campaign");
                 end_block(menu);
                 begin_block(menu, 0.6f);
+
                 add_button(menu, "Start", Menu_Action.Begin_Campaign, Menu_ID.None);
-                immutable row_style = [Style(0.5f, Align.Right), Style(0.5f, Align.Left)]; // We have to use immutable so D doesn't try to use the GC
-                set_style(menu, row_style[]);
-                //add_label(menu, "Test:");
+
+                set_style(menu, two_column_style[]);
+                add_label(menu, "Name:");
+                add_label(menu, "", Label_Campaign_Name);
+                add_label(menu, "Authors:");
+                add_label(menu, "", Label_Campaign_Author);
+                add_label(menu, "Version:");
+                add_label(menu, "", Label_Campaign_Version);
+                add_label(menu, "Description:");
+                add_label(menu, "", Label_Campaign_Description);
                 add_index_picker(menu, &s.session.variant_index, cast(uint)campaign.variants.length, "Variant");
-                auto variant_label_index = add_label(menu, "");
-                assert(variant_label_index == Variant_Label_Index);
+                add_label(menu, "", Label_Campaign_Variant_Name);
                 // TODO: We want to be able to select the campaign and the variant from here. This
                 // will require a way to select an index. Should be interesting!
                 //add_index_picker(menu, "Variant", )
@@ -2530,7 +2548,26 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
                 end_menu_def(menu);
             }
 
-            set_text(menu, &menu.items[Variant_Label_Index], variant.name);
+            foreach(ref item; menu.items[0 .. menu.items_count]){
+                switch(item.user_id){
+                    default: break;
+
+                    case Label_Campaign_Name:
+                        set_text(menu, &item, campaign.name); break;
+
+                    case Label_Campaign_Author:
+                        set_text(menu, &item, campaign.author); break;
+
+                    case Label_Campaign_Description:
+                        set_text(menu, &item, campaign.description); break;
+
+                    case Label_Campaign_Version:
+                        set_text(menu, &item, campaign.version_string); break;
+
+                    case Label_Campaign_Variant_Name:
+                        set_text(menu, &item, variant.name); break;
+                }
+            }
         } break;
 
         case Menu_ID.High_Scores:{
