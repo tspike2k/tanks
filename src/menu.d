@@ -243,16 +243,22 @@ Menu_Item* add_menu_item(Menu* menu, Menu_Item_Type type, String text){
     clear_to_zero(*result);
     result.type = type;
     set_text(menu, result, text);
-    auto font = get_font(menu, result.type);
-    result.bounds.extents.y = 0.5f*(cast(float)font.metrics.height) + Padding;
+    if(type != Menu_Item_Type.Button){
+        auto font = get_font(menu, result.type);
+        result.bounds.extents.y = 0.5f*(cast(float)font.metrics.height) + Padding;
+    }
+    else{
+        result.bounds.extents.y = 0.5f*cast(float)Button_Height;
+    }
+
     return result;
 }
 
 void set_text(Menu* menu, Menu_Item* item, String text){
-    auto font   = get_font(menu, item.type);
-    auto width  = get_text_width(font, text) + Padding*2.0f; // TODO: Base this on text width or, in the case of buttons, target width
-    if(item.type == Menu_Item_Type.Button){
-        width = max(width, Button_Width);
+    float width = Button_Width;
+    if(item.type != Menu_Item_Type.Button){
+        auto font   = get_font(menu, item.type);
+        width  = get_text_width(font, text) + Padding*2.0f;
     }
 
     item.bounds.extents.x = 0.5f*width;
@@ -685,7 +691,7 @@ void menu_render(Render_Passes* rp, Menu* menu, float time, Allocator* allocator
 
             case Menu_Item_Type.Index_Picker:
             case Menu_Item_Type.Button:{
-                render_rect(rp.hud_rects, bounds, Vec4(0, 1, 0, 1));
+                render_rect(rp.hud_button, bounds, Vec4(0, 1, 0, 1));
                 render_text(rp.hud_text, font, p, entry.text, text_color);
             } break;
 
@@ -731,7 +737,7 @@ void menu_render(Render_Passes* rp, Menu* menu, float time, Allocator* allocator
         render_rect(rp.hud_rects, scroll_region, Vec4(1, 1, 1, 1));
 
         auto scroll_bar = get_scrollbar_y(menu, scroll_region);
-        render_rect(rp.hud_rects, scroll_bar, Vec4(1, 0, 0, 1));
+        render_rect(rp.hud_button, scroll_bar, Vec4(1, 0, 0, 1));
     }
 }
 
@@ -741,7 +747,8 @@ private:
 //
 ////
 
-enum Button_Width   = 250.0f;
+enum Button_Width   = 320.0f;
+enum Button_Height  = 40.0f;
 enum Scrollbar_Size = 18.0f;
 
 void center_on_active_item(Menu* menu){

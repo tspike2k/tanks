@@ -118,6 +118,7 @@ struct Render_Passes{
     Render_Pass* particles;
     Render_Pass* bg_scroll;
     Render_Pass* hud_rects;
+    Render_Pass* hud_button;
     Render_Pass* hud_text;
 }
 
@@ -2528,6 +2529,7 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
 
                 add_button(menu, "Start", Menu_Action.Begin_Campaign, Menu_ID.None);
 
+                // TODO: We want to be able to select the campaign from here somehow.
                 set_style(menu, two_column_style[]);
                 add_label(menu, "Name:");
                 add_label(menu, "", Label_Campaign_Name);
@@ -2539,9 +2541,6 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
                 add_label(menu, "", Label_Campaign_Description);
                 add_index_picker(menu, &s.session.variant_index, cast(uint)campaign.variants.length, "Variant");
                 add_label(menu, "", Label_Campaign_Variant_Name);
-                // TODO: We want to be able to select the campaign and the variant from here. This
-                // will require a way to select an index. Should be interesting!
-                //add_index_picker(menu, "Variant", )
                 set_default_style(menu);
                 add_button(menu, "Back", Menu_Action.Pop_Menu, Menu_ID.None);
                 end_block(menu);
@@ -3316,6 +3315,12 @@ extern(C) int main(int args_count, char** args){
         pass = add_render_pass(&hud_camera);
         render_passes.hud_rects = pass;
         set_shader(pass, &s.text_shader);
+        set_texture(pass, s.img_blank_rect);
+        pass.flags = Render_Flag_Disable_Depth_Test;
+
+        pass = add_render_pass(&hud_camera);
+        render_passes.hud_button = pass;
+        set_shader(pass, &s.shader_menu_button);
         set_texture(pass, s.img_blank_rect);
         pass.flags = Render_Flag_Disable_Depth_Test;
 
