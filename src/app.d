@@ -2478,6 +2478,8 @@ void init_particles(Particle_Emitter* emitter, uint count, Allocator* allocator)
     emitter.particles = alloc_array!Particle(allocator, count);
 }
 
+auto long_text = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Vivamus id purus ut felis vestibulum aliquet. Quisque euismod nisi congue magna vestibulum tincidunt. Sed efficitur elementum dui, sed luctus mauris tincidunt iaculis. Vestibulum ac mollis dolor, vel porttitor ligula. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque ultricies venenatis libero eu ullamcorper. Donec vestibulum, leo sed fringilla tristique, nisi tellus tempus urna, nec semper urna purus ut diam. Maecenas ornare velit mi. Sed commodo molestie dui, sed ultricies neque ultrices a. Ut suscipit sit amet orci ac congue.";
+
 void simulate_menu(App_State* s, float dt, Rect canvas){
     auto menu = &s.menu;
     float title_block_height = 0.30f;
@@ -2538,7 +2540,8 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
                 add_label(menu, "Version:");
                 add_label(menu, "", Label_Campaign_Version);
                 add_label(menu, "Description:");
-                add_label(menu, "", Label_Campaign_Description);
+                //add_text_block(menu, "", Label_Campaign_Description);
+                add_text_block(menu, long_text, 0);
                 add_index_picker(menu, &s.session.variant_index, cast(uint)campaign.variants.length, "Variant");
                 add_label(menu, "", Label_Campaign_Variant_Name);
                 set_default_style(menu);

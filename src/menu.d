@@ -20,7 +20,7 @@ Layout of menu items is done automatically. Conceptually, the layout algorithm w
 placing menu items on rows. The height of a row is determined by the tllest menu item in that
 row. Only one item is placed per row by default, though this can be changed by using the
 set_style function. This function determines the width and alignment for each column on the row.
-This interface was inspired by microui (https://github.com/rxi/microui).
+This function was inspired by microui (https://github.com/rxi/microui).
 
 TODO:
     - What happens when we don't have any interactive elements? Do we crash if we hit enter?
@@ -46,6 +46,7 @@ enum Menu_Item_Type : uint{
     Button,
     Index_Picker,
     High_Score_Viewer,
+    Text_Block,
 }
 
 enum Menu_Action : uint{
@@ -80,9 +81,11 @@ enum Null_Menu_Index = uint.max;
 
 struct Menu_Item{
     Menu_Item_Type type;
-    String         text;
-    Rect           bounds; // Set by the layout algorithm
     uint           user_id;
+    float          target_width;
+    float          target_height;
+    Rect           bounds; // Set by the layout algorithm
+    String         text;
 
     // Data for interactive menu items
     Menu_Action action;
@@ -250,12 +253,12 @@ Menu_Item* add_menu_item(Menu* menu, Menu_Item_Type type, String text){
     clear_to_zero(*result);
     result.type = type;
     set_text(menu, result, text);
-    if(type != Menu_Item_Type.Button){
-        auto font = get_font(menu, result.type);
-        result.bounds.extents.y = 0.5f*(cast(float)font.metrics.height) + Padding;
+    if(type == Menu_Item_Type.Button){
+        result.target_height = Button_Height;
     }
     else{
-        result.bounds.extents.y = 0.5f*cast(float)Button_Height;
+        auto font = get_font(menu, result.type);
+        result.target_height = (cast(float)font.metrics.height) + Padding*2.0f;
     }
 
     return result;
@@ -264,11 +267,11 @@ Menu_Item* add_menu_item(Menu* menu, Menu_Item_Type type, String text){
 void set_text(Menu* menu, Menu_Item* item, String text){
     float width = Button_Width;
     if(item.type != Menu_Item_Type.Button){
-        auto font   = get_font(menu, item.type);
-        width  = get_text_width(font, text) + Padding*2.0f;
+        auto font = get_font(menu, item.type);
+        width     = get_text_width(font, text) + Padding*2.0f;
     }
 
-    item.bounds.extents.x = 0.5f*width;
+    item.target_width = width;
     item.text = text;
 }
 
@@ -304,8 +307,15 @@ void add_high_scores_viewer(Menu* menu, High_Scores* scores, uint variant_index)
     entry.scores = scores;
     auto font = get_font(menu, entry.type);
     auto height = High_Scores_Table_Size*(font.metrics.height + Padding*2.0f);
-    entry.bounds.extents = Vec2(450, height)*0.5f;
+    entry.target_width = 450;
+    entry.target_height = height;
     entry.scores_variant_index = variant_index;
+}
+
+void add_text_block(Menu* menu, String text, float width, uint user_id = 0){
+    auto entry = add_menu_item(menu, Menu_Item_Type.Text_Block, text);
+    entry.target_width  = 0.45f;
+    entry.user_id = user_id;
 }
 
 void set_style(Menu* menu, const Style[] style){
@@ -555,8 +565,35 @@ void menu_update(Menu* menu, Rect canvas){
 
             foreach(i, ref item; items){
                 auto bounds = &item.bounds;
-                auto width  = width(*bounds);
-                auto height = height(*bounds);
+                float width, height;
+                if(item.target_width == 0.0f){
+                    width = Button_Width;
+                }
+                else if(item.target_width <= 1.0f){
+                    width = canvas_width*item.target_width;
+                }
+                else{
+                    width = item.target_width;
+                }
+
+                if(item.target_height == 0.0f){
+                    height = Button_Height;
+                }
+                else if(item.target_height <= 1.0f){
+                    height = canvas_height*item.target_height;
+                }
+                else{
+                    height = item.target_height;
+                }
+                bounds.extents.x = width*0.5f;
+                bounds.extents.y = height*0.5f;
+
+                if(item.type == Menu_Item_Type.Text_Block){
+                    auto text_height = get_text_height(menu.button_font, item.text, width);
+                    bounds.extents.y = text_height*0.5f;
+                    height = text_height;
+                }
+
                 row_height = max(height, row_height);
 
                 if(item_index + i >= style_group.items_end){
@@ -714,6 +751,12 @@ void menu_render(Render_Passes* rp, Menu* menu, float time, Allocator* allocator
         switch(entry.type){
             default:{
                 render_text(rp.hud_text, font, p, entry.text, text_color);
+            } break;
+
+            case Menu_Item_Type.Text_Block:{
+                render_rect(rp.hud_rects, bounds, Vec4(0, 0, 0, 1));
+                p = Vec2(left(bounds), top(bounds) - font.metrics.line_gap);
+                render_text_block(rp.hud_text, font, p, entry.text, Vec4(1,1,1,1), width(bounds));
             } break;
 
             case Menu_Item_Type.Index_Picker:

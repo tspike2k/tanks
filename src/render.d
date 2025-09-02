@@ -388,6 +388,16 @@ Vec4 color = Vec4(1, 1, 1, 1), Text_Align text_align = Text_Align.Left){
     cmd.text_align = text_align;
 }
 
+void render_text_block(Render_Pass* pass, Font* font, Vec2 pos, String text,
+Vec4 color, float width){
+    auto cmd       = push_command!Render_Text_Block(pass);
+    cmd.text       = text;
+    cmd.font       = font;
+    cmd.pos        = pos;
+    cmd.color      = color;
+    cmd.max_width  = width;
+}
+
 void render_rect(Render_Pass* pass, Rect bounds, Vec4 color){
     auto cmd   = push_command!Render_Rect(pass);
     cmd.bounds = bounds;
@@ -473,6 +483,11 @@ float get_text_width(Font* font, String text){
     return result;
 }
 
+float get_text_height(Font* font, String text, float area_width){
+    auto result = render_text_block!(false)(font, text, Vec2(0, 0), Vec4(1, 1, 1, 1), area_width);
+    return result;
+}
+
 private:
 
 enum Command : uint{
@@ -491,6 +506,7 @@ enum Command : uint{
     Set_Texture,
     Render_Debug_Line,
     Render_Debug_OBB,
+    Render_Text_Block,
 }
 
 struct Render_Cmd{
@@ -534,6 +550,18 @@ struct Render_Text{
     Vec2       pos;
     Vec4       color;
     Text_Align text_align;
+}
+
+struct Render_Text_Block{
+    enum Type = Command.Render_Text_Block;
+    Render_Cmd header;
+    alias header this;
+
+    Font*  font;
+    String text;
+    Vec2   pos;
+    Vec4   color;
+    float  max_width;
 }
 
 struct Render_Particle{
@@ -672,6 +700,101 @@ void set_quad(Vertex[] v, Vec3 p0, Vec3 p1, Vec3 p2, Vec3 p3, Rect uvs, Vec4 col
     v[3].pos = p3;
     v[3].uv = Vec2(right(uvs), top(uvs));
     v[3].color = color;
+}
+
+void render_text(Font* font, String text, Vec2 baseline, Vec4 color){
+    if(font.glyphs.length == 0) return;
+
+    push_frame(g_allocator.scratch);
+    scope(exit) pop_frame(g_allocator.scratch);
+
+    auto v_buffer = alloc_array!Vertex(g_allocator.scratch, text.length*4);
+    uint v_buffer_used = 0;
+
+    Font_Metrics *metrics = &font.metrics;
+
+    auto pen = baseline;
+    uint prev_codepoint = 0;
+    foreach(c; text){
+        // TODO: Due to kerning, we probably need "space" to be a valid glyph, just not one we render.
+        if(c == ' '){
+            pen.x += metrics.space_width;
+        }
+        else{
+            // When to apply kerning based on sample code from here:
+            // https://freetype.org/freetype2/docs/tutorial/step2.html#:~:text=c.%20Kerning
+            auto glyph   = get_glyph(font, c);
+            auto kerning = get_codepoint_kerning_advance(font, prev_codepoint, glyph.codepoint);
+            pen.x += kerning;
+
+            auto v = v_buffer[v_buffer_used .. v_buffer_used+4];
+            v_buffer_used += 4;
+
+            auto min_p = pen + glyph.offset;
+            auto bounds = rect_from_min_max(min_p, min_p + Vec2(glyph.width, glyph.height));
+            auto uvs = rect_from_min_max(glyph.uv_min, glyph.uv_max);
+            set_quad(v, bounds, uvs, color);
+
+            pen.x += cast(float)glyph.advance;
+            prev_codepoint = c;
+        }
+    }
+
+    set_texture(font.texture_id);
+    draw_quads(v_buffer[0 .. v_buffer_used]);
+}
+
+float render_text_block(bool Do_Render=true)(Font* font, String text, Vec2 baseline, Vec4 color, float area_width){
+    auto metrics = &font.metrics;
+    float result = metrics.line_gap;
+    if(font.glyphs.length == 0 || text.length == 0)
+        return result;
+
+    auto pen = baseline;
+
+    String get_text_line(ref String reader, float area_width){
+        float width = 0;
+        uint prev_codepoint = 0;
+        uint cursor = cast(uint)reader.length-1;
+        foreach(i, c; reader){
+            if(c == ' '){
+                width += metrics.space_width;
+                cursor = cast(uint)(i);
+            }
+            else{
+                // When to apply kerning based on sample code from here:
+                // https://freetype.org/freetype2/docs/tutorial/step2.html#:~:text=c.%20Kerning
+                auto glyph   = get_glyph(font, c);
+                auto kerning = get_codepoint_kerning_advance(font, prev_codepoint, glyph.codepoint);
+                width += kerning;
+
+                width += cast(float)glyph.advance;
+                prev_codepoint = c;
+            }
+
+            if(width >= area_width){
+                break;
+            }
+        }
+
+        auto result = reader[0 .. cursor];
+        reader = reader[cursor+1 .. $];
+        return result;
+    }
+
+    auto reader = text;
+    uint line_count = 0;
+    while(reader.length > 0){
+        auto line = get_text_line(reader, area_width);
+        line_count++;
+
+        static if(Do_Render){
+            render_text(font, line, pen, color);
+            pen.y -= metrics.line_gap;
+        }
+    }
+    result = metrics.line_gap * cast(float)line_count;
+    return result;
 }
 
 version(linux){
@@ -1202,6 +1325,11 @@ version(opengl){
                         render_text(cmd.font, cmd.text, floor(p), cmd.color);
                     } break;
 
+                    case Command.Render_Text_Block:{
+                        auto cmd = cast(Render_Text_Block*)cmd_node;
+                        render_text_block(cmd.font, cmd.text, floor(cmd.pos), cmd.color, cmd.max_width);
+                    } break;
+
                     case Command.Set_Light:{
                         auto cmd = cast(Set_Light*)cmd_node;
                         if(light != cmd.light)
@@ -1422,48 +1550,6 @@ ate.");
             g_active_textures[index] = texture;
             glActiveTexture(GL_TEXTURE0);
         }
-    }
-
-    void render_text(Font* font, String text, Vec2 baseline, Vec4 color){
-        if(font.glyphs.length == 0) return;
-
-        push_frame(g_allocator.scratch);
-        scope(exit) pop_frame(g_allocator.scratch);
-
-        auto v_buffer = alloc_array!Vertex(g_allocator.scratch, text.length*4);
-        uint v_buffer_used = 0;
-
-        Font_Metrics *metrics = &font.metrics;
-
-        auto pen = baseline;
-        uint prev_codepoint = 0;
-        foreach(c; text){
-            // TODO: Due to kerning, we probably need "space" to be a valid glyph, just not one we render.
-            if(c == ' '){
-                pen.x += metrics.space_width;
-            }
-            else{
-                // When to apply kerning based on sample code from here:
-                // https://freetype.org/freetype2/docs/tutorial/step2.html#:~:text=c.%20Kerning
-                auto glyph   = get_glyph(font, c);
-                auto kerning = get_codepoint_kerning_advance(font, prev_codepoint, glyph.codepoint);
-                pen.x += kerning;
-
-                auto v = v_buffer[v_buffer_used .. v_buffer_used+4];
-                v_buffer_used += 4;
-
-                auto min_p = pen + glyph.offset;
-                auto bounds = rect_from_min_max(min_p, min_p + Vec2(glyph.width, glyph.height));
-                auto uvs = rect_from_min_max(glyph.uv_min, glyph.uv_max);
-                set_quad(v, bounds, uvs, color);
-
-                pen.x += cast(float)glyph.advance;
-                prev_codepoint = c;
-            }
-        }
-
-        set_texture(font.texture_id);
-        draw_quads(v_buffer[0 .. v_buffer_used]);
     }
 
     /+
