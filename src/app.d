@@ -24,10 +24,8 @@ TODO:
     - Should variants have descriptions? Author info?
 
 Menus:
-    - Campaign menu should show text for campaign info.
     - High scores menu should allow the player to view each variant without changing the
       selected campaign variant.
-    - Menu buttons should be themed.
 
 Enemy AI:
     - Improved bullet prediction. Right now, even enemies with good aim stats are surprisingly
@@ -38,6 +36,7 @@ Enemy AI:
 
 Sound effects:
     - Firing missile (Can we just up-pitch the normal shot sound?)
+    - Clicking on menu items
 
 Interesting article on frequency of packet transmission in multiplayer games
 used in Source games.
@@ -119,6 +118,7 @@ struct Render_Passes{
     Render_Pass* bg_scroll;
     Render_Pass* hud_rects;
     Render_Pass* hud_button;
+    Render_Pass* hud_rects_fg;
     Render_Pass* hud_text;
 }
 
@@ -2739,6 +2739,7 @@ void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
     Event evt;
     while(next_event(&evt)){
         handle_event_common(s, &evt, dt);
+        handle_menu_event(s, &evt);
         if(!evt.consumed){
             switch(evt.type){
                 default: break;
@@ -2829,7 +2830,6 @@ void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
                 } break;
             }
         }
-        handle_menu_event(s, &evt);
     }
     auto window = get_window_info();
     auto window_bounds = rect_from_min_max(Vec2(0, 0), Vec2(window.width, window.height));
@@ -3312,6 +3312,9 @@ extern(C) int main(int args_count, char** args){
             pass.blend_mode = Blend_Mode.One_Minus_Source_Alpha;
         }
 
+        // TODO: If we had push_shader/pop_shader functions we wouldn't have to
+        // split hud_rects into hud_rects and hud_rect_fg. Is this what we would eventually
+        // prefer?
         pass = add_render_pass(&hud_camera);
         render_passes.hud_rects = pass;
         set_shader(pass, &s.text_shader);
@@ -3321,6 +3324,12 @@ extern(C) int main(int args_count, char** args){
         pass = add_render_pass(&hud_camera);
         render_passes.hud_button = pass;
         set_shader(pass, &s.shader_menu_button);
+        set_texture(pass, s.img_blank_rect);
+        pass.flags = Render_Flag_Disable_Depth_Test;
+
+        pass = add_render_pass(&hud_camera);
+        render_passes.hud_rects_fg = pass;
+        set_shader(pass, &s.text_shader);
         set_texture(pass, s.img_blank_rect);
         pass.flags = Render_Flag_Disable_Depth_Test;
 
@@ -3352,7 +3361,7 @@ extern(C) int main(int args_count, char** args){
             } break;
 
             case Game_Mode.Campaign:{
-                if(!g_debug_mode)
+                if(!g_debug_mode && menu_is_closed(&s.menu))
                     hide_and_grab_cursor_this_frame();
                 campaign_simulate(s, &player_input, target_dt);
             } break;
@@ -3500,7 +3509,8 @@ extern(C) int main(int args_count, char** args){
                     } break;
                 }
 
-                if(!g_debug_mode){
+                if(!g_debug_mode && menu_is_closed(&s.menu)){
+                    // TODO: Crosshair size should be resolution-independent
                     auto crosshair_color = Vec4(1, 0, 0, 0.65f); // TODO: This should be based off the player color.
                     auto cursor_p = Vec2(s.mouse_pixel.x, window.height - s.mouse_pixel.y);
                     set_texture(render_passes.hud_text, s.img_crosshair);

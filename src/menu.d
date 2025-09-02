@@ -9,11 +9,18 @@ As of now, the code in gui.d isn't sufficiently flexible enough to use for in-ga
 where this code comes in. This also isn't aiming to be a general approach, just offer enough
 flexibility that we can write menus without having to manually place every item.
 
-The basic idea is there are menu items (text, buttons, sliders, etc) and there are containers.
-A container is a vertical slice of the screen region and can hold one or more menu items.
-Containers are not displayed, they're only used to place menu items.
+The broad overview is that each menu can occupy a rectangular region of the window which is
+internally called the "canvas." Menu items (such as text labels, buttons, sliders, etc) are
+placed onto this convas inside containers called "blocks." A block itself is not rendered, its
+purpose is to vertically center menu items to specific sub-regions of the canvas. If there are
+more items than can fit inside the canvas, the user is presented with scrollbars with which
+to navigate to out of view menu items.
 
-TODO: Explain the rest after we finalize things!
+Layout of menu items is done automatically. Conceptually, the layout algorithm works by
+placing menu items on rows. The height of a row is determined by the tllest menu item in that
+row. Only one item is placed per row by default, though this can be changed by using the
+set_style function. This function determines the width and alignment for each column on the row.
+This interface was inspired by microui (https://github.com/rxi/microui).
 
 TODO:
     - What happens when we don't have any interactive elements? Do we crash if we hit enter?
@@ -386,6 +393,7 @@ private Menu_Item* get_hover_item(Menu* menu){
 
 Menu_Event menu_process_event(Menu* menu, Event* event){
     Menu_Event result;
+    if(menu_is_closed(menu)) return result;
 
     switch(event.type){
         default: break;
@@ -660,6 +668,25 @@ char[] make_date_pretty(char[] buffer, char[] date){
     return result;
 }
 
+void render_button_border(Render_Pass* pass, Rect r){
+    auto thickness = 2.0f;
+
+    auto color_top = Vec4(0.8f, 0.9f, 1.0f, 1);
+    auto color_bottom = color_top*0.2f;
+    color_bottom.a = color_top.a;
+
+    auto b = thickness * 0.5f;
+    auto top    = Rect(r.center + Vec2(0, r.extents.y - b), Vec2(r.extents.x, b));
+    auto bottom = Rect(r.center - Vec2(0, r.extents.y - b), Vec2(r.extents.x, b));
+    auto left   = Rect(r.center - Vec2(r.extents.x - b, 0), Vec2(b, r.extents.y));
+    auto right  = Rect(r.center + Vec2(r.extents.x - b, 0), Vec2(b, r.extents.y));
+
+    render_rect(pass, right, color_bottom);
+    render_rect(pass, top, color_top);
+    render_rect(pass, left, color_top);
+    render_rect(pass, bottom, color_bottom);
+}
+
 void menu_render(Render_Passes* rp, Menu* menu, float time, Allocator* allocator){
     Vec4[2] block_colors = [Vec4(0.25f, 0.25f, 0.25f, 1), Vec4(0, 0, 0, 1)];
     /+
@@ -692,6 +719,7 @@ void menu_render(Render_Passes* rp, Menu* menu, float time, Allocator* allocator
             case Menu_Item_Type.Index_Picker:
             case Menu_Item_Type.Button:{
                 render_rect(rp.hud_button, bounds, Vec4(0, 1, 0, 1));
+                render_button_border(rp.hud_rects_fg, bounds);
                 render_text(rp.hud_text, font, p, entry.text, text_color);
             } break;
 
@@ -734,10 +762,11 @@ void menu_render(Render_Passes* rp, Menu* menu, float time, Allocator* allocator
 
     if(should_scroll(menu)){
         auto scroll_region = get_scroll_region_y(menu.canvas);
-        render_rect(rp.hud_rects, scroll_region, Vec4(1, 1, 1, 1));
+        render_rect(rp.hud_rects, scroll_region, Vec4(0.8f, 0.9f, 1, 1));
 
         auto scroll_bar = get_scrollbar_y(menu, scroll_region);
-        render_rect(rp.hud_button, scroll_bar, Vec4(1, 0, 0, 1));
+        render_rect(rp.hud_button, scroll_bar, Vec4(0, 1, 0, 1));
+        render_button_border(rp.hud_rects_fg, scroll_bar);
     }
 }
 
