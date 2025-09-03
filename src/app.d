@@ -2479,6 +2479,7 @@ void init_particles(Particle_Emitter* emitter, uint count, Allocator* allocator)
 }
 
 auto long_text = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Vivamus id purus ut felis vestibulum aliquet. Quisque euismod nisi congue magna vestibulum tincidunt. Sed efficitur elementum dui, sed luctus mauris tincidunt iaculis. Vestibulum ac mollis dolor, vel porttitor ligula. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque ultricies venenatis libero eu ullamcorper. Donec vestibulum, leo sed fringilla tristique, nisi tellus tempus urna, nec semper urna purus ut diam. Maecenas ornare velit mi. Sed commodo molestie dui, sed ultricies neque ultrices a. Ut suscipit sit amet orci ac congue.";
+//auto long_text = "Lorem ipsum...!";
 
 void simulate_menu(App_State* s, float dt, Rect canvas){
     auto menu = &s.menu;

@@ -484,7 +484,17 @@ float get_text_width(Font* font, String text){
 }
 
 float get_text_height(Font* font, String text, float area_width){
-    auto result = render_text_block!(false)(font, text, Vec2(0, 0), Vec4(1, 1, 1, 1), area_width);
+    auto reader = text;
+    uint line_count = 0;
+    while(reader.length > 0){
+        next_wrapped_text_line(font, reader, area_width);
+        line_count++;
+    }
+
+    float result = font.metrics.height;
+    if(line_count > 1){
+        result += line_count*font.metrics.line_gap;
+    }
     return result;
 }
 
@@ -702,6 +712,40 @@ void set_quad(Vertex[] v, Vec3 p0, Vec3 p1, Vec3 p2, Vec3 p3, Rect uvs, Vec4 col
     v[3].color = color;
 }
 
+String next_wrapped_text_line(Font* font, ref String reader, float area_width){
+    float width = 0;
+    uint prev_codepoint = 0;
+    auto result = reader;
+    auto reader_next = reader.length;
+    size_t last_safe_index = 0;
+
+    foreach(i, c; reader){
+        if(c == ' '){
+            width += font.metrics.space_width;
+            last_safe_index = i;
+        }
+        else{
+            // When to apply kerning based on sample code from here:
+            // https://freetype.org/freetype2/docs/tutorial/step2.html#:~:text=c.%20Kerning
+            auto glyph   = get_glyph(font, c);
+            auto kerning = get_codepoint_kerning_advance(font, prev_codepoint, glyph.codepoint);
+            width += kerning;
+
+            width += cast(float)glyph.advance;
+            prev_codepoint = c;
+        }
+
+        if(width >= area_width){
+            result = reader[0 .. last_safe_index];
+            reader_next = last_safe_index+1;
+            break;
+        }
+    }
+
+    reader = reader[reader_next .. $];
+    return result;
+}
+
 void render_text(Font* font, String text, Vec2 baseline, Vec4 color){
     if(font.glyphs.length == 0) return;
 
@@ -744,57 +788,16 @@ void render_text(Font* font, String text, Vec2 baseline, Vec4 color){
     draw_quads(v_buffer[0 .. v_buffer_used]);
 }
 
-float render_text_block(bool Do_Render=true)(Font* font, String text, Vec2 baseline, Vec4 color, float area_width){
-    auto metrics = &font.metrics;
-    float result = metrics.line_gap;
-    if(font.glyphs.length == 0 || text.length == 0)
-        return result;
+void render_text_block(Font* font, String text, Vec2 baseline, Vec4 color, float area_width){
+    if(font.glyphs.length == 0 || text.length == 0) return;
 
     auto pen = baseline;
-
-    String get_text_line(ref String reader, float area_width){
-        float width = 0;
-        uint prev_codepoint = 0;
-        uint cursor = cast(uint)reader.length-1;
-        foreach(i, c; reader){
-            if(c == ' '){
-                width += metrics.space_width;
-                cursor = cast(uint)(i);
-            }
-            else{
-                // When to apply kerning based on sample code from here:
-                // https://freetype.org/freetype2/docs/tutorial/step2.html#:~:text=c.%20Kerning
-                auto glyph   = get_glyph(font, c);
-                auto kerning = get_codepoint_kerning_advance(font, prev_codepoint, glyph.codepoint);
-                width += kerning;
-
-                width += cast(float)glyph.advance;
-                prev_codepoint = c;
-            }
-
-            if(width >= area_width){
-                break;
-            }
-        }
-
-        auto result = reader[0 .. cursor];
-        reader = reader[cursor+1 .. $];
-        return result;
-    }
-
     auto reader = text;
-    uint line_count = 0;
     while(reader.length > 0){
-        auto line = get_text_line(reader, area_width);
-        line_count++;
-
-        static if(Do_Render){
-            render_text(font, line, pen, color);
-            pen.y -= metrics.line_gap;
-        }
+        auto line = next_wrapped_text_line(font, reader, area_width);
+        render_text(font, line, pen, color);
+        pen.y -= font.metrics.line_gap;
     }
-    result = metrics.line_gap * cast(float)line_count;
-    return result;
 }
 
 version(linux){
