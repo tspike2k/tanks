@@ -493,7 +493,7 @@ float get_text_height(Font* font, String text, float area_width){
 
     float result = font.metrics.height;
     if(line_count > 1){
-        result += line_count*font.metrics.line_gap;
+        result += (line_count-1)*font.metrics.line_gap;
     }
     return result;
 }
@@ -786,18 +786,6 @@ void render_text(Font* font, String text, Vec2 baseline, Vec4 color){
 
     set_texture(font.texture_id);
     draw_quads(v_buffer[0 .. v_buffer_used]);
-}
-
-void render_text_block(Font* font, String text, Vec2 baseline, Vec4 color, float area_width){
-    if(font.glyphs.length == 0 || text.length == 0) return;
-
-    auto pen = baseline;
-    auto reader = text;
-    while(reader.length > 0){
-        auto line = next_wrapped_text_line(font, reader, area_width);
-        render_text(font, line, pen, color);
-        pen.y -= font.metrics.line_gap;
-    }
 }
 
 version(linux){
@@ -1330,7 +1318,17 @@ version(opengl){
 
                     case Command.Render_Text_Block:{
                         auto cmd = cast(Render_Text_Block*)cmd_node;
-                        render_text_block(cmd.font, cmd.text, floor(cmd.pos), cmd.color, cmd.max_width);
+
+                        auto font = cmd.font;
+                        if(font.glyphs.length > 0 && cmd.text.length > 0){
+                            auto pen = floor(cmd.pos);
+                            auto reader = cmd.text;
+                            while(reader.length > 0){
+                                auto line = next_wrapped_text_line(font, reader, cmd.max_width);
+                                render_text(font, line, pen, cmd.color);
+                                pen.y -= font.metrics.line_gap;
+                            }
+                        }
                     } break;
 
                     case Command.Set_Light:{

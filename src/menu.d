@@ -253,12 +253,18 @@ Menu_Item* add_menu_item(Menu* menu, Menu_Item_Type type, String text){
     clear_to_zero(*result);
     result.type = type;
     set_text(menu, result, text);
-    if(type == Menu_Item_Type.Button){
-        result.target_height = Button_Height;
-    }
-    else{
-        auto font = get_font(menu, result.type);
-        result.target_height = (cast(float)font.metrics.height) + Padding*2.0f;
+    switch(type){
+        default:{
+            auto font = get_font(menu, result.type);
+            result.target_height = (cast(float)font.metrics.height) + Padding*2.0f;
+        } break;
+
+        case Menu_Item_Type.Button:{
+            result.target_height = Button_Height;
+        } break;
+
+        case Menu_Item_Type.Text_Block:
+            break;
     }
 
     return result;
@@ -266,12 +272,17 @@ Menu_Item* add_menu_item(Menu* menu, Menu_Item_Type type, String text){
 
 void set_text(Menu* menu, Menu_Item* item, String text){
     float width = Button_Width;
-    if(item.type != Menu_Item_Type.Button){
-        auto font = get_font(menu, item.type);
-        width     = get_text_width(font, text) + Padding*2.0f;
+    switch(item.type){
+        default:{
+            auto font = get_font(menu, item.type);
+            item.target_width = get_text_width(font, text) + Padding*2.0f;
+        } break;
+
+        case Menu_Item_Type.Button:
+        case Menu_Item_Type.Text_Block:
+            break;
     }
 
-    item.target_width = width;
     item.text = text;
 }
 
@@ -312,7 +323,7 @@ void add_high_scores_viewer(Menu* menu, High_Scores* scores, uint variant_index)
     entry.scores_variant_index = variant_index;
 }
 
-void add_text_block(Menu* menu, String text, float width, uint user_id = 0){
+void add_text_block(Menu* menu, String text, uint user_id = 0){
     auto entry = add_menu_item(menu, Menu_Item_Type.Text_Block, text);
     entry.target_width  = 0.45f;
     entry.user_id = user_id;
@@ -585,14 +596,14 @@ void menu_update(Menu* menu, Rect canvas){
                 else{
                     height = item.target_height;
                 }
-                bounds.extents.x = width*0.5f;
-                bounds.extents.y = height*0.5f;
 
                 if(item.type == Menu_Item_Type.Text_Block){
-                    auto text_height = get_text_height(menu.button_font, item.text, width);
-                    bounds.extents.y = text_height*0.5f;
-                    height = text_height;
+                    auto text_height = get_text_height(menu.button_font, item.text, width - Padding*2.0f);
+                    height = text_height + Padding*2.0f;
                 }
+
+                bounds.extents.x = width*0.5f;
+                bounds.extents.y = height*0.5f;
 
                 row_height = max(height, row_height);
 
@@ -754,9 +765,9 @@ void menu_render(Render_Passes* rp, Menu* menu, float time, Allocator* allocator
             } break;
 
             case Menu_Item_Type.Text_Block:{
+                p = Vec2(left(bounds) + Padding, top(bounds) - font.metrics.line_gap);
                 render_rect(rp.hud_rects, bounds, Vec4(0, 0, 0, 1));
-                p = Vec2(left(bounds), top(bounds) - font.metrics.line_gap);
-                render_text_block(rp.hud_text, font, p, entry.text, Vec4(1,1,1,1), width(bounds));
+                render_text_block(rp.hud_text, font, p, entry.text, Vec4(1,1,1,1), width(bounds) - Padding*2.0f);
             } break;
 
             case Menu_Item_Type.Index_Picker:
