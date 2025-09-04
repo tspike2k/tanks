@@ -32,6 +32,7 @@ import display;
 import math;
 import app : Render_Passes, High_Scores, High_Scores_Table_Size;
 import render;
+import audio;
 
 private{
     enum Padding = 8.0f;
@@ -125,6 +126,7 @@ struct Menu{
     Font*         button_font;
     Font*         heading_font;
     Font*         title_font;
+    Sound*        sfx_click;
 
     bool    changed_menu;
     Rect    canvas;
@@ -386,6 +388,8 @@ struct Menu_Event{
 
 private Menu_Event do_action(Menu* menu, Menu_Item* item){
     Menu_Event result;
+
+    play_sfx(menu.sfx_click, 0, 1.0f);
 
     if(item.type == Menu_Item_Type.Index_Picker){
         index_incr(item.index, item.index_max);
