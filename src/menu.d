@@ -646,7 +646,6 @@ void menu_update(Menu* menu, Rect canvas){
             assert(block.height > 0 && block.height <= 1);
             auto block_height = max(canvas_height*block.height, total_height);
             auto block_end = block_pen_y - block_height;
-            menu.content_height += total_height;
 
             // Debug values
             block.start_y = block_pen_y;
@@ -683,6 +682,7 @@ void menu_update(Menu* menu, Rect canvas){
             auto click_percent = menu.mouse_p.y / region_height;
             menu.scroll_offset.y = (1.0f-click_percent)*(menu.content_height - region_height);
         }
+        assert(menu.content_height >= region_height);
         menu.scroll_offset.y = clamp(menu.scroll_offset.y, 0, menu.content_height - region_height);
     }
 
@@ -853,8 +853,11 @@ Rect get_scrollbar_y(Menu* menu, Rect scroll_region){
     auto region_height  = height(scroll_region);
     auto height_percent = min(0.85f, region_height / menu.content_height);
 
+    //menu.content_height - region_height
+
     auto bar_height = max(region_height*height_percent, Scrollbar_Size);
-    auto bar_bottom = region_height - (menu.scroll_offset.y / menu.content_height)*region_height - bar_height;
+    auto bar_bottom = region_height - map_range(menu.scroll_offset.y, 0, menu.content_height - region_height, bar_height, region_height);
+
     auto result = rect_from_min_wh(
         Vec2(left(scroll_region), bar_bottom),
         Scrollbar_Size, bar_height

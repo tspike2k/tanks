@@ -585,6 +585,14 @@ uint rgba_to_uint(Vec4 c){
     return result;
 }
 
+float map_range(float value, float source_min, float source_max, float dest_min, float dest_max){
+    // Map into range function that avoids divide by zero when source_min and/or value are 0
+    // adapted from here:
+    // https://gamedev.stackexchange.com/questions/211396/9-slicing-in-opengl-want-to-have-the-center-of-the-texture-repeat-instead-of-st
+    float result = ((value - source_min) / (source_max - source_min)) * (dest_max - dest_min) + dest_min;
+    return result;
+}
+
 Vec2 normalize(Vec2 v){
     // TODO(tspike): Make an intrinsics.h file to wrap around this?
     float magnitude = sqrt(v.x * v.x + v.y * v.y);
