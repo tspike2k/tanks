@@ -30,7 +30,7 @@ import memory;
 import assets;
 import display;
 import math;
-import app : Render_Passes, High_Scores, High_Scores_Table_Size;
+import app : Render_Passes, Score_Entry, High_Scores_Table_Size, get_total_score, Player_Name;
 import render;
 import audio;
 
@@ -46,8 +46,9 @@ enum Menu_Item_Type : uint{
     Heading,
     Button,
     Index_Picker,
-    High_Score_Viewer,
+    High_Score_Row,
     Text_Block,
+    High_Score_Table_Head,
 }
 
 enum Menu_Action : uint{
@@ -96,8 +97,8 @@ struct Menu_Item{
     // probably be stored in a union.
     uint* index;
     uint  index_max;
-    High_Scores* scores;
-    uint scores_variant_index;
+    Score_Entry* score_entry;
+    uint         score_rank;
 }
 
 struct Style_Group{
@@ -315,14 +316,25 @@ void add_index_picker(Menu* menu, uint* index, uint index_max, String text){
     entry.index_max = index_max;
 }
 
-void add_high_scores_viewer(Menu* menu, High_Scores* scores, uint variant_index){
-    auto entry = add_menu_item(menu, Menu_Item_Type.High_Score_Viewer, "");
-    entry.scores = scores;
+enum High_Score_Row_Width = 800;
+
+void add_high_score_table_head(Menu* menu){
+    auto entry = add_menu_item(menu, Menu_Item_Type.High_Score_Table_Head, "");
+
     auto font = get_font(menu, entry.type);
-    auto height = High_Scores_Table_Size*(font.metrics.height + Padding*2.0f);
-    entry.target_width = 450;
-    entry.target_height = height;
-    entry.scores_variant_index = variant_index;
+    entry.target_height = font.metrics.height + Padding*2.0f;
+    entry.target_width  = High_Score_Row_Width;
+}
+
+void add_high_score_row(Menu* menu, uint rank, uint user_id){
+    auto entry = add_menu_item(menu, Menu_Item_Type.High_Score_Row, "");
+    auto font = get_font(menu, entry.type);
+
+    entry.target_height = font.metrics.height + Padding*2.0f;
+    entry.target_width  = High_Score_Row_Width;
+
+    entry.score_rank = rank;
+    entry.user_id = user_id;
 }
 
 void add_text_block(Menu* menu, String text, uint user_id = 0){
@@ -781,38 +793,55 @@ void menu_render(Render_Passes* rp, Menu* menu, float time, Allocator* allocator
                 render_text(rp.hud_text, font, p, entry.text, text_color);
             } break;
 
-            case Menu_Item_Type.High_Score_Viewer:{
-                render_rect(rp.hud_rects, bounds, Vec4(0, 1, 0, 1));
-                auto variant = &entry.scores.variants[entry.scores_variant_index];
+            case Menu_Item_Type.High_Score_Table_Head:{
+                render_rect(rp.hud_rects, bounds, Vec4(0, 0, 0, 1));
 
-                auto row_extents = 0.5f*Vec2(
-                    width(bounds) - Margin*2.0f,
-                    font.metrics.height + Padding*2.0f
-                );
+                auto row_bounds = bounds;
+                auto row_width = width(row_bounds);
+                foreach(ref cell_def; g_score_cells){
+                    auto cell_bounds = eat_row_piece(&row_bounds, row_width, cell_def.width);
+                    render_rect_outline(rp.hud_rects, cell_bounds, Vec4(1,1,1,1), 1.0f);
+                    auto text_p = center_text(font, cell_def.text, cell_bounds);
+                    render_text(rp.hud_text, font, text_p, cell_def.text, Vec4(1, 1, 1, 1));
+                }
+            } break;
 
-                auto row_center = Vec2(bounds.center.x, top(bounds) -row_extents.y);
-                auto row_bounds = Rect(row_center, row_extents);
+            case Menu_Item_Type.High_Score_Row:{
+                render_rect(rp.hud_button, bounds, Vec4(0, 1, 0, 1));
+                render_button_border(rp.hud_rects_fg, bounds);
 
-                foreach(score_index, ref score; variant.entries){
-                    auto ps = &score.player_scores[0]; // TODO: Support mutliplayer!
-                    if(ps.points == 0)
-                        break;
+                auto row_bounds = bounds;
+                auto row_width = width(row_bounds);
+                auto cell_rank    = eat_row_piece(&row_bounds, row_width, g_score_cells[0].width);
+                auto cell_score   = eat_row_piece(&row_bounds, row_width, g_score_cells[1].width);
+                auto cell_name    = eat_row_piece(&row_bounds, row_width, g_score_cells[2].width);
+                auto cell_players = eat_row_piece(&row_bounds, row_width, g_score_cells[3].width);
 
-                    char[32] date_buffer;
-                    auto date = make_date_pretty(date_buffer, score.date);
+                /+
+                char[32] date_buffer;
+                auto date = make_date_pretty(date_buffer, score.date);
+                +/
+                auto score_entry = entry.score_entry;
+                p.x = left(bounds) + Padding;
+                uint total_score = 0;
+                Player_Name host_player_name;
+                if(score_entry){
+                    total_score = get_total_score(score_entry);
+                    host_player_name = score_entry.player_scores[0].name;
+                }
 
-                    auto place = score_index+1;
-                    auto msg = gen_string("{0}: {1} pts by {2} on {3}",
-                        place,
-                        ps.points,
-                        ps.name.text[0 .. ps.name.count],
-                        date,
-                        allocator,
-                    );
+                void render_cell(String text, Rect bounds){
+                    auto text_p = center_text_right(font, text, bounds);
+                    render_text(rp.hud_text, font, text_p, text, text_color);
+                }
 
-                    p = center_text_left(font, msg, row_bounds);
-                    render_text(rp.hud_text, font, p, msg, text_color);
-                    row_bounds.center.y -= row_bounds.extents.y;
+                render_cell(gen_string("{0}", entry.score_rank, allocator), cell_rank);
+                if(total_score > 0){
+                    render_cell(gen_string("{0}", total_score, allocator), cell_score);
+                    auto name = host_player_name.text[0 .. host_player_name.count];
+                    render_cell(name, cell_name);
+                    auto players = score_entry.players_count;
+                    render_cell(gen_string("{0}", players, allocator), cell_players);
                 }
             } break;
         }
@@ -834,9 +863,33 @@ private:
 //
 ////
 
+struct Score_Cell_Def{
+    String text;
+    float  width;
+    int alignment;
+}
+
+immutable Score_Cell_Def[] g_score_cells = [
+    {"Rank",    0.15f},
+    {"Score",   0.30f},
+    {"Name",    0.40f},
+    {"Players", 0.15f},
+];
+
 enum Button_Width   = 320.0f;
 enum Button_Height  = 40.0f;
 enum Scrollbar_Size = 18.0f;
+
+private Rect eat_row_piece(Rect* row, float row_width, float percent){
+    auto w = row_width*percent;
+
+    auto result = rect_from_min_wh(min(*row), w, height(*row));
+
+    row.center.x += w*0.5f;
+    row.extents.x -= w*0.5f;
+
+    return result;
+}
 
 void center_on_active_item(Menu* menu){
     if(should_scroll(menu)){
@@ -880,7 +933,7 @@ bool is_interactive(Menu_Item* item){
 
         case Menu_Item_Type.Button:
         case Menu_Item_Type.Index_Picker:
-        case Menu_Item_Type.High_Score_Viewer:
+        case Menu_Item_Type.High_Score_Row:
             result = true; break;
     }
 

@@ -372,6 +372,13 @@ Vec2 center_text_left(Font* font, String text, Rect bounds){
     return result;
 }
 
+Vec2 center_text_right(Font* font, String text, Rect bounds){
+    auto text_width = get_text_width(font, text);
+    auto h = cast(float)font.metrics.cap_height;
+    auto result = floor(Vec2(right(bounds) - text_width, bounds.center.y - 0.5f*h));
+    return result;
+}
+
 Vec2 center_text(Font* font, String text, Rect bounds){
     auto text_width = get_text_width(font, text);
     auto result = floor(bounds.center - 0.5f*Vec2(text_width, font.metrics.cap_height));

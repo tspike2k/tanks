@@ -330,7 +330,7 @@ struct Tank_Materials{
 
 struct Player_Name{
     uint     count;
-    char[64] text;
+    char[32] text;
 }
 
 struct Player_Score{
@@ -2520,12 +2520,9 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
             if(menu_changed){
                 begin_menu_def(menu);
                 begin_block(menu, title_block_height);
-                add_title(menu, "Tanks!");
-                end_block(menu);
-                begin_block(menu, 0.1f);
                 add_heading(menu, "Campaign");
                 end_block(menu);
-                begin_block(menu, 0.6f);
+                begin_block(menu, 1.0f - title_block_height);
 
                 add_button(menu, "Start", Menu_Action.Begin_Campaign, Menu_ID.None);
 
@@ -2570,19 +2567,36 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
         } break;
 
         case Menu_ID.High_Scores:{
+            enum {
+                Menu_ID_High_Score = 1,
+                Menu_ID_High_Score_End   = Menu_ID_High_Score + High_Scores_Table_Size,
+            }
+
             if(menu_changed){
                 begin_menu_def(menu);
                 begin_block(menu, title_block_height);
-                add_title(menu, "Tanks!");
-                end_block(menu);
-                begin_block(menu, 0.1f);
                 add_heading(menu, "High Scores");
                 end_block(menu);
-                begin_block(menu, 0.6f);
-                add_high_scores_viewer(menu, &s.high_scores, s.session.variant_index);
+                begin_block(menu, 1.0f - title_block_height);
+
+                add_high_score_table_head(menu);
+                foreach(i ; 0 .. High_Scores_Table_Size){
+                    add_high_score_row(menu, i+1, Menu_ID_High_Score+i);
+                }
                 add_button(menu, "Back", Menu_Action.Pop_Menu, Menu_ID.None);
                 end_block(menu);
                 end_menu_def(menu);
+            }
+
+            foreach(ref item; menu.items[0 .. menu.items_count]){
+                if(item.user_id >= Menu_ID_High_Score && item.user_id <= Menu_ID_High_Score_End){
+                    auto variant_index = s.session.variant_index;
+                    if(variant_index < s.high_scores.variants.length){
+                        auto variant = &s.high_scores.variants[variant_index];
+                        auto score_index = item.user_id - Menu_ID_High_Score;
+                        item.score_entry = &variant.entries[score_index];
+                    }
+                }
             }
         } break;
 
