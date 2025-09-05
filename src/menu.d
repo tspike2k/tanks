@@ -133,6 +133,8 @@ struct Menu{
     Font*         title_font;
     Sound*        sfx_click;
 
+    Score_Entry* newly_added_score;
+
     bool    changed_menu;
     Rect    canvas;
     bool    mouse_moved;
@@ -826,7 +828,13 @@ void menu_render(Render_Passes* rp, Menu* menu, float time, Allocator* allocator
             } break;
 
             case Menu_Item_Type.High_Score_Row:{
-                render_rect(rp.hud_button, bounds, Button_Color);
+                auto bg_color = Button_Color;
+                if(entry.score_entry == menu.newly_added_score){
+                    float t = fabs(0.8f*cos(0.5f*time*TAU));
+                    bg_color = lerp(Vec4(1, 1, 0, 1), Button_Color, t);
+                }
+
+                render_rect(rp.hud_button, bounds, bg_color);
                 render_button_border(rp.hud_rects_fg, bounds);
 
                 auto row_bounds = bounds;

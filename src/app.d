@@ -2680,6 +2680,7 @@ void end_campaign(App_State* s, bool aborted){
     auto score_slot = maybe_post_highscore(variant_scores, &s.session.score);
     change_mode(s, Game_Mode.Menu);
     if(!aborted){
+        s.menu.newly_added_score = score_slot;
         set_menu(&s.menu, Menu_ID.High_Scores);
         if(score_slot){
             save_high_scores(s);
@@ -2693,9 +2694,17 @@ void end_campaign(App_State* s, bool aborted){
 void handle_menu_event(App_State* s, Event* evt){
     if(evt.consumed) return;
 
+    auto menu_prev_id = s.menu.active_menu_id;
+
     auto menu_evt = menu_process_event(&s.menu, evt);
     switch(menu_evt.action){
         default: break;
+
+        case Menu_Action.Pop_Menu:{
+            if(menu_prev_id == Menu_ID.High_Scores){
+                s.menu.newly_added_score = null;
+            }
+        } break;
 
         case Menu_Action.Open_Editor:{
             change_mode(s, Game_Mode.Editor);
