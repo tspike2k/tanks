@@ -2570,6 +2570,13 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
             enum {
                 Menu_ID_High_Score = 1,
                 Menu_ID_High_Score_End   = Menu_ID_High_Score + High_Scores_Table_Size,
+                Menu_ID_Session_Score,
+            }
+
+            auto variant_index = s.session.variant_index;
+            Variant_Scores* score_table;
+            if(variant_index < s.high_scores.variants.length){
+                score_table = &s.high_scores.variants[variant_index];
             }
 
             if(menu_changed){
@@ -2579,9 +2586,17 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
                 end_block(menu);
                 begin_block(menu, 1.0f - title_block_height);
 
-                add_high_score_table_head(menu);
-                foreach(i ; 0 .. High_Scores_Table_Size){
-                    add_high_score_row(menu, i+1, Menu_ID_High_Score+i);
+                add_high_score_table_head(menu, "Session High Score");
+                add_high_score_row(menu, &s.session.score, 0, Menu_ID_Session_Score);
+
+                add_high_score_table_head(menu, "High Scores");
+                if(score_table){
+                    foreach(i ; 0 .. High_Scores_Table_Size){
+                        auto total_score = get_total_score(&score_table.entries[i]);
+                        if(total_score == 0) break;
+
+                        add_high_score_row(menu, null, i+1, Menu_ID_High_Score+i);
+                    }
                 }
                 add_button(menu, "Back", Menu_Action.Pop_Menu, Menu_ID.None);
                 end_block(menu);
@@ -2589,13 +2604,10 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
             }
 
             foreach(ref item; menu.items[0 .. menu.items_count]){
-                if(item.user_id >= Menu_ID_High_Score && item.user_id <= Menu_ID_High_Score_End){
-                    auto variant_index = s.session.variant_index;
-                    if(variant_index < s.high_scores.variants.length){
-                        auto variant = &s.high_scores.variants[variant_index];
-                        auto score_index = item.user_id - Menu_ID_High_Score;
-                        item.score_entry = &variant.entries[score_index];
-                    }
+                if(score_table && item.user_id >= Menu_ID_High_Score
+                && item.user_id <= Menu_ID_High_Score_End){
+                    auto score_index = item.user_id - Menu_ID_High_Score;
+                    item.score_entry = &score_table.entries[score_index];
                 }
             }
         } break;

@@ -93,12 +93,16 @@ struct Menu_Item{
     Menu_Action action;
     Menu_ID     target_menu;
 
-    // TODO: The following data is only used by certain specific item types. They should
-    // probably be stored in a union.
-    uint* index;
-    uint  index_max;
-    Score_Entry* score_entry;
-    uint         score_rank;
+    union{
+        struct{
+            uint* index;
+            uint  index_max;
+        }
+        struct{
+            Score_Entry* score_entry;
+            uint         score_rank;
+        }
+    }
 }
 
 struct Style_Group{
@@ -318,15 +322,15 @@ void add_index_picker(Menu* menu, uint* index, uint index_max, String text){
 
 enum High_Score_Row_Width = 800;
 
-void add_high_score_table_head(Menu* menu){
-    auto entry = add_menu_item(menu, Menu_Item_Type.High_Score_Table_Head, "");
+void add_high_score_table_head(Menu* menu, String name){
+    auto entry = add_menu_item(menu, Menu_Item_Type.High_Score_Table_Head, name);
 
     auto font = get_font(menu, entry.type);
-    entry.target_height = font.metrics.height + Padding*2.0f;
+    entry.target_height = font.metrics.height*2.0f + Padding*2.0f;
     entry.target_width  = High_Score_Row_Width;
 }
 
-void add_high_score_row(Menu* menu, uint rank, uint user_id){
+void add_high_score_row(Menu* menu, Score_Entry* score, uint rank, uint user_id){
     auto entry = add_menu_item(menu, Menu_Item_Type.High_Score_Row, "");
     auto font = get_font(menu, entry.type);
 
@@ -335,6 +339,7 @@ void add_high_score_row(Menu* menu, uint rank, uint user_id){
 
     entry.score_rank = rank;
     entry.user_id = user_id;
+    entry.score_entry = score;
 }
 
 void add_text_block(Menu* menu, String text, uint user_id = 0){
@@ -788,7 +793,7 @@ void menu_render(Render_Passes* rp, Menu* menu, float time, Allocator* allocator
 
             case Menu_Item_Type.Index_Picker:
             case Menu_Item_Type.Button:{
-                render_rect(rp.hud_button, bounds, Vec4(0, 1, 0, 1));
+                render_rect(rp.hud_button, bounds, Button_Color);
                 render_button_border(rp.hud_rects_fg, bounds);
                 render_text(rp.hud_text, font, p, entry.text, text_color);
             } break;
@@ -796,18 +801,32 @@ void menu_render(Render_Passes* rp, Menu* menu, float time, Allocator* allocator
             case Menu_Item_Type.High_Score_Table_Head:{
                 render_rect(rp.hud_rects, bounds, Vec4(0, 0, 0, 1));
 
-                auto row_bounds = bounds;
+                auto bounds_top = Rect(
+                    bounds.center + Vec2(0, bounds.extents.y*0.5f),
+                    bounds.extents - Vec2(0, bounds.extents.y*0.5f)
+                );
+
+                auto bounds_bottom = Rect(
+                    bounds.center - Vec2(0, bounds.extents.y*0.5f),
+                    bounds.extents - Vec2(0, bounds.extents.y*0.5f)
+                );
+
+                render_rect_outline(rp.hud_rects, bounds_top, Vec4(1,1,1,1), 1.0f);
+                auto text_p = center_text(font, entry.text, bounds_top);
+                render_text(rp.hud_text, font, text_p, entry.text, Vec4(1, 1, 1, 1));
+
+                auto row_bounds = bounds_bottom;
                 auto row_width = width(row_bounds);
                 foreach(ref cell_def; g_score_cells){
                     auto cell_bounds = eat_row_piece(&row_bounds, row_width, cell_def.width);
                     render_rect_outline(rp.hud_rects, cell_bounds, Vec4(1,1,1,1), 1.0f);
-                    auto text_p = center_text(font, cell_def.text, cell_bounds);
+                    text_p = center_text(font, cell_def.text, cell_bounds);
                     render_text(rp.hud_text, font, text_p, cell_def.text, Vec4(1, 1, 1, 1));
                 }
             } break;
 
             case Menu_Item_Type.High_Score_Row:{
-                render_rect(rp.hud_button, bounds, Vec4(0, 1, 0, 1));
+                render_rect(rp.hud_button, bounds, Button_Color);
                 render_button_border(rp.hud_rects_fg, bounds);
 
                 auto row_bounds = bounds;
@@ -817,6 +836,10 @@ void menu_render(Render_Passes* rp, Menu* menu, float time, Allocator* allocator
                 auto cell_name    = eat_row_piece(&row_bounds, row_width, g_score_cells[2].width);
                 auto cell_players = eat_row_piece(&row_bounds, row_width, g_score_cells[3].width);
 
+                cell_rank.extents.x    -= Padding;
+                cell_score.extents.x   -= Padding;
+                cell_name.extents.x    -= Padding;
+                cell_players.extents.x -= Padding;
                 /+
                 char[32] date_buffer;
                 auto date = make_date_pretty(date_buffer, score.date);
@@ -824,10 +847,10 @@ void menu_render(Render_Passes* rp, Menu* menu, float time, Allocator* allocator
                 auto score_entry = entry.score_entry;
                 p.x = left(bounds) + Padding;
                 uint total_score = 0;
-                Player_Name host_player_name;
+                Player_Name* host_player_name;
                 if(score_entry){
                     total_score = get_total_score(score_entry);
-                    host_player_name = score_entry.player_scores[0].name;
+                    host_player_name = &score_entry.player_scores[0].name;
                 }
 
                 void render_cell(String text, Rect bounds){
@@ -852,7 +875,7 @@ void menu_render(Render_Passes* rp, Menu* menu, float time, Allocator* allocator
         render_rect(rp.hud_rects, scroll_region, Vec4(0.8f, 0.9f, 1, 1));
 
         auto scroll_bar = get_scrollbar_y(menu, scroll_region);
-        render_rect(rp.hud_button, scroll_bar, Vec4(0, 1, 0, 1));
+        render_rect(rp.hud_button, scroll_bar, Button_Color);
         render_button_border(rp.hud_rects_fg, scroll_bar);
     }
 }
@@ -869,10 +892,12 @@ struct Score_Cell_Def{
     int alignment;
 }
 
+enum Button_Color = Vec4(0.54, 0.68, 0.82, 1);
+
 immutable Score_Cell_Def[] g_score_cells = [
-    {"Rank",    0.15f},
-    {"Score",   0.30f},
-    {"Name",    0.40f},
+    {"Rank",    0.10f},
+    {"Score",   0.20f},
+    {"Name",    0.55f},
     {"Players", 0.15f},
 ];
 
