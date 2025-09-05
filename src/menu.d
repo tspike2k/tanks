@@ -133,6 +133,7 @@ struct Menu{
     Font*         title_font;
     Sound*        sfx_click;
 
+    uint         variant_index;
     Score_Entry* newly_added_score;
 
     bool    changed_menu;

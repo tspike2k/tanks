@@ -22,6 +22,8 @@ TODO:
       camera.
     - Support playing custom campaigns.
     - Should variants have descriptions? Author info?
+    - Saves should be stored in a subfolder. Perhaps "tspike2k" would be a good folder name? It's
+      unlikely to be used by other programs.
 
 Menus:
     - High scores menu should allow the player to view each variant without changing the
@@ -2571,9 +2573,11 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
                 Menu_ID_High_Score = 1,
                 Menu_ID_High_Score_End   = Menu_ID_High_Score + High_Scores_Table_Size,
                 Menu_ID_Session_Score,
+                Menu_ID_Variant_Name,
             }
 
-            auto variant_index = s.session.variant_index;
+            auto variant_index = s.menu.variant_index;
+            auto variant = &s.campaign.variants[variant_index];
             Variant_Scores* score_table;
             if(variant_index < s.high_scores.variants.length){
                 score_table = &s.high_scores.variants[variant_index];
@@ -2586,15 +2590,19 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
                 end_block(menu);
                 begin_block(menu, 1.0f - title_block_height);
 
+                // TODO: Show campaign name
+                auto campaign = &s.campaign;
+                set_style(menu, two_column_style[]);
+                add_index_picker(menu, &menu.variant_index, cast(uint)campaign.variants.length, "Variant");
+                add_text_block(menu, "", Menu_ID_Variant_Name);
+
+                set_default_style(menu);
                 add_high_score_table_head(menu, "Session High Score");
                 add_high_score_row(menu, &s.session.score, 0, Menu_ID_Session_Score);
 
                 add_high_score_table_head(menu, "High Scores");
                 if(score_table){
                     foreach(i ; 0 .. High_Scores_Table_Size){
-                        auto total_score = get_total_score(&score_table.entries[i]);
-                        if(total_score == 0) break;
-
                         add_high_score_row(menu, null, i+1, Menu_ID_High_Score+i);
                     }
                 }
@@ -2608,6 +2616,9 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
                 && item.user_id <= Menu_ID_High_Score_End){
                     auto score_index = item.user_id - Menu_ID_High_Score;
                     item.score_entry = &score_table.entries[score_index];
+                }
+                if(item.user_id == Menu_ID_Variant_Name){
+                    set_text(menu, &item, variant.name);
                 }
             }
         } break;
@@ -2682,6 +2693,7 @@ void end_campaign(App_State* s, bool aborted){
     if(!aborted){
         s.menu.newly_added_score = score_slot;
         set_menu(&s.menu, Menu_ID.High_Scores);
+        s.menu.variant_index = s.session.variant_index;
         if(score_slot){
             save_high_scores(s);
         }
