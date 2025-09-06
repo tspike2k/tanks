@@ -15,7 +15,6 @@ TODO:
     - Debug collision volume display?
     - Improved collision handling. For instance, bullets can get lodged between two blocks,
       destroying it before the player sees it reflected.
-    - Switch to high-score list on game over. Highlight your current score if it's been added.
     - Finish porting over tank params
     - Decals aren't affected by light. Is that worth fixing?
     - Shadows cut off at the edges of 16:9 maps. This is probably an issue with the shadow map
@@ -24,8 +23,9 @@ TODO:
     - Should variants have descriptions? Author info?
     - Saves should be stored in a subfolder. Perhaps "tspike2k" would be a good folder name? It's
       unlikely to be used by other programs.
-    - Record the lives lost during a campaign for scoring information!
 
+Scoring:
+    Record lives lost, missions played, total enemies encountered, and play time in seconds.
 
 Enemy AI:
     - Improved bullet prediction. Right now, even enemies with good aim stats are surprisingly
@@ -254,6 +254,7 @@ struct App_State{
     Material material_eraser;
     Material material_mine;
     Material material_breakable_block;
+    Material material_bullet;
 
     Texture img_blank_mesh;
     Texture img_blank_rect;
@@ -263,6 +264,7 @@ struct App_State{
     Texture img_smoke;
     Texture img_crosshair;
     Texture img_tank_icon;
+    Texture img_block;
 }
 
 alias Entity_ID = ulong;
@@ -343,7 +345,7 @@ struct Player_Score{
     uint        missions_start; // NOTE: Can be non-zero just in case drop-in multiplayer is added later.
     uint        missions_end;
     uint        lives_lost;
-    uint[1]     pad_0;
+    float       time_in_seconds;
 }
 
 static assert(isStructPacked!Player_Score);
@@ -1754,12 +1756,16 @@ Material[] choose_materials(App_State* s, Entity* e, bool highlighted){
                 result = (&s.material_block)[0..1];
             } break;
 
+            case Entity_Type.Bullet:{
+                result = (&s.material_bullet)[0..1];
+            } break;
+
             case Entity_Type.Mine:{
                 if(is_exploding(e)){
                     result = (&s.material_eraser)[0..1]; // TODO: Have a dedicated explosion material
                 }
                 else{
-                    result = (&s.material_block)[0..1];
+                    result = (&s.material_bullet)[0..1];
                     if(is_about_to_explode(e)){
                         auto t = sin((e.mine_timer)*18.0f);
                         if(t > 0){
@@ -2652,6 +2658,7 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
                 add_label(menu, "Date:");
                 add_text_block(menu, "", Menu_ID_Date);
 
+                // TODO: Setting the style here overwrites the style used above. We should fix this.
                 set_style(menu, score_detail_style[]);
                 foreach(i; 0 .. min(4, score.players_count)){
                     add_label(menu, Score_Detail_Labels[i]);
@@ -3250,6 +3257,7 @@ extern(C) int main(int args_count, char** args){
     s.img_smoke       = load_texture(asset_path, "smoke.tga", 0, &s.frame_memory);
     s.img_crosshair   = load_texture(asset_path, "crosshair.tga", 0, &s.frame_memory);
     s.img_tank_icon   = load_texture(asset_path, "tank_icon.tga", Texture_Flag_Wrap, &s.frame_memory);
+    s.img_block       = load_texture(asset_path, "block.tga", 0, &s.frame_memory);
 
     Vec3 light_color = Vec3(1.0f, 1.0f, 1.0f);
     s.light.ambient  = light_color*0.15f;
@@ -3260,9 +3268,10 @@ extern(C) int main(int args_count, char** args){
     setup_basic_material(&s.material_ground, s.img_wood);
     setup_basic_material(&s.material_player_tank[0], s.img_blank_mesh, Vec3(0.1f, 0.1f, 0.6f), 256);
     setup_basic_material(&s.material_player_tank[1], s.img_blank_mesh, Vec3(0.2f, 0.2f, 0.8f), 256);
-    setup_basic_material(&s.material_block, s.img_blank_mesh, Vec3(0.46f, 0.72f, 0.46f));
+    setup_basic_material(&s.material_block, s.img_block, Vec3(0.5f, 0.42f, 0.20f), 128);
+    setup_basic_material(&s.material_bullet, s.img_blank_mesh, Vec3(0.6f, 0.6f, 0.65f), 256);
     setup_basic_material(&s.material_eraser, s.img_blank_mesh, Vec3(0.8f, 0.2f, 0.2f));
-    setup_basic_material(&s.material_breakable_block, s.img_blank_mesh, Vec3(0.92f, 0.42f, 0.20f));
+    setup_basic_material(&s.material_breakable_block, s.img_block);
     s.running = true;
 
     init_particles(&s.emitter_treadmarks, 2048, &s.main_memory);
