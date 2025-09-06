@@ -59,6 +59,7 @@ enum Menu_Action : uint{
     Open_Editor,
     Quit_Game,
     Abort_Campaign,
+    Show_High_Score_Details,
 }
 
 // TODO: Settings menu?
@@ -68,6 +69,7 @@ enum Menu_ID : uint{
     Campaign,
     High_Scores,
     Campaign_Pause,
+    High_Score_Details,
 }
 
 enum Align : uint{
@@ -133,6 +135,9 @@ struct Menu{
     Font*         title_font;
     Sound*        sfx_click;
 
+    // TODO: It would be better if these were not inside the menu system itself. It's fine for
+    // now because it simplifies how we pass this data around, but this is probably an example
+    // of cross-cutting concerns.
     uint         variant_index;
     Score_Entry* newly_added_score;
 
@@ -204,6 +209,9 @@ Menu_ID get_parent_menu_id(Menu_ID id){
         case Menu_ID.Campaign:
         case Menu_ID.High_Scores:
             result = Menu_ID.Main_Menu; break;
+
+        case Menu_ID.High_Score_Details:
+            result = Menu_ID.High_Scores; break;
     }
 
     return result;
@@ -340,6 +348,7 @@ void add_high_score_row(Menu* menu, Score_Entry* score, uint rank, uint user_id)
     entry.target_height = font.metrics.height + Padding*2.0f;
     entry.target_width  = High_Score_Row_Width;
 
+    entry.action = Menu_Action.Show_High_Score_Details;
     entry.score_rank = rank;
     entry.user_id = user_id;
     entry.score_entry = score;
@@ -404,6 +413,7 @@ uint get_next_hover_index(Menu* menu){
 
 struct Menu_Event{
     Menu_Action action;
+    uint        user_id;
 }
 
 private Menu_Event do_action(Menu* menu, Menu_Item* item){
@@ -415,7 +425,8 @@ private Menu_Event do_action(Menu* menu, Menu_Item* item){
         index_incr(item.index, item.index_max);
     }
     else{
-        result.action = item.action;
+        result.action  = item.action;
+        result.user_id = item.user_id;
         switch(item.action){
             default: break;
 
@@ -433,6 +444,19 @@ private Menu_Event do_action(Menu* menu, Menu_Item* item){
 
 private Menu_Item* get_hover_item(Menu* menu){
     auto result = &menu.items[menu.hover_item_index];
+    return result;
+}
+
+Menu_Item* get_item_by_user_id(Menu* menu, uint user_id){
+    Menu_Item* result;
+
+    foreach(ref item; menu.items[0 .. menu.items_count]){
+        if(item.user_id == user_id){
+            result = &item;
+            break;
+        }
+    }
+
     return result;
 }
 
@@ -849,10 +873,7 @@ void menu_render(Render_Passes* rp, Menu* menu, float time, Allocator* allocator
                 cell_score.extents.x   -= Padding;
                 cell_name.extents.x    -= Padding;
                 cell_players.extents.x -= Padding;
-                /+
-                char[32] date_buffer;
-                auto date = make_date_pretty(date_buffer, score.date);
-                +/
+
                 auto score_entry = entry.score_entry;
                 p.x = left(bounds) + Padding;
                 uint total_score = 0;

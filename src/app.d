@@ -24,10 +24,8 @@ TODO:
     - Should variants have descriptions? Author info?
     - Saves should be stored in a subfolder. Perhaps "tspike2k" would be a good folder name? It's
       unlikely to be used by other programs.
+    - Record the lives lost during a campaign for scoring information!
 
-Menus:
-    - High scores menu should allow the player to view each variant without changing the
-      selected campaign variant.
 
 Enemy AI:
     - Improved bullet prediction. Right now, even enemies with good aim stats are surprisingly
@@ -59,6 +57,7 @@ import audio;
 import menu;
 import random;
 import testing;
+import meta;
 
 enum Main_Memory_Size    =  4*1024*1024;
 enum Frame_Memory_Size   =  8*1024*1024;
@@ -183,21 +182,22 @@ struct App_State{
     String     asset_path;
     String     campaigns_path;
 
-    bool        running;
-    float       time;
-    Entity_ID   player_entity_id;
-    Vec2        mouse_pixel;
-    Vec2        mouse_world;
-    World       world;
-    Game_Mode   mode;
-    Game_Mode   next_mode;
-    Campaign    campaign;
-    String      campaign_file_name;
-    High_Scores high_scores;
-    Session     session;
-    Vec3        world_camera_polar;
-    Vec3        world_camera_target_pos;
-    Xorshift32  rng;
+    bool         running;
+    float        time;
+    Entity_ID    player_entity_id;
+    Vec2         mouse_pixel;
+    Vec2         mouse_world;
+    World        world;
+    Game_Mode    mode;
+    Game_Mode    next_mode;
+    Campaign     campaign;
+    String       campaign_file_name;
+    High_Scores  high_scores;
+    Session      session;
+    Vec3         world_camera_polar;
+    Vec3         world_camera_target_pos;
+    Xorshift32   rng;
+    Score_Entry* score_to_detail;
 
     Player_Name player_name;
 
@@ -337,14 +337,16 @@ struct Player_Name{
 
 struct Player_Score{
     Player_Name name;
-    char[16]    reserved_0;
     uint        points;
     uint        kills;
     uint        total_enemies;
     uint        missions_start; // NOTE: Can be non-zero just in case drop-in multiplayer is added later.
     uint        missions_end;
-    uint[6]     reserved_1;
+    uint        lives_lost;
+    uint[1]     pad_0;
 }
+
+static assert(isStructPacked!Player_Score);
 
 enum High_Scores_Table_Size = 10;
 
@@ -2484,7 +2486,15 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
     auto menu = &s.menu;
     float title_block_height = 0.30f;
 
+    immutable String[4] Score_Detail_Labels = [
+        "Player 1",
+        "Player 2",
+        "Player 3",
+        "Player 4",
+    ];
+
     immutable two_column_style = [Style(0.5f, Align.Right), Style(0.5f, Align.Left)]; // We have to use immutable so D doesn't try to use the GC
+    immutable score_detail_style = [Style(0.25f, Align.Right), Style(0.75f, Align.Left)]; // We have to use immutable so D doesn't try to use the GC
 
     bool menu_changed = menu.changed_menu;
     auto menu_id = menu.active_menu_id;
@@ -2623,6 +2633,58 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
             }
         } break;
 
+        case Menu_ID.High_Score_Details:{
+            enum {
+                Menu_ID_Date = 1,
+                Menu_ID_Score_Text,
+                Menu_ID_Score_Text_End = Menu_ID_Score_Text+4,
+            }
+
+            auto score = s.score_to_detail;
+            if(menu_changed){
+                begin_menu_def(menu);
+                begin_block(menu, title_block_height);
+                add_heading(menu, "High Scores");
+                end_block(menu);
+                begin_block(menu, 1.0f - title_block_height);
+
+                set_style(menu, two_column_style[]);
+                add_label(menu, "Date:");
+                add_text_block(menu, "", Menu_ID_Date);
+
+                set_style(menu, score_detail_style[]);
+                foreach(i; 0 .. min(4, score.players_count)){
+                    add_label(menu, Score_Detail_Labels[i]);
+                    add_text_block(menu, "", Menu_ID_Score_Text+i);
+                }
+
+                set_default_style(menu);
+                add_button(menu, "Back", Menu_Action.Pop_Menu, Menu_ID.None);
+                end_block(menu);
+                end_menu_def(menu);
+            }
+
+            foreach(ref item; menu.items[0 .. menu.items_count]){
+                if(item.user_id == Menu_ID_Date){
+                    auto date_buffer = alloc_array!char(&s.frame_memory, 32);
+                    auto date = make_date_pretty(date_buffer, score.date);
+                    set_text(menu, &item, date);
+                }
+                else if(item.user_id >= Menu_ID_Score_Text && item.user_id < Menu_ID_Score_Text_End){
+                    auto score_index = item.user_id - Menu_ID_Score_Text;
+                    auto detail = &score.player_scores[score_index];
+
+                    auto name = detail.name.text[0 .. detail.name.count];
+                    auto msg = gen_string("{0} Score: {1} Kills: {2}/{3} Missions: {4}-{5}, Lives lost: {6}",
+                        name, detail.points, detail.kills, detail.total_enemies,
+                        detail.missions_start, detail.missions_end, detail.lives_lost,
+                        &s.frame_memory
+                    );
+                    set_text(menu, &item, msg);
+                }
+            }
+        } break;
+
         case Menu_ID.Campaign_Pause:{
             if(menu_changed){
                 begin_menu_def(menu);
@@ -2733,6 +2795,17 @@ void handle_menu_event(App_State* s, Event* evt){
 
         case Menu_Action.Quit_Game:{
             s.running = false;
+        } break;
+
+        case Menu_Action.Show_High_Score_Details:{
+            auto item = get_item_by_user_id(&s.menu, menu_evt.user_id);
+            if(item){
+                auto score = item.score_entry;
+                if(get_total_score(score) > 0){
+                    push_menu(&s.menu, Menu_ID.High_Score_Details);
+                    s.score_to_detail = score;
+                }
+            }
         } break;
     }
 }

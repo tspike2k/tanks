@@ -14,11 +14,9 @@ alias ArrayElementType(T : T[]) = T;
 template TypesMatch(T, U){ enum TypesMatch = is(Unqual!T == Unqual!U);};
 
 bool isStructPacked(T)()
-if(is(T == struct))
-{
+if(is(T == struct)){
     size_t membersSize;
-    static foreach(member; __traits(allMembers, T))
-    {
+    static foreach(member; __traits(allMembers, T)){
         membersSize += mixin("T." ~ member ~ ".sizeof");
     }
 
