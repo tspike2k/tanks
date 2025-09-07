@@ -377,6 +377,13 @@ char[] gen_string(Args...)(String fmt_string, Args args, Allocator* allocator){
     return result;
 }
 
+char[] null_terminate(String s, Allocator* allocator){
+    auto result = alloc_array!char(allocator, s.length+1);
+    copy(s, result[0 .. $-1]);
+    result[$-1] = '\0';
+    return result[0 .. $-1];
+}
+
 bool is_alphabetical(char c){
     bool result = (c >= 'a' && c <= 'z')
                 || (c >= 'A' && c <= 'Z');

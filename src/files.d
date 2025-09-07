@@ -125,6 +125,41 @@ version(Posix){
     }
 }
 
+bool build_directory_from_path(String base_v_path, String v_path, Allocator* allocator){
+    if(v_path.length == 0) return false;
+
+    push_frame(allocator);
+    scope(exit) pop_frame(allocator);
+
+    mixin(Scratch_Frame!());
+    auto base = make_path_string(base_v_path, allocator);
+    auto path = concat(base, convert_path_seperators(v_path, scratch), scratch);
+
+    auto reader = path[base.length .. $];
+    bool result = true;
+    while(reader.length > 0){
+        push_frame(scratch);
+        scope(exit) pop_frame(scratch);
+
+        while(reader.length > 0){
+            if(reader[0] == Dir_Char){
+                reader = reader[1..$];
+                break;
+            }
+            else{
+                reader = reader[1..$];
+            }
+        }
+
+        auto dir_name = null_terminate(path[0 .. reader.ptr - path.ptr], scratch);
+        if(!add_directory_entry(dir_name)){
+            result = false;
+            break;
+        }
+    }
+    return result;
+}
+
 ////
 //
 // Linux
@@ -544,6 +579,16 @@ String expand_v_path_command(String command, Allocator* allocator){
         case "CONFIG":{
             result = get_xgd_or_fallback_dir("XDG_CONFIG_HOME", ".config", allocator);
         } break;
+    }
+    return result;
+}
+
+bool add_directory_entry(String name){
+    auto status = mkdir(name.ptr, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+    bool result = true;
+    if(status == -1 && errno != EEXIST){
+        log_error("Unable to create directory {0}: {1}\n", name, strerror(errno));
+        result = false;
     }
     return result;
 }

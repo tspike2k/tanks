@@ -3228,6 +3228,8 @@ extern(C) int main(int args_count, char** args){
     s.asset_path      = asset_path;
     s.campaigns_path  = make_path_string("$APP_DIR/campaigns/", &s.main_memory);
 
+    build_directory_from_path("$DATA/", "tspike2k/tanks", &s.frame_memory);
+
     load_font(asset_path, "editor_small_en.fnt", &s.font_editor_small, &s.main_memory);
     load_font(asset_path, "menu_large_en.fnt", &s.font_menu_large, &s.main_memory);
     load_font(asset_path, "menu_small_en.fnt", &s.font_menu_small, &s.main_memory);
