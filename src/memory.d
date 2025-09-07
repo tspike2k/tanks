@@ -73,7 +73,7 @@ char[] concat(String a, String b, Allocator* allocator){
 
 // NOTE: This function null termiates the string, but returns a slice without the null terminator.
 char[] concat(Args...)(Args args, Allocator* allocator)
-if(Args.length > 2){ // TODO: Ensure Args are all strings
+if(Args.length > 1){ // TODO: Ensure Args are all strings
     auto writer = begin_buffer_writer(allocator);
     foreach(arg; args){
         put_raw_string(arg, &writer);
@@ -374,6 +374,12 @@ char[] gen_string(Args...)(String fmt_string, Args args, Allocator* allocator){
     auto memory = begin_reserve_all(allocator);
     auto result = format(cast(char[])memory, fmt_string, args);
     end_reserve_all(allocator, memory, result.length+1);
+    return result;
+}
+
+bool is_alphabetical(char c){
+    bool result = (c >= 'a' && c <= 'z')
+                || (c >= 'A' && c <= 'Z');
     return result;
 }
 

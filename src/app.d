@@ -23,6 +23,9 @@ TODO:
     - Should variants have descriptions? Author info?
     - Saves should be stored in a subfolder. Perhaps "tspike2k" would be a good folder name? It's
       unlikely to be used by other programs.
+    - Bundle all save information into a single save file. This includes scores for ALL campaigns,
+      and any user settings (such as player name).
+    - Allow custom player name.
 
 Scoring:
     Record lives lost, missions played, total enemies encountered, and play time in seconds.
@@ -399,17 +402,19 @@ char[16] get_score_date(){
 Score_Entry* maybe_post_highscore(Variant_Scores* scores, Score_Entry* current){
     Score_Entry* ranking;
     auto current_total_score = get_total_score(current);
-    foreach(i, ref entry; scores.entries){
-        if(get_total_score(&entry) <= current_total_score){
-            if(i+1 < scores.entries.length){
-                memmove(&scores.entries[i+1], &scores.entries[i],
-                (scores.entries.length - i - 1)*Score_Entry.sizeof);
+    if(current_total_score > 0){
+        foreach(i, ref entry; scores.entries){
+            if(get_total_score(&entry) <= current_total_score){
+                if(i+1 < scores.entries.length){
+                    memmove(&scores.entries[i+1], &scores.entries[i],
+                    (scores.entries.length - i - 1)*Score_Entry.sizeof);
 
+                }
+                ranking = &scores.entries[i];
+                *ranking = *current;
+
+                break;
             }
-            ranking = &scores.entries[i];
-            *ranking = *current;
-
-            break;
         }
     }
 
@@ -441,8 +446,8 @@ String get_high_scores_full_path(App_State* s, Allocator* allocator){
     auto source = s.campaign_file_name;
     source = trim_file_extension(trim_leading_path(source));
 
-    auto sep = to_string(Dir_Char);
-    auto result = concat(s.data_path, sep, "tanks_", source, ".score", allocator);
+    auto base_path = trim_ending_if_char(s.data_path, Dir_Char);
+    auto result = concat(base_path, to_string(Dir_Char), "tanks_", source, ".score", allocator);
     return result;
 }
 
@@ -3216,12 +3221,12 @@ extern(C) int main(int args_count, char** args){
 
     seed(&s.rng, 1247865); // TODO: Seed using current time value?
 
-    auto base_path    = get_path_to_executable(&s.main_memory);
-    auto asset_path   = concat(trim_path(base_path), to_string(Dir_Char), "assets", to_string(Dir_Char), &s.main_memory);
-    auto shaders_path = concat(trim_path(base_path), to_string(Dir_Char), "shaders", to_string(Dir_Char), &s.main_memory);
-    s.data_path       = get_data_path(&s.main_memory);
+    //auto base_path    = get_path_to_executable(&s.main_memory);
+    auto asset_path   = make_path_string("$APP_DIR/assets/", &s.main_memory);
+    auto shaders_path = make_path_string("$APP_DIR/shaders/", &s.main_memory);
+    s.data_path       = make_path_string("$DATA/tspike2k/tanks/", &s.main_memory);
     s.asset_path      = asset_path;
-    s.campaigns_path  = concat(trim_path(base_path), to_string(Dir_Char), "campaigns", to_string(Dir_Char), &s.main_memory);
+    s.campaigns_path  = make_path_string("$APP_DIR/campaigns/", &s.main_memory);
 
     load_font(asset_path, "editor_small_en.fnt", &s.font_editor_small, &s.main_memory);
     load_font(asset_path, "menu_large_en.fnt", &s.font_menu_large, &s.main_memory);

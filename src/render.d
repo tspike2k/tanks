@@ -30,8 +30,8 @@ private{
     __gshared Render_Pass* g_render_pass_first;
     __gshared Render_Pass* g_render_pass_last;
 
-    enum Shadow_Map_Width  = 1024;
-    enum Shadow_Map_Height = 1024;
+    enum Shadow_Map_Width  = 2048;
+    enum Shadow_Map_Height = 2048;
 
     enum Max_Materials = 2;
 }

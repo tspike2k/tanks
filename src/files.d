@@ -91,6 +91,40 @@ auto recurse_directory(String dir_name, Allocator* allocator){
     return result;
 }
 
+String make_path_string(String v_path, Allocator* allocator){
+    mixin(Scratch_Frame!());
+
+    String result;
+    if(v_path.length == 0) return result;
+
+    String command;
+    String remaining = v_path;
+    if(v_path[0] == '$'){
+        command = v_path[1..$];
+        foreach(i, c; command){
+            if(!is_alphabetical(c) && c != '_'){
+                command = command[0 .. i];
+                remaining = v_path[i+1..$];
+                break;
+            }
+        }
+    }
+
+    auto base_dir = expand_v_path_command(command, scratch);
+    result = concat(base_dir, convert_path_seperators(remaining, scratch), allocator);
+    return result;
+}
+
+version(Posix){
+    String convert_path_seperators(String path, Allocator* allocator){
+        // This function does nothing under Posix systems. This is because v_path directory
+        // seperators match those used under Posix systems. Under systems such as Window,
+        // these seperators need to be converted.
+        auto result = path;
+        return result;
+    }
+}
+
 ////
 //
 // Linux
@@ -340,28 +374,13 @@ char[] get_path_to_executable(Allocator* allocator){
     if(count > 0){
         // Remove the trailing binary name from the result
         result = buffer[0 .. count];
-        result = trim_after(result, get_last_char(buffer, '/'));
+        result = trim_after(result, get_last_char(buffer[0 .. count], '/'));
     }
     else{
         // TODO: Handle errors
     }
     end_reserve_all(allocator, buffer[], result.length+1);
     buffer[result.length] = '\0';
-    return result;
-}
-
-String get_cache_path(Allocator* allocator){
-    auto result = get_xgd_or_fallback_dir("XDG_CACHE_HOME", ".cache", allocator);
-    return result;
-}
-
-String get_data_path(Allocator* allocator){
-    auto result = get_xgd_or_fallback_dir("XDG_DATA_HOME", ".local/share", allocator);
-    return result;
-}
-
-String get_config_path(Allocator* allocator){
-    auto result = get_xgd_or_fallback_dir("XDG_CONFIG_HOME", "/.config", allocator);
     return result;
 }
 
@@ -501,5 +520,30 @@ String get_xgd_or_fallback_dir(String xgd_env, String fallback, Allocator* alloc
         result = concat(home, to_string(Dir_Char), fallback, allocator);
     }
 
+    result = trim_ending_if_char(result, Dir_Char);
+    return result;
+}
+
+String expand_v_path_command(String command, Allocator* allocator){
+    String result;
+    switch(command){
+        default: break;
+
+        case "APP_DIR":{
+            result = get_path_to_executable(allocator);
+        } break;
+
+        case "CACHE":{
+            result = get_xgd_or_fallback_dir("XDG_CACHE_HOME", ".cache", allocator);
+        } break;
+
+        case "DATA":{
+            result = get_xgd_or_fallback_dir("XDG_DATA_HOME", ".local/share", allocator);
+        } break;
+
+        case "CONFIG":{
+            result = get_xgd_or_fallback_dir("XDG_CONFIG_HOME", ".config", allocator);
+        } break;
+    }
     return result;
 }
