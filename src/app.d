@@ -20,15 +20,9 @@ TODO:
     - Shadows cut off at the edges of 16:9 maps. This is probably an issue with the shadow map
       camera.
     - Support playing custom campaigns.
-    - Should variants have descriptions? Author info?
-    - Saves should be stored in a subfolder. Perhaps "tspike2k" would be a good folder name? It's
-      unlikely to be used by other programs.
     - Bundle all save information into a single save file. This includes scores for ALL campaigns,
       and any user settings (such as player name).
     - Allow custom player name.
-
-Scoring:
-    Record lives lost, missions played, total enemies encountered, and play time in seconds.
 
 Enemy AI:
     - Improved bullet prediction. Right now, even enemies with good aim stats are surprisingly
@@ -61,6 +55,7 @@ import menu;
 import random;
 import testing;
 import meta;
+import fmt;
 
 enum Main_Memory_Size    =  4*1024*1024;
 enum Frame_Memory_Size   =  8*1024*1024;
@@ -344,20 +339,18 @@ struct Player_Score{
     Player_Name name;
     uint        points;
     uint        kills;
-    uint        total_enemies;
-    uint        missions_start; // NOTE: Can be non-zero just in case drop-in multiplayer is added later.
-    uint        missions_end;
-    uint        lives_lost;
-    float       time_in_seconds;
+    uint        tanks_lost;
 }
-
-static assert(isStructPacked!Player_Score);
 
 enum High_Scores_Table_Size = 10;
 
 struct Score_Entry{
     char[16]        date;
+    uint            total_enemies;
+    uint            total_lives;
+    uint            last_mission_index;
     uint            players_count;
+    float           time_spent_in_seconds;
     Player_Score[4] player_scores;
 }
 
@@ -705,6 +698,10 @@ void load_campaign_mission(App_State* s, Campaign* campaign, uint mission_index)
             }
         }
     }
+
+    auto score = &s.session.score;
+    max(&score.last_mission_index, mission_index);
+    score.total_enemies += s.session.mission_enemy_tanks_count;
 }
 
 bool timer_update(AI_Timer* timer, float dt, Xorshift32* rng){
@@ -1264,6 +1261,12 @@ bool is_dynamic_entity(Entity_Type type){
     return result;
 }
 
+Campaign_Mission* get_current_mission(App_State* s){
+    auto variant = s.campaign.variants[s.session.variant_index];
+    auto result = &variant.missions[s.session.mission_index];
+    return result;
+}
+
 Campaign_Map* get_current_map(App_State* s){
     auto result = &s.campaign.maps[s.session.map_index];
     return result;
@@ -1623,8 +1626,12 @@ void resolve_collision(App_State* s, Entity* a, Entity* b, Vec2 normal, float de
 
         case make_collision_id(Entity_Type.Tank, Entity_Type.Bullet):{
             bool is_immortal = a.id == s.player_entity_id && Immortal;
-
             if(!is_immortal){
+                if(is_player(a)){
+                    auto player_index = get_player_index(a);
+                    s.session.score.player_scores[player_index].tanks_lost += 1;
+                }
+
                 emit_tank_explosion(&s.emitter_explosion_flames, a.pos, &s.rng);
                 play_sfx(&s.sfx_explosion, 0, 2.0f);
                 destroy_entity(a);
@@ -1675,6 +1682,11 @@ void resolve_collision(App_State* s, Entity* a, Entity* b, Vec2 normal, float de
 
         case make_collision_id(Entity_Type.Tank, Entity_Type.Mine):{
             if(is_exploding(b)){
+                if(is_player(a)){
+                    auto player_index = get_player_index(a);
+                    s.session.score.player_scores[player_index].tanks_lost += 1;
+                }
+
                 destroy_entity(a);
                 add_to_score_if_killed_by_player(s, a, b.parent_id);
             }
@@ -1913,23 +1925,6 @@ bool passed_range(float a, float b, float range){
     auto v1 = floor(b / range);
     bool result = v0 < v1;
     return result;
-}
-
-void start_play_session(App_State* s, uint variant_index){
-    auto variant = &s.campaign.variants[variant_index];
-
-    s.world.next_entity_id = Null_Entity_ID+1;
-
-    clear_to_zero(s.session);
-    s.session.state = Session_State.Mission_Intro;
-    s.session.lives = variant.lives;
-    s.session.variant_index = variant_index;
-    s.session.score.players_count = 1;
-    s.session.score.player_scores[0].name = s.player_name;
-
-    //load_campaign_mission(s, &s.campaign, s.session.mission_index);
-    load_campaign_mission(s, &s.campaign, 5);
-    //load_campaign_mission(s, &s.campaign, 8);
 }
 
 float rotate_tank_part(float target_rot, float speed, float* rot_remaining){
@@ -2285,6 +2280,8 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
     s.light.pos.x = world_bounds.center.x + cos(s.time*0.25f)*light_radius;
     s.light.pos.z = world_bounds.center.y + sin(s.time*0.25f)*light_radius;
 
+    s.session.score.time_spent_in_seconds += dt;
+
     foreach(ref e; iterate_entities(&s.world)){
         if(is_dynamic_entity(e.type) && !is_destroyed(&e)){
             float meters_moved_prev = e.total_meters_moved;
@@ -2413,6 +2410,11 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
         // TODO: End the campaign if this is the last mission
         s.session.state = Session_State.Mission_End;
         s.session.timer = 0.0f;
+        auto mission = get_current_mission(s);
+        if(mission.awards_tank_bonus){
+            s.session.lives += 1;
+            s.session.score.total_lives += 1;
+        }
     }
     else if(players_defeated(s)){
         // TODO: Play defeat song
@@ -2646,22 +2648,25 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
 
         case Menu_ID.High_Score_Details:{
             enum {
-                Menu_ID_Date = 1,
+                Menu_ID_Overview = 1,
                 Menu_ID_Score_Text,
                 Menu_ID_Score_Text_End = Menu_ID_Score_Text+4,
             }
+
+            auto variant_index = s.menu.variant_index;
+            auto variant = &s.campaign.variants[variant_index];
 
             auto score = s.score_to_detail;
             if(menu_changed){
                 begin_menu_def(menu);
                 begin_block(menu, title_block_height);
-                add_heading(menu, "High Scores");
+                add_heading(menu, "High Score Details");
                 end_block(menu);
                 begin_block(menu, 1.0f - title_block_height);
 
                 set_style(menu, two_column_style[]);
-                add_label(menu, "Date:");
-                add_text_block(menu, "", Menu_ID_Date);
+                add_label(menu, "General:");
+                add_text_block(menu, "", Menu_ID_Overview);
 
                 // TODO: Setting the style here overwrites the style used above. We should fix this.
                 set_style(menu, score_detail_style[]);
@@ -2677,19 +2682,33 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
             }
 
             foreach(ref item; menu.items[0 .. menu.items_count]){
-                if(item.user_id == Menu_ID_Date){
-                    auto date_buffer = alloc_array!char(&s.frame_memory, 32);
+                if(item.user_id == Menu_ID_Overview){
+                    char[32] date_buffer = void;
                     auto date = make_date_pretty(date_buffer, score.date);
-                    set_text(menu, &item, date);
+
+                    uint hours   = cast(uint)((score.time_spent_in_seconds / 60.0f)/60.0f);
+                    uint minutes = cast(uint)((score.time_spent_in_seconds / 60.0f));
+                    uint seconds = cast(uint)(score.time_spent_in_seconds % 60.0f);
+
+                    char[32] time_buffer;
+                    auto time = format(time_buffer, "{0}:{1}:{2}", hours, minutes, seconds);
+
+                    auto text = gen_string("Missions {0}/{1} Time: {2} Date: {3}",
+                        score.last_mission_index+1, variant.missions.length,
+                        time, date,
+                        &s.frame_memory
+                    );
+
+                    set_text(menu, &item, text);
                 }
                 else if(item.user_id >= Menu_ID_Score_Text && item.user_id < Menu_ID_Score_Text_End){
                     auto score_index = item.user_id - Menu_ID_Score_Text;
                     auto detail = &score.player_scores[score_index];
 
                     auto name = detail.name.text[0 .. detail.name.count];
-                    auto msg = gen_string("{0} Score: {1} Kills: {2}/{3} Missions: {4}-{5}, Lives lost: {6}",
-                        name, detail.points, detail.kills, detail.total_enemies,
-                        detail.missions_start, detail.missions_end, detail.lives_lost,
+                    auto msg = gen_string("{0} Score: {1} Kills: {2}/{3} Tanks lost: {4}/{5}",
+                        name, detail.points, detail.kills, score.total_enemies,
+                        detail.tanks_lost, score.total_lives+1,
                         &s.frame_memory
                     );
                     set_text(menu, &item, msg);
@@ -2758,6 +2777,28 @@ void handle_event_common(App_State* s, Event* evt, float dt){
     }
 }
 
+void begin_campaign(App_State* s, uint variant_index){
+    auto variant = &s.campaign.variants[variant_index];
+
+    s.world.next_entity_id = Null_Entity_ID+1;
+
+    clear_to_zero(s.session);
+    s.session.state = Session_State.Mission_Intro;
+    s.session.lives = variant.lives;
+    s.session.variant_index = variant_index;
+
+    auto score = &s.session.score;
+    score.players_count = 1;
+    score.total_lives += s.session.lives;
+
+    auto player_score = &score.player_scores[0];
+    player_score.name = s.player_name;
+
+    //load_campaign_mission(s, &s.campaign, s.session.mission_index);
+    load_campaign_mission(s, &s.campaign, 5);
+    //load_campaign_mission(s, &s.campaign, 8);
+}
+
 void end_campaign(App_State* s, bool aborted){
     auto variant_scores = &s.high_scores.variants[s.session.variant_index];
     s.session.score.date = get_score_date();
@@ -2799,6 +2840,7 @@ void handle_menu_event(App_State* s, Event* evt){
         case Menu_Action.Begin_Campaign:{
             set_menu(&s.menu, Menu_ID.None);
             change_mode(s, Game_Mode.Campaign);
+            begin_campaign(s, s.session.variant_index);
         } break;
 
         case Menu_Action.Abort_Campaign:{
@@ -3364,7 +3406,7 @@ extern(C) int main(int args_count, char** args){
                 } break;
 
                 case Game_Mode.Campaign:{
-                    start_play_session(s, s.session.variant_index);
+                    begin_campaign(s, s.session.variant_index);
                 } break;
             }
             s.mode = s.next_mode;

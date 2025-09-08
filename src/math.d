@@ -539,11 +539,11 @@ pragma(inline, true) T clamp(T)(T a, T min, T max)
 }
 
 void min(T)(T* a, T b){
-    *a = *a < b ? *a : b;
+    *a = .min(*a, b);
 }
 
 void max(T)(T* a, T b){
-    *a = *a > b ? *a : b;
+    *a = .max(*a, b);
 }
 
 uint premultiply_alpha(uint c){
