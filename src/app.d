@@ -3480,14 +3480,12 @@ extern(C) int main(int args_count, char** args){
         pass.flags = Render_Flag_Disable_Depth_Writes;
         pass.blend_mode = Blend_Mode.One_Minus_Source_Alpha;
 
-        if(s.mode == Game_Mode.Menu){
-            pass = add_render_pass(&hud_camera);
-            render_passes.bg_scroll = pass;
-            set_shader(pass, &s.shader_bg_scroll);
-            set_texture(pass, s.img_tank_icon);
-            pass.flags = Render_Flag_Disable_Depth_Test;
-            pass.blend_mode = Blend_Mode.One_Minus_Source_Alpha;
-        }
+        pass = add_render_pass(&hud_camera);
+        render_passes.bg_scroll = pass;
+        set_shader(pass, &s.shader_bg_scroll);
+        set_texture(pass, s.img_tank_icon);
+        pass.flags = Render_Flag_Disable_Depth_Test;
+        pass.blend_mode = Blend_Mode.One_Minus_Source_Alpha;
 
         // TODO: If we had push_shader/pop_shader functions we wouldn't have to
         // split hud_rects into hud_rects and hud_rect_fg. Is this what we would eventually
@@ -3618,13 +3616,16 @@ extern(C) int main(int args_count, char** args){
                         auto font_small = &s.font_menu_small;
                         auto rp_text = render_passes.hud_text;
 
+                        auto screen_bg_bounds = rect_from_min_max(Vec2(0, 0), Vec2(window.width, window.height));
+                        render_rect(render_passes.bg_scroll, screen_bg_bounds, Vec4(0.05f, 0.10f, 0.16f, 1));
+
                         auto text_bg_bounds = Rect(
                             Vec2(window.width, window.height)*0.5f,
                             Vec2(window.width, window.height*0.25f)*0.5f
                         );
 
                         auto rp_rects = render_passes.hud_rects;
-                        render_rect(rp_rects, text_bg_bounds, Vec4(0.90f, 0.20f, 0.20f, 1));
+                        render_rect(rp_rects, text_bg_bounds, Vec4(0.72f, 0.24f, 0.18f, 1));
 
                         auto pen = Vec2(window.width, window.height)*0.5f;
 

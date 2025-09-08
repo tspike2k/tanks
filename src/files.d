@@ -201,7 +201,7 @@ void close_file(File* file){
     assert(is_open(file));
     auto fd = *fd_from_file(file);
     close(fd);
-    // TODO: Remove bit flag for file being open
+    file.flags = clear_flags(file.flags, File_Flag_Is_Open);
 }
 
 size_t get_file_size(File* file){
@@ -366,8 +366,7 @@ size_t read_file(File *file, size_t offset, void[] dest){
     while(bytes_read < dest.length){
         ssize_t r = pread(fd, &dest[bytes_read], dest.length - bytes_read, offset + bytes_read);
         if(r < 0){
-            // TODO: logging
-            //fprintf(stderr, "Failed to read from file: %s\n", strerror(errno));
+            log_error("Failed to read from file: {0}\n", strerror(errno));
             break;
         }
         else if(r == 0){
@@ -389,8 +388,7 @@ size_t write_file(File *file, size_t offset, void[] data){
     while(bytes_written < data.length){
         ssize_t r = pwrite(fd, &data[bytes_written], data.length - bytes_written, offset + bytes_written);
         if(r < 0){
-            // TODO: Logging
-            //fprintf(stderr, "Failed to write to file: %s\n", strerror(errno));
+            log_error("Failed to write to file: {0}\n", strerror(errno));
             break;
         }
         else if(r == 0){
@@ -412,7 +410,7 @@ char[] get_path_to_executable(Allocator* allocator){
         result = trim_after(result, get_last_char(buffer[0 .. count], '/'));
     }
     else{
-        // TODO: Handle errors
+        log_error("Unable to get path the executable file.\n");
     }
     end_reserve_all(allocator, buffer[], result.length+1);
     buffer[result.length] = '\0';
@@ -532,13 +530,15 @@ import core.sys.posix.poll;
 import core.stdc.string : strlen;
 import core.sys.linux.sys.inotify;
 
+extern(C) char* secure_getenv(const(char)* name);
+
 String get_xgd_or_fallback_dir(String xgd_env, String fallback, Allocator* allocator){
     // This is based on the "XDG Base Directory Specification" Freedesktop which can be read here:
     // https://specifications.freedesktop.org/basedir-spec/latest/
 
     // TODO: Use secure_getenv instead?
     String result;
-    auto s = getenv(xgd_env.ptr);
+    auto s = secure_getenv(xgd_env.ptr);
     if(s){
         auto len = strlen(s);
         if(len > 0){
@@ -549,8 +549,7 @@ String get_xgd_or_fallback_dir(String xgd_env, String fallback, Allocator* alloc
         }
     }
     else{
-        // TODO: Append "fallback" to result of $HOME env
-        s = getenv("HOME");
+        s = secure_getenv("HOME");
         auto home = trim_ending_if_char(s[0 .. strlen(s)], Dir_Char);
         result = concat(home, to_string(Dir_Char), fallback, allocator);
     }

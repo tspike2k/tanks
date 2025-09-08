@@ -20,6 +20,12 @@ void clear_to_zero(T)(ref T t){
     }
 }
 
+T clear_flags(T)(T t, T flags)
+if(isIntegral!T){
+    T result = t & ~flags;
+    return t;
+}
+
 void[] to_void(T)(T* t){
     auto result = t[0 .. 1];
     return result;

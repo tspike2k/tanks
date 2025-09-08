@@ -16,8 +16,6 @@ module bind.opengl;
 
 pragma(lib, "GL");
 
-private import logging;
-
 // Types retrieved from here:
 // https://www.khronos.org/opengl/wiki/OpenGL_Type
 alias GLchar     = char;
@@ -35,14 +33,16 @@ alias GLsizei    = uint;
 alias GLenum     = uint;
 alias GLintptr   = ptrdiff_t;
 alias GLsizeiptr = ptrdiff_t;
-alias GLsync     = ptrdiff_t; // TODO: Is this unsigned? Glad uses a struct pointer. What should we really do?
+alias GLsync     = __GLsync*;
 alias GLbitfield = uint;
-alias GLhalf     = ushort; // TODO: Is there a better type to use for half-floats?
+alias GLhalf     = ushort;
 alias GLfloat    = float;
 alias GLclampf   = float;
 alias GLdouble   = double;
 alias GLclampd   = double;
 alias GLvoid     = void;
+
+struct __GLsync;
 
 alias OpenGL_Debug_Proc = extern(C) void function(GLenum, GLenum, GLuint, GLenum, GLsizei, GLchar*, GLvoid*);
 
@@ -831,7 +831,6 @@ enum GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT = 0x8CD7;
 enum GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER = 0x8CDB;
 enum GL_FRAMEBUFFER_INCOMPLETE_READ_BUFFER = 0x8CDC;
 enum GL_FRAMEBUFFER_UNSUPPORTED = 0x8CDD;
-
 
 extern(C){
     alias glGetStringFunc = const(GLubyte)* function(GLenum name);

@@ -363,8 +363,6 @@ enum SouthGravity     = 8;
 enum SouthEastGravity = 9;
 enum StaticGravity    = 10;
 
-// TODO: Determine what integer sizes should be used as function parameters
-
 XDisplay* XOpenDisplay(const(char)*);
 int XCloseDisplay(XDisplay*);
 Colormap XCreateColormap(XDisplay* display, Window window, Visual* visual, int alloc);
@@ -413,7 +411,7 @@ GC XCreateGC(Display* display, Drawable d, c_ulong valuemask, XGCValues* values)
 Bool XQueryExtension(Display*, const(char)*, int*, int*, int*);
 int XPutImage(Display* display, Drawable d, GC gc, XImage* image, int src_x, int src_y, int dest_x, int dest_y, uint width, uint height);
 int XMapWindow(Display*, Window);
-int XGetErrorText(Display* display, int code, char* buffer, int length); // TODO: What length?
+int XGetErrorText(Display* display, int code, char* buffer, int length);
 int XSetInputFocus(Display* display, Window focus, int revert_to, Time time);
 int XGetInputFocus(Display* display, Window* focus, int* revert_to);
 

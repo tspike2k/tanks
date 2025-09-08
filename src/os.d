@@ -10,20 +10,21 @@ version(linux){
     import core.sys.linux.time;
 
     void ns_sleep(ulong nanoseconds){
-        // TODO: nanosleep can fail if a signal is raised. In that case, it will return -1. Figure out how to handle this.
-        if(nanoseconds != 0){
+        if(nanoseconds > 0){
             timespec ts;
             ts.tv_sec  = nanoseconds / 1000000000;
             ts.tv_nsec = nanoseconds % 1000000000;
-            int r = nanosleep(&ts, null);
-            assert(r != -1);
+            // NOTE: nanosleep can fail when a signal is raised. If this happens it returns -1.
+            // In that case we try the function again.
+            while(nanosleep(&ts, null) == -1){
+
+            }
         }
     }
 
     ulong ns_timestamp(){
-        // TODO: Should we use CLOCK_MONOTONIC_RAW? It requires a "newer" kernel.
         timespec ts;
-        clock_gettime(CLOCK_MONOTONIC, &ts);
+        clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
         ulong result = ts.tv_sec * 1000000000 + ts.tv_nsec;
         return result;
     }

@@ -4,10 +4,6 @@ Copyright: Copyright (c) 2025
 License:   Boost Software License 1.0 (https://www.boost.org/LICENSE_1_0.txt)
 */
 
-// TODO: Make a generic RNG interface? We could use a strategy similar to our IsAllocator interface. The idea is, anything that implements randomU32 could work for
-// an IsRNG template. Then any functions that need to generate random numbers could be templatized and to accept any RNG. Then, all the functions (randomBool,
-// randomU32Between, ect) that are built on top of randomU32 could be templatized as well, allowing any random number generator to work off those.
-
 module random;
 
 private{
@@ -40,13 +36,6 @@ bool random_bool(Xorshift32* state){
     return result;
 }
 
-// Returns [0, max)
-/+ TODO: Do we need this one? It can be a bit confusing...
-uint randomU32Between(Xorshift32* state, uint max){
-    assert(max < uint.max);
-    return randomU32(state) % max;
-}+/
-
 // Returns [min, max)
 uint random_u32_between(Xorshift32* state, uint min, uint max){
     assert(min < max);
@@ -73,7 +62,6 @@ float random_angle(Xorshift32* state){
 }
 
 float random_sign(Xorshift32* state){
-    // TODO: Determine if this is the best way to generate a sign value!
     enum delim = uint.max / 2;
     return random_u32(state) >= delim ? 1.0f : -1.0f;
 }
