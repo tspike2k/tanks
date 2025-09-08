@@ -476,11 +476,13 @@ Menu_Event menu_process_event(Menu* menu, Event* event){
                     case Key_ID_Arrow_Down:{
                         menu.hover_item_index = get_next_hover_index(menu);
                         center_on_active_item(menu);
+                        event.consumed = true;
                     } break;
 
                     case Key_ID_Arrow_Up:{
                         menu.hover_item_index = get_prev_hover_index(menu);
                         center_on_active_item(menu);
+                        event.consumed = true;
                     } break;
 
                     case Key_ID_Arrow_Left:
@@ -492,6 +494,7 @@ Menu_Event menu_process_event(Menu* menu, Event* event){
                                     index_decr(item.index, item.index_max);
                                 else
                                     index_incr(item.index, item.index_max);
+                                event.consumed = true;
                             }
                         }
                     } break;
@@ -500,6 +503,7 @@ Menu_Event menu_process_event(Menu* menu, Event* event){
                         auto item = get_hover_item(menu);
                         if(item){
                             result = do_action(menu, item);
+                            event.consumed = true;
                         }
                     } break;
 
@@ -510,6 +514,7 @@ Menu_Event menu_process_event(Menu* menu, Event* event){
                             result = Menu_Event(Menu_Action.Pop_Menu);
 
                         pop_menu(menu);
+                        event.consumed = true;
                     } break;
                 }
             }

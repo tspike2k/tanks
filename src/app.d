@@ -23,6 +23,7 @@ TODO:
     - Bundle all save information into a single save file. This includes scores for ALL campaigns,
       and any user settings (such as player name).
     - Allow custom player name.
+    - Add enemy missiles
 
 Enemy AI:
     - Improved bullet prediction. Right now, even enemies with good aim stats are surprisingly
@@ -93,8 +94,8 @@ enum Meters_Per_Bullet_Smoke = 0.20f;
 
 enum Default_World_Camera_Polar = Vec3(90, -45, 1);
 
-enum Skip_Level_Intros = true; // TODO: We should make this based on if we're in the debug mode.
-//enum Skip_Level_Intros = false;
+//enum Skip_Level_Intros = true; // TODO: We should make this based on if we're in the debug mode.
+enum Skip_Level_Intros = false;
 //enum bool Immortal = true; // TODO: Make this toggleable
 enum bool Immortal = false;
 
@@ -2794,9 +2795,7 @@ void begin_campaign(App_State* s, uint variant_index){
     auto player_score = &score.player_scores[0];
     player_score.name = s.player_name;
 
-    //load_campaign_mission(s, &s.campaign, s.session.mission_index);
-    load_campaign_mission(s, &s.campaign, 5);
-    //load_campaign_mission(s, &s.campaign, 8);
+    load_campaign_mission(s, &s.campaign, s.session.mission_index);
 }
 
 void end_campaign(App_State* s, bool aborted){
@@ -2805,16 +2804,12 @@ void end_campaign(App_State* s, bool aborted){
     // TODO: Store the score slot somewhere so we can use it to highlight the latest high score.
     auto score_slot = maybe_post_highscore(variant_scores, &s.session.score);
     change_mode(s, Game_Mode.Menu);
-    if(!aborted){
-        s.menu.newly_added_score = score_slot;
-        set_menu(&s.menu, Menu_ID.High_Scores);
-        s.menu.variant_index = s.session.variant_index;
-        if(score_slot){
-            save_high_scores(s);
-        }
-    }
-    else{
-        set_menu(&s.menu, Menu_ID.Campaign);
+
+    s.menu.newly_added_score = score_slot;
+    set_menu(&s.menu, Menu_ID.High_Scores);
+    s.menu.variant_index = s.session.variant_index;
+    if(score_slot){
+        save_high_scores(s);
     }
 }
 
@@ -2954,13 +2949,12 @@ void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
 
                         case Key_ID_Escape:{
                             if(key.pressed){
+                                // NOTE: We shouldn't handle Escape when the menu is open,
+                                // since that's handled internally by the Menu logic.
                                 if(menu_is_closed(&s.menu)){
                                     set_menu(&s.menu, Menu_ID.Campaign_Pause);
+                                    evt.consumed = true;
                                 }
-                                else{
-                                    set_menu(&s.menu, Menu_ID.None);
-                                }
-                                evt.consumed = true;
                             }
                         } break;
 
@@ -3328,29 +3322,31 @@ extern(C) int main(int args_count, char** args){
     init_particles(&s.emitter_explosion_flames, 2048, &s.main_memory);
 
     auto player_input = zero_type!Tank_Commands;
-    bool send_broadcast;
 
-    Socket socket;
-    String net_port_number = "1654";
+    version(none){
+        bool send_broadcast;
+        Socket socket;
+        String net_port_number = "1654";
 
-    /+
-        When programming a netplay lobby, clients can send broadcast messages to look for hosts on the network.
-    +/
-    Socket_Address client_address;
-    auto broadcast_address = make_socket_address("255.255.255.255", net_port_number);
-    if(is_host){
-        auto host_address = make_socket_address(null, net_port_number);
-        if(open_socket(&socket, Socket_Broadcast|Socket_Reause_Address)
-        && bind_socket(&socket, &host_address)){
-            log("Opened host socket.\n");
+        /+
+            When programming a netplay lobby, clients can send broadcast messages to look for hosts on the network.
+        +/
+        Socket_Address client_address;
+        auto broadcast_address = make_socket_address("255.255.255.255", net_port_number);
+        if(is_host){
+            auto host_address = make_socket_address(null, net_port_number);
+            if(open_socket(&socket, Socket_Broadcast|Socket_Reause_Address)
+            && bind_socket(&socket, &host_address)){
+                log("Opened host socket.\n");
+            }
         }
-    }
-    else{
-        if(open_socket(&socket, Socket_Broadcast)){
-            log("Opened client socket.\n");
+        else{
+            if(open_socket(&socket, Socket_Broadcast)){
+                log("Opened client socket.\n");
+            }
         }
+        scope(exit) close_socket(&socket);
     }
-    scope(exit) close_socket(&socket);
 
     s.campaign.tank_types = g_tank_types[];
     load_campaign_from_file(s, Campaign_File_Name);
