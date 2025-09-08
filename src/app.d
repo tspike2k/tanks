@@ -636,6 +636,7 @@ void restart_campaign_mission(App_State* s){
             destroy_entity(&e);
         }
     }
+    remove_destroyed_entities(&s.world);
 }
 
 void load_campaign_mission(App_State* s, Campaign* campaign, uint mission_index){
@@ -3563,7 +3564,7 @@ extern(C) int main(int args_count, char** args){
                         auto pos = render_to_world_pos(p.pos);
                         render_ground_decal(
                             render_passes.ground_decals, Rect(pos, Vec2(0.25f, 0.10f)),
-                            Vec4(1, 1, 1, 1), p.angle, s.img_tread_marks
+                            Vec4(1, 1, 1, 0.4f), p.angle, s.img_tread_marks
                         );
                     }
 
@@ -3615,19 +3616,37 @@ extern(C) int main(int args_count, char** args){
 
                         auto font_large = &s.font_menu_large;
                         auto font_small = &s.font_menu_small;
-                        auto p_text = render_passes.hud_text;
+                        auto rp_text = render_passes.hud_text;
+
+                        auto text_bg_bounds = Rect(
+                            Vec2(window.width, window.height)*0.5f,
+                            Vec2(window.width, window.height*0.25f)*0.5f
+                        );
+
+                        auto rp_rects = render_passes.hud_rects;
+                        render_rect(rp_rects, text_bg_bounds, Vec4(0.90f, 0.20f, 0.20f, 1));
 
                         auto pen = Vec2(window.width, window.height)*0.5f;
+
+                        auto mission_text = gen_string("Mission {0}", s.session.mission_index+1, &s.frame_memory);
+                        auto enemies_text = gen_string("Enemy tanks: {0}", mission.enemies.length, &s.frame_memory);
+
                         render_text(
-                            p_text, font_large, pen,
-                            gen_string("Mission {0}", s.session.mission_index+1, &s.frame_memory),
+                            rp_text, font_large, pen + Vec2(6, -6), mission_text,
+                            Vec4(0, 0, 0, 1), Text_Align.Center_X
+                        );
+                        render_text(
+                            rp_text, font_large, pen, mission_text,
                             Text_White, Text_Align.Center_X
                         );
 
-                        pen.y -= cast(float)font_small.metrics.line_gap;
+                        pen.y -= cast(float)font_large.metrics.line_gap;
                         render_text(
-                            p_text, font_small, pen,
-                            gen_string("Enemy tanks: {0}", mission.enemies.length, &s.frame_memory),
+                            rp_text, font_small, pen + Vec2(4, -4), enemies_text,
+                            Vec4(0, 0, 0, 1), Text_Align.Center_X
+                        );
+                        render_text(
+                            rp_text, font_small, pen, enemies_text,
                             Text_White, Text_Align.Center_X
                         );
                     } break;
