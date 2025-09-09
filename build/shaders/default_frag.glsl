@@ -87,6 +87,6 @@ void main(){
 
     float shadow = calulcate_shadow(f_pos_in_lightspace, normal, light_dir);
 
-    vec3 linear_color = ambient + (diffuse + specular)*(1.0-shadow);
+    vec3 linear_color = ambient + (diffuse + specular)*max(1.0-shadow, 0.5);
     out_color = vec4(linear_color, 1.0f);
 }

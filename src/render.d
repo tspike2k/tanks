@@ -7,13 +7,6 @@ See accompanying file LICENSE_BOOST.txt or copy at http://www.boost.org/LICENSE_
 /+
 TODO:
     - Add destory texture function
-    - Have a shaders/common.glsl file and append it to the top of all the shaders we load in?
-    - Make a shader pre-processor?
-
-    Make a single shader constants block that is sensibly divided into chunks that can be block
-    copied by the appropriate shader pass.
-
-    We should also change the prefix render_ to be draw_. This would be faster to type.
 +/
 
 import memory;
@@ -37,11 +30,9 @@ private{
 }
 
 enum Render_Target : uint{
-    Standard, // TODO: What is this usually called?
+    Framebuffer,
     Shadow_Map,
 }
-
-enum Vec3_Up = Vec3(0, 1, 0); // TODO: Is this correct? If it is, in the future we would prefer it if z positive was up instead.
 
 enum Z_Far  =  1000.0f;
 enum Z_Near = -Z_Far;
@@ -99,7 +90,7 @@ struct Render_Pass{
     Render_Cmd* cmd_last;
 }
 
-enum Max_Quads_Per_Batch = 2048; // TODO: Isn't this a bit high? 512 would be a lot.
+enum Max_Quads_Per_Batch = 512;
 
 struct Shader_Constants{
     Mat4    mat_camera;
@@ -1027,7 +1018,7 @@ version(opengl){
             switch(pass.render_target){
                 default: assert(0);
 
-                case Render_Target.Standard:{
+                case Render_Target.Framebuffer:{
                     glBindFramebuffer(GL_FRAMEBUFFER, 0);
                     set_viewport(g_base_viewport);
                 } break;

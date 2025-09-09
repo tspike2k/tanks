@@ -449,7 +449,6 @@ version(linux){
 
         load_opengl_functions(cast(OpenGL_Load_Sym_Func)&glXGetProcAddressARB);
 
-        // TODO: Get hidden cursor working!
         XColor hidden_cursor_color = void;
         clear_to_zero(hidden_cursor_color);
         char[1] hidden_cursor_data = void;
@@ -636,12 +635,6 @@ version(linux){
                 result.visual           = visual_info.visual;
                 result.graphics_context = DefaultGC(g_x11_display, visual_info.screen);
 
-                /+
-                // TODO: Set window flags here.
-                auto user = &g_x11_window_info;
-                user.width  = width;
-                user.height = height;
-+/
                 XSetWMProtocols(g_x11_display, xwindow, &g_x11_atom_WMDeleteWindow, 1);
                 XStoreName(g_x11_display, xwindow, window_title);
                 XMapWindow(g_x11_display, xwindow);

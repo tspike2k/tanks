@@ -287,32 +287,6 @@ Mat4 mat4_rot_z(float angle_rad){
     return result;
 }
 
-version(none) Mat4 make_inverse_lookat_matrix(Mat4 m){ // TODO: Where did we get this from?
-    Mat4 result = void;
-
-    result.c[0 + 0*4] = m.c[0 + 0*4];
-    result.c[1 + 0*4] = m.c[0 + 1*4];
-    result.c[2 + 0*4] = m.c[0 + 2*4];
-    result.c[3 + 0*4] = 0.0f;
-
-    result.c[0 + 1*4] = m.c[1 + 0*4];
-    result.c[1 + 1*4] = m.c[1 + 1*4];
-    result.c[2 + 1*4] = m.c[1 + 2*4];
-    result.c[3 + 1*4] = 0.0f;
-
-    result.c[0 + 2*4] = m.c[2 + 0*4];
-    result.c[1 + 2*4] = m.c[2 + 1*4];
-    result.c[2 + 2*4] = m.c[2 + 2*4];
-    result.c[3 + 2*4] = 0.0f;
-
-    result.c[0 + 3*4] = -(m.c[0 + 3*4] * result.c[0 + 0*4] + m.c[1 + 3*4] * result.c[0 + 1*4] + m.c[2 + 3*4] * result.c[0 + 2*4]);
-    result.c[1 + 3*4] = -(m.c[0 + 3*4] * result.c[1 + 0*4] + m.c[1 + 3*4] * result.c[1 + 1*4] + m.c[2 + 3*4] * result.c[1 + 2*4]);
-    result.c[2 + 3*4] = -(m.c[0 + 3*4] * result.c[2 + 0*4] + m.c[1 + 3*4] * result.c[2 + 1*4] + m.c[2 + 3*4] * result.c[2 + 2*4]);
-    result.c[3 + 3*4] = 1.0f;
-
-    return result;
-}
-
 struct Rect{
     Vec2 center;
     Vec2 extents;
@@ -594,7 +568,6 @@ float map_range(float value, float source_min, float source_max, float dest_min,
 }
 
 Vec2 normalize(Vec2 v){
-    // TODO(tspike): Make an intrinsics.h file to wrap around this?
     float magnitude = sqrt(v.x * v.x + v.y * v.y);
 
     Vec2 result = Vec2(0.0f, 0.0f);
@@ -757,12 +730,8 @@ float dot(Vec3 a, Vec3 b)
     return a.x * b.x + a.y * b.y + a.z*b.z;
 }
 
-float distanceBetween(Vec2 a, Vec2 b)
-{
-    Vec2 diff;
-
-    diff = a - b;
-    // TODO(tspike): Make an intrinsics.h file to wrap around this!
+float distance_between(Vec2 a, Vec2 b){
+    auto diff = a - b;
     return sqrt(diff.x * diff.x + diff.y * diff.y);
 }
 

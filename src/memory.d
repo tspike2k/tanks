@@ -33,7 +33,6 @@ void[] to_void(T)(T* t){
 
 void swap(T)(ref T a, ref T b){
     static if(__traits(hasMember, T, "swap")){
-        static assert(0);
         // TODO: Figure out how to ensure we're actually calling the swap method of T rather than
         // the UFCS version of this function (which would lead to infinite recursion).
         a.swap(b);
@@ -343,8 +342,7 @@ Allocator make_sub_allocator(Allocator* allocator, size_t size, uint flags = 0){
 void[] begin_reserve_all(Allocator* allocator, size_t alignment = Default_Alignment){
     auto push      = calc_alignment_push(&allocator.memory[allocator.used], alignment);
     auto result    = allocator.memory[allocator.used + push .. $];
-    //allocator.used = allocator.memory.length; // TODO: Isn't this incorrect?
-    allocator.used = result.length;
+    allocator.used = allocator.memory.length;
     return result;
 }
 
@@ -438,9 +436,15 @@ String eat_line(ref Reader_Slice reader){
     String result = reader;
     size_t reader_next = reader.length;
     foreach(i, c; reader){
-        if(c == '\n'){ // TODO: Handle Windows style line ends?
+        if(c == '\n'){
             result = reader[0 .. i];
             reader_next = i+1;
+            break;
+        }
+        // Handle Windows style line ends
+        else if(c == '\r' && reader.length - i > 1 && reader[i+1] == '\n'){
+            result = reader[0 .. i];
+            reader_next = i+2;
             break;
         }
     }
@@ -544,9 +548,20 @@ if(isIntegral!T && !isFloatingPoint!T){
     if(s.length > 0){
         bool is_negative = s[0] == '-';
 
-        // TODO: Override "base" depending on if the string begins with 0x or 0b.
-        if(s[0] == '-' || s[0] == '+')
+        // The string itself can overide the base depending on if the string is a
+        // Hex or Binary literal.
+        if(s[0] == '0' && s.length > 1){
+            auto c = s[1];
+            if(c == 'x' || c == 'X'){
+                base = 16;
+            }
+            else if(c == 'b' || c == 'B'){
+                base = 2;
+            }
+        }
+        else if(s[0] == '-' || s[0] == '+'){
             s = s[1..$];
+        }
 
         succeeded = s.length > 0;
         uint exponent = 0;
@@ -739,11 +754,6 @@ void serialize(Serialize_Mode Mode, T)(Serializer* serializer, ref T t){
 // Sorting
 //
 ////
-
-// TODO: For sorting functions, it may be useful to also take an optional swap function/callable.
-
-// TODO: Do we also want to support string literals for comparators? The D standard library does
-// that.
 
 void quick_sort(alias Compare, T)(T[] t)
 if(isCallable!Compare || is(typeof(Compare) == string)){
