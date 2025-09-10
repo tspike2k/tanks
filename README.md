@@ -8,7 +8,7 @@ This is an early work-in-progress. It's currently in active development. This pr
 
 ## Screenshot
 
-![Screenshot](https://github.com/tspike2k/tanks/screenshot.png)
+![Screenshot](https://github.com/tspike2k/tanks/blob/main/screenshot.png)
 
 ## License
 
