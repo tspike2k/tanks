@@ -142,6 +142,7 @@ struct Session{
 
     Score_Entry score;
     uint mission_enemy_tanks_count;
+    uint enemies_remaining;
     uint[Max_Players] mission_kills;
 }
 
@@ -2271,7 +2272,7 @@ Entity* get_closest_player(App_State* s, Vec2 pos){
 
 void simulate_world(App_State* s, Tank_Commands* input, float dt){
     // Entity simulation
-    uint remaining_enemies_count;
+    s.session.enemies_remaining = 0;
     Vec2 hit_normal = void;
     float hit_depth = void;
     // TODO: Store the world bounds in the app_state somewhere? We seem to need it a lot.
@@ -2318,7 +2319,7 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
                     }
 
                     if(!is_player(&e) && !is_destroyed(&e)){
-                        remaining_enemies_count++;
+                        s.session.enemies_remaining++;
                     }
 
                     if(passed_range(meters_moved_prev, e.total_meters_moved, Meters_Per_Treadmark)){
@@ -2408,7 +2409,7 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
 
     remove_destroyed_entities(&s.world);
 
-    if(remaining_enemies_count == 0){
+    if(s.session.enemies_remaining == 0){
         // TODO: End the campaign if this is the last mission
         s.session.state = Session_State.Mission_End;
         s.session.timer = 0.0f;
@@ -3673,6 +3674,18 @@ extern(C) int main(int args_count, char** args){
                                 "Start!", Text_White, Text_Align.Center_X
                             );
                         }
+
+                        /+
+                        Rect
+
+                        render_rect(
+                            render_passes.hud_rects,
+
+                        );
+
+                        render_rect(
+                            render_passes.hud_text,
+                        );+/
                     } break;
 
                     case Session_State.Mission_End:{

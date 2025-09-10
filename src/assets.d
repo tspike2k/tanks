@@ -460,11 +460,6 @@ struct Font{
 
 Font_Glyph* get_glyph(Font* font, uint codepoint){
     Font_Glyph* result = &font.glyphs[0]; // TODO: Use a better fallback glyph.
-
-    if(codepoint == '-'){
-        int i = 42;
-    }
-
     foreach(ref glyph; font.glyphs){
         if(glyph.codepoint == codepoint){
             result = &glyph;

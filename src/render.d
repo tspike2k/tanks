@@ -163,7 +163,7 @@ Mat4_Pair orthographic_projection(Rect camera_bounds){
 
 Mat4 make_lookat_matrix(Vec3 camera_pos, Vec3 look_pos, Vec3 up_pos){
     Vec3 look_dir = normalize(look_pos - camera_pos);
-    Vec3 up_dir   = normalize(up_pos); // TODO: Do we really need to normalize the up direction?
+    Vec3 up_dir   = up_pos;
 
     Vec3 right_dir   = normalize(cross(look_dir, up_dir));
     Vec3 perp_up_dir = cross(right_dir, look_dir);
@@ -886,10 +886,10 @@ version(opengl){
         glDepthMask(GL_TRUE);
         glDepthFunc(GL_LESS);
         glDepthRange(0.0f, Z_Far);
-        //glEnable(GL_DEPTH_CLAMP); // TODO: Is this a good idea? Probably not
 
         // According to Casey Muratori (Handmade Hero ep 372), driver vendors realized that
-        // state changes through VAOs is actually quite inefficient.
+        // state changes through VAOs is actually quite inefficient.  So here, we set one once
+        // and forget it.
         GLuint vao;
         glGenVertexArrays(1, &vao);
         glBindVertexArray(vao);
@@ -961,7 +961,6 @@ version(opengl){
         glDrawBuffer(GL_NONE);
         glReadBuffer(GL_NONE);
 
-        // TODO: Can we simply bind the shadow map once?
         set_texture(shadow_map_texture, Texture_Index_Shadow_Map);
 
         if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE){
@@ -985,7 +984,6 @@ version(opengl){
     }
 
     void render_begin_frame(uint viewport_width, uint viewport_height, Vec4 clear_color, float time, Vec2 screen_size, Allocator* memory){
-        // TODO: Set viewport and the like?
         g_allocator = memory;
         g_render_pass_first = null;
         g_render_pass_last  = null;
@@ -1096,11 +1094,9 @@ version(opengl){
                         auto cmd = cast(Clear_Target*)cmd_node;
                         auto color = cmd.color;
 
-                        //if(pass.render_target != Render_Target.Shadow_Map){
-                        if(true){
+                        if(pass.render_target != Render_Target.Shadow_Map){
                             glClearColor(color.r, color.g, color.b, color.a);
                             glClearDepth(Z_Far);
-                            // TODO: Only clear depth if the depth testing is enabled
                             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
                         }
                         else{
@@ -1132,7 +1128,6 @@ version(opengl){
 
                     case Command.Render_Ground_Decal:{
                         material = null;
-                        // TODO: Decal rendering that doesn't have z-fighting!
                         auto cmd = cast(Render_Ground_Decal*)cmd_node;
 
                         // Drawing rotated rects adapted from this answer:
