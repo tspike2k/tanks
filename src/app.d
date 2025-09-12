@@ -92,10 +92,10 @@ enum Bullet_Smoke_Lifetime = 2.0f;
 enum Bullet_Ground_Offset = Vec3(0, 0.5f, 0);
 enum Meters_Per_Bullet_Smoke = 0.20f;
 
-enum Default_World_Camera_Polar = Vec3(90, -45, 1);
+enum Default_World_Camera_Polar = Vec3(90, -45, 1); // TODO: Make these in radian eventually
 
-//enum Skip_Level_Intros = true; // TODO: We should make this based on if we're in the debug mode.
-enum Skip_Level_Intros = false;
+enum Skip_Level_Intros = true; // TODO: We should make this based on if we're in the debug mode.
+//enum Skip_Level_Intros = false;
 //enum bool Immortal = true; // TODO: Make this toggleable
 enum bool Immortal = false;
 
@@ -133,6 +133,9 @@ enum Session_State : uint{
 
 struct Session{
     Session_State state;
+    uint                   player_index;
+    uint                   players_count;
+    Entity_ID[Max_Players] player_entity_ids;
     uint  lives;
     uint  variant_index;
     uint  mission_index;
@@ -172,6 +175,13 @@ String[] Shader_Names = [
     "menu_button",
 ];
 
+String[Max_Players] Player_Index_Strings = [
+    "P1",
+    "P2",
+    "P3",
+    "P4",
+];
+
 struct App_State{
     Allocator main_memory;
     Allocator frame_memory;
@@ -184,7 +194,6 @@ struct App_State{
 
     bool         running;
     float        time;
-    Entity_ID    player_entity_id;
     Vec2         mouse_pixel;
     Vec2         mouse_world;
     World        world;
@@ -206,6 +215,12 @@ struct App_State{
     Menu      menu;
     Gui_State gui;
 
+    Particle_Emitter emitter_treadmarks;
+    Particle_Emitter emitter_bullet_contrails;
+    Particle_Emitter emitter_explosion_flames;
+
+    // Assets
+
     Font font_menu_large;
     Font font_menu_small;
     Font font_editor_small;
@@ -221,10 +236,6 @@ struct App_State{
     Sound sfx_pop;
     Sound sfx_mine_explosion;
     Sound sfx_menu_click;
-
-    Particle_Emitter emitter_treadmarks;
-    Particle_Emitter emitter_bullet_contrails;
-    Particle_Emitter emitter_explosion_flames;
 
     union{
         struct{
@@ -393,7 +404,6 @@ char[16] get_score_date(){
     return result;
 }
 
-// TODO: Result should be used to highlight which score was added (if any) in the results screen.
 Score_Entry* maybe_post_highscore(Variant_Scores* scores, Score_Entry* current){
     Score_Entry* ranking;
     auto current_total_score = get_total_score(current);
@@ -543,7 +553,7 @@ bool load_campaign_from_file(App_State* s, String file_name){
     return success;
 }
 
-bool is_player(Entity* e){
+bool is_player_tank(Entity* e){
     bool result = (e.cell_info & Map_Cell_Is_Player) != 0;
     return result;
 }
@@ -626,7 +636,7 @@ void restart_campaign_mission(App_State* s){
 
     foreach(ref e; iterate_entities(&s.world)){
         if(e.type == Entity_Type.Tank
-        && (is_player(&e) || e.health > 0)){
+        && (is_player_tank(&e) || e.health > 0)){
             auto cell_info = e.cell_info;
             auto tank_type = e.tank_type_index;
 
@@ -669,6 +679,8 @@ void load_campaign_mission(App_State* s, Campaign* campaign, uint mission_index)
     auto map_center = s.world.bounds.center;
     s.world_camera_target_pos = world_to_render_pos(map_center);
 
+    clear_to_zero(s.session.player_entity_ids);
+
     foreach(y; 0 .. map.height){
         foreach(x; 0 .. map.width){
             auto p = Vec2(x, y) + Vec2(0.5f, 0.5f);
@@ -678,11 +690,10 @@ void load_campaign_mission(App_State* s, Campaign* campaign, uint mission_index)
                 bool is_player = (cell_info & Map_Cell_Is_Player) != 0;
 
                 if(is_player){
-                    assert(tank_index >= 0 && tank_index <= 4);
+                    assert(tank_index >= 0 && tank_index < Max_Players);
                     if(tank_index == 0){
                         auto e = spawn_tank(s, p, map_center, cell_info, 0, 0);
-                        // TODO: We should use an array of of entity_ids that maps to player indeces
-                        s.player_entity_id = e.id;
+                        s.session.player_entity_ids[tank_index] = e.id;
                     }
                 }
                 else{
@@ -717,13 +728,21 @@ bool timer_update(AI_Timer* timer, float dt, Xorshift32* rng){
     return has_opportunity;
 }
 
+Entity_ID[] get_player_entity_ids(Session* session){
+    auto result = session.player_entity_ids[0 .. session.players_count];
+    return result;
+}
+
 bool players_defeated(App_State* s){
     bool result = true;
-    // TODO: Check the status of all player tanks!
-    auto player = get_entity_by_id(&s.world, s.player_entity_id);
-    if(player && player.health > 0){
-        result = false;
+    foreach(entity_id; get_player_entity_ids(&s.session)){
+        auto player = get_entity_by_id(&s.world, entity_id);
+        if(player && player.health > 0){
+            result = false;
+            break;
+        }
     }
+
     return result;
 }
 
@@ -1409,14 +1428,6 @@ bool is_breakable(Entity* e){
     return result;
 }
 
-void generate_test_level(App_State* s){
-    {
-        auto player = add_entity(&s.world, Vec2(2, 2), Entity_Type.Tank);
-        s.player_entity_id = player.id;
-        player.cell_info |= Map_Cell_Is_Player;
-    }
-}
-
 enum Shape_Type : uint{
     None,
     Circle,
@@ -1581,15 +1592,13 @@ bool is_tank_player(Entity* e){
 void add_to_score_if_killed_by_player(App_State* s, Entity* tank, Entity_ID attacker_id){
     assert(tank.type == Entity_Type.Tank);
     if(!is_tank_player(tank)){
-        // TODO: Loop through each player to find who controlled the
-        // the attacker that shot or placed the mine that defeated the
-        // tank
-        if(attacker_id == s.player_entity_id){
-            auto player_index = 0;
-            auto score_entry = &s.session.score.player_scores[player_index];
-            score_entry.kills += 1;
-            score_entry.points += 1; // TODO: Make points based on tank type, plus proximity, plus ricochet count
-            s.session.mission_kills[player_index]++;
+        foreach(player_index, entity_id; get_player_entity_ids(&s.session)){
+            if(attacker_id == entity_id){
+                auto score_entry = &s.session.score.player_scores[player_index];
+                score_entry.kills += 1;
+                score_entry.points += 1; // TODO: Make points based on proximity, plus ricochet count
+                s.session.mission_kills[player_index]++;
+            }
         }
     }
 }
@@ -1628,9 +1637,10 @@ void resolve_collision(App_State* s, Entity* a, Entity* b, Vec2 normal, float de
         default: break;
 
         case make_collision_id(Entity_Type.Tank, Entity_Type.Bullet):{
-            bool is_immortal = a.id == s.player_entity_id && Immortal;
+            auto is_player = is_player_tank(a);
+            bool is_immortal = is_player && Immortal;
             if(!is_immortal){
-                if(is_player(a)){
+                if(is_player){
                     auto player_index = get_player_index(a);
                     s.session.score.player_scores[player_index].tanks_lost += 1;
                 }
@@ -1685,7 +1695,7 @@ void resolve_collision(App_State* s, Entity* a, Entity* b, Vec2 normal, float de
 
         case make_collision_id(Entity_Type.Tank, Entity_Type.Mine):{
             if(is_exploding(b)){
-                if(is_player(a)){
+                if(is_player_tank(a)){
                     auto player_index = get_player_index(a);
                     s.session.score.player_scores[player_index].tanks_lost += 1;
                 }
@@ -1986,7 +1996,7 @@ void apply_tank_commands(App_State* s, Entity* e, Tank_Commands* input, float dt
         e.total_meters_moved += (squared(radius)*abs(rotation))/2.0f;
     }
 
-    if(!is_player(e)){
+    if(!is_player_tank(e)){
         auto target_angle = get_angle(e.aim_target_pos - e.pos);
         e.turret_angle = rotate_towards(e.turret_angle, target_angle, (PI*0.50f)*dt);
     }
@@ -2073,7 +2083,7 @@ bool is_ally_within_range(World* world, Entity* e, float test_range){
         if(target.health > 0 && target.type == Entity_Type.Tank
         && target.id != e.id){
             auto d = dist_sq(target.pos, e.pos);
-            if(!is_player(&target) && d < min_dist_sq){
+            if(!is_player_tank(&target) && d < min_dist_sq){
                 min_dist_sq = d;
             }
         }
@@ -2132,7 +2142,7 @@ bool should_take_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info,
                 if(target.type == Entity_Type.Tank){
                     auto tank_radius = target.extents.x;
                     if(circle_overlaps_obb(target.pos, tank_radius + Bullet_Radius, obb_center, obb_extents, obb_angle)){
-                        if(is_player(&target)){
+                        if(is_player_tank(&target)){
                             result = true;
                         }
                         else{
@@ -2243,7 +2253,7 @@ void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
     e.aim_timer -= dt;
     if(e.aim_timer < 0.0f){
         e.aim_timer = tank_info.aim_timer + e.aim_timer;
-        auto player = get_closest_player(s, e.pos);
+        auto player = get_closest_live_player(s, e.pos);
         if(player){
             auto len   = length(e.pos - player.pos);
             auto angle = get_angle(player.pos - e.pos);
@@ -2262,11 +2272,21 @@ void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
     }
 }
 
-Entity* get_closest_player(App_State* s, Vec2 pos){
+Entity* get_closest_live_player(App_State* s, Vec2 pos){
     float min_dist_sq = float.max;
 
-    // TODO: Loop through all the player and pick the closest one
-    Entity* result = get_entity_by_id(&s.world, s.player_entity_id);
+    Entity* result;
+    foreach(entity_id; get_player_entity_ids(&s.session)){
+        auto player = get_entity_by_id(&s.world, entity_id);
+        if(player && player.health > 0){
+            auto d = dist_sq(pos, player.pos);
+            if(d < min_dist_sq){
+                min_dist_sq = d;
+                result = player;
+            }
+        }
+    }
+
     return result;
 }
 
@@ -2294,8 +2314,10 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
 
                 case Entity_Type.Tank:{
                     auto commands = zero_type!Tank_Commands;
-                    if(is_player(&e)){
-                        assert(e.id == s.player_entity_id);
+                    bool is_current_player = e.id == s.session.player_entity_ids[s.session.player_index];
+
+                    if(is_player_tank(&e)){
+                        assert(is_current_player);
                         // TODO: Do we really want to do a copy here? For now we do this since
                         // apply_tank_commands modifies things like the turn_angle. That's useful
                         // for enemy AI, but doing that for the player tank would override player
@@ -2314,11 +2336,11 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
                         e.action_stun_timer -= dt;
                     }
 
-                    if(e.id == s.player_entity_id){
+                    if(is_current_player){
                         e.turret_angle = get_angle(s.mouse_world - e.pos);
                     }
 
-                    if(!is_player(&e) && !is_destroyed(&e)){
+                    if(!is_player_tank(&e) && !is_destroyed(&e)){
                         s.session.enemies_remaining++;
                     }
 
@@ -2780,7 +2802,9 @@ void handle_event_common(App_State* s, Event* evt, float dt){
     }
 }
 
-void begin_campaign(App_State* s, uint variant_index){
+void begin_campaign(App_State* s, uint variant_index, uint players_count, uint player_index){
+    assert(players_count > 0 && players_count <= Max_Players);
+    assert(player_index < Max_Players);
     auto variant = &s.campaign.variants[variant_index];
 
     s.world.next_entity_id = Null_Entity_ID+1;
@@ -2789,9 +2813,11 @@ void begin_campaign(App_State* s, uint variant_index){
     s.session.state = Session_State.Mission_Intro;
     s.session.lives = variant.lives;
     s.session.variant_index = variant_index;
+    s.session.players_count = players_count;
+    s.session.player_index  = player_index;
 
     auto score = &s.session.score;
-    score.players_count = 1;
+    score.players_count = players_count;
     score.total_lives += s.session.lives;
 
     auto player_score = &score.player_scores[0];
@@ -2837,7 +2863,7 @@ void handle_menu_event(App_State* s, Event* evt){
         case Menu_Action.Begin_Campaign:{
             set_menu(&s.menu, Menu_ID.None);
             change_mode(s, Game_Mode.Campaign);
-            begin_campaign(s, s.session.variant_index);
+            begin_campaign(s, s.session.variant_index, 1, 0);
         } break;
 
         case Menu_Action.Abort_Campaign:{
@@ -3259,7 +3285,6 @@ extern(C) int main(int args_count, char** args){
 
     seed(&s.rng, 1247865); // TODO: Seed using current time value?
 
-    //auto base_path    = get_path_to_executable(&s.main_memory);
     auto asset_path   = make_path_string("$APP_DIR/assets/", &s.main_memory);
     auto shaders_path = make_path_string("$APP_DIR/shaders/", &s.main_memory);
     s.data_path       = make_path_string("$DATA/tspike2k/tanks/", &s.main_memory);
@@ -3378,7 +3403,7 @@ extern(C) int main(int args_count, char** args){
     ulong prev_timestamp    = current_timestamp;
 
     // TODO: Z value doesn't seem to have any affect?
-    s.world_camera_polar = Default_World_Camera_Polar; // TODO: Make these in radian eventually
+    s.world_camera_polar = Default_World_Camera_Polar;
 
     while(s.running){
         auto perf_timer_frame = begin_perf_timer("Entire Frame");
@@ -3389,7 +3414,6 @@ extern(C) int main(int args_count, char** args){
         scope(exit) pop_frame(&s.frame_memory);
 
         auto window = get_window_info();
-        auto window_aspect_ratio = (cast(float)window.width)/(cast(float)window.height);
 
         auto dt = target_dt;
         s.time += dt;
@@ -3401,10 +3425,6 @@ extern(C) int main(int args_count, char** args){
 
                 case Game_Mode.Editor:{
                     editor_toggle(s);
-                } break;
-
-                case Game_Mode.Campaign:{
-                    begin_campaign(s, s.session.variant_index);
                 } break;
             }
             s.mode = s.next_mode;
@@ -3419,9 +3439,12 @@ extern(C) int main(int args_count, char** args){
         auto world_up_vector = Vec3(0, 1, 0);
         set_shadow_map_camera(&shadow_map_camera, &s.light, s.world_camera_target_pos, world_up_vector);
 
+        float window_aspect_ratio = (cast(float)window.width)/(cast(float)window.height);
         Camera world_camera = void;
-        set_world_projection(&world_camera, map.width+2, map.height+2, window_aspect_ratio);
         set_world_view(&world_camera, s.world_camera_polar, s.world_camera_target_pos, world_up_vector);
+        set_world_projection(&world_camera, map.width, map.height, window_aspect_ratio, 45.0f);
+        //set_world_projection(&world_camera, map.width, map.height, window_aspect_ratio, 0);
+        //set_world_view(&world_camera, world_to_render_pos(Vec2(map.width, map.height)*0.5f), 90);
 
         auto mouse_world_3d = camera_ray_vs_plane(&world_camera, s.mouse_pixel, window.width, window.height);
         s.mouse_world = Vec2(mouse_world_3d.x, -mouse_world_3d.z);
@@ -3461,7 +3484,6 @@ extern(C) int main(int args_count, char** args){
         pass = add_render_pass(&world_camera);
         render_passes.ground_decals = pass;
         set_shader(pass, &s.text_shader);
-        //set_light(pass, &s.light);
         pass.flags = Render_Flag_Disable_Depth_Writes;
         pass.blend_mode = Blend_Mode.One_Minus_Source_Alpha;
 
@@ -3654,15 +3676,18 @@ extern(C) int main(int args_count, char** args){
                     } break;
 
                     case Session_State.Mission_Start:{
-                        // TODO: Do this for all players in the game
-                        auto player = get_entity_by_id(&s.world, s.player_entity_id);
+                        foreach(player_index, entity_id; get_player_entity_ids(&s.session)){
+                            auto player = get_entity_by_id(&s.world, entity_id);
 
-                        float offset_y = 1.2f; // TODO: Beter offset value.
-                        auto screen_p = project(&world_camera, Vec3(player.pos.x, 0, -player.pos.y - offset_y), window.width, window.height);
-                        render_text(
-                            render_passes.hud_text, &s.font_editor_small, screen_p, "P1",
-                            Text_White, Text_Align.Center_X
-                        );
+                            float offset_y = 1.2f; // TODO: Offset value should be resolution independent.
+                            auto screen_p = project(&world_camera, Vec3(player.pos.x, 0, -player.pos.y - offset_y), window.width, window.height);
+                            auto player_text = Player_Index_Strings[player_index];
+                            render_text(
+                                render_passes.hud_text, &s.font_editor_small, screen_p, player_text,
+                                Text_White, Text_Align.Center_X
+                            );
+                        }
+
                     } break;
 
                     case Session_State.Playing_Mission:{
@@ -3674,18 +3699,6 @@ extern(C) int main(int args_count, char** args){
                                 "Start!", Text_White, Text_Align.Center_X
                             );
                         }
-
-                        /+
-                        Rect
-
-                        render_rect(
-                            render_passes.hud_rects,
-
-                        );
-
-                        render_rect(
-                            render_passes.hud_text,
-                        );+/
                     } break;
 
                     case Session_State.Mission_End:{
@@ -3742,8 +3755,6 @@ extern(C) int main(int args_count, char** args){
 
         audio_update();
 
-        // TODO: Sometimes the game becomes a stuttering mess, and the only way to fix it is
-        // to minimize the window and restore it. Figure out what's causing this.
         current_timestamp = ns_timestamp();
         ulong target_frame_time = cast(ulong)(dt*1000000000.0f);
         ulong elapsed_time = current_timestamp - prev_timestamp;

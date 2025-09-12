@@ -212,8 +212,8 @@ Rect calc_scaling_viewport(float res_x, float res_y, float window_w, float windo
     float target_h = target_w / aspect_ratio;
 
     if(target_h > window_h){
-        target_h = window_h;
         target_w = target_h*aspect_ratio;
+        target_h = window_h;
     }
 
     float min_x = (window_w - target_w)*0.5f;
@@ -230,16 +230,24 @@ struct Camera{
     Vec3      facing;
 }
 
-void set_world_projection(Camera* camera, float target_w, float target_h, float window_aspect_ratio){
+void set_world_projection(Camera* camera, float target_w, float target_h, float window_aspect_ratio, float x_rot_degrees){
     // Aspect ratio correction for orthographic perspective adapted from the following:
     // http://www.david-amador.com/2013/04/opengl-2d-independent-resolution-rendering/
     Vec2 camera_size = void;
+
+    // When the window width is greater than the map width, the camera should snap to the
+    // bottom and top edges of the map. If not, then the camera should snap to the left
+    // and right adges of the map. Since our map will be displayed at an angle, we need to
+    // correct for that so we know where the top and bottom of the map will be in the window.
+    auto angle_correction = cos(x_rot_degrees);
+    target_h = target_h*angle_correction;
     if(window_aspect_ratio >= target_w/target_h){
         camera_size = Vec2(target_h*window_aspect_ratio, target_h);
     }
     else{
         camera_size = Vec2(target_w, target_w/window_aspect_ratio);
     }
+
     auto camera_bounds = Rect(Vec2(0, 0), camera_size*0.5f);
     camera.proj = orthographic_projection(camera_bounds);
 }
