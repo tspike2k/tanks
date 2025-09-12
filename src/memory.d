@@ -262,6 +262,12 @@ struct Allocator{
         alignment = alignment;
     }
 
+    // This simplifies formatting arbitrary text.
+    void put(const(char)[] text){
+        copy(text, cast(char[])memory[used .. used + text.length]);
+        used += text.length;
+    }
+
     Allocator_Frame* last_frame;
     Allocator* scratch;
 }

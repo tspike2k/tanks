@@ -182,6 +182,13 @@ String[Max_Players] Player_Index_Strings = [
     "P4",
 ];
 
+Vec4[Max_Players] Player_Text_Colors = [
+    Vec4(0.12f, 0.46f, 0.92f, 1.0f),
+    Vec4(0.80f, 0.20f, 0.24f, 1.0f),
+    Vec4(0.28f, 0.78f, 0.28f, 1.0f),
+    Vec4(1.0f,  0.68f, 0.18f, 1.0f),
+];
+
 struct App_State{
     Allocator main_memory;
     Allocator frame_memory;
@@ -3132,35 +3139,6 @@ void change_mode(App_State* s, Game_Mode mode){
     s.next_mode = mode;
 }
 
-/+
-struct Particle_Sort{
-    Vec3 camera_pos;
-    Vec3 camera_facing;
-
-    this(Vec3 p, Vec3 facing){
-        camera_pos   = p;
-        camera_facing = facing;
-    }
-
-    // TODO: Rename this to be something like "compare?" We're using opcall so that we
-    // can take either a function or an object, but I don't know if that's really needed.
-    bool opCall(ref Particle a, ref Particle b){
-        // Here we wish to sort particles by their distance to the camera, where the furthest
-        // particle will be drawn first and particles closer will be drawn after. This is
-        // done so that blending on semi-transparent particles will be correct. Intuition
-        // would lead one to use the distance from the camera center to the particle center,
-        // but this doesn't work because this game uses an orthographic camera. We can instead
-        // project the particle center onto a ray from the camera's center towards it's facing
-        // direction. This appears to work quite well, though this technique doesn't appear to be
-        // mentioned anywhere on the Internet as near as I can tell.
-        auto dist_a = dot(camera_facing, a.pos - camera_pos);
-        auto dist_b = dot(camera_facing, b.pos - camera_pos);
-
-        bool result = dist_a < dist_b;
-        return result;
-    }
-}+/
-
 bool is_circle_inside_block(World* world, Vec2 pos, float radius){
     // TODO: We could speed this up by partitioning entities on a grid. The map is using grid
     // cells anyway, so this would be intuitive.
@@ -3384,7 +3362,7 @@ extern(C) int main(int args_count, char** args){
     init_gui(&s.gui);
     s.gui.font = &s.font_editor_small;
 
-    auto target_latency = (Audio_Frames_Per_Sec/60)*3;   // TODO: Should be configurable by the user
+    auto target_latency = (Audio_Frames_Per_Sec/60)*4;   // TODO: Should be configurable by the user
     auto mixer_buffer_size_in_frames = target_latency*2; // TODO: Should be configurable by the user
     audio_init(Audio_Frames_Per_Sec, 2, target_latency, mixer_buffer_size_in_frames, &s.main_memory);
     scope(exit) audio_shutdown();
@@ -3518,6 +3496,7 @@ extern(C) int main(int args_count, char** args){
         set_shader(pass, &s.text_shader);
         set_texture(pass, s.img_blank_rect);
         pass.flags = Render_Flag_Disable_Depth_Test;
+        pass.blend_mode = Blend_Mode.One_Minus_Source_Alpha;
 
         pass = add_render_pass(&hud_camera);
         render_passes.hud_button = pass;
@@ -3706,28 +3685,61 @@ extern(C) int main(int args_count, char** args){
                         auto font_small = &s.font_menu_small;
                         auto p_text = render_passes.hud_text;
 
-                        auto pen = Vec2(window.width, window.height)*0.5f;
-                        render_text(
-                            p_text, font_large, pen,
-                            "Mission Cleared!",
-                            Text_White, Text_Align.Center_X
+                        auto window_bounds = rect_from_min_wh(Vec2(0, 0), window.width, window.height);
+
+                        auto cleared_height = font_large.metrics.height + 0.08f*cast(float)window.height;
+                        auto cleared_bounds = Rect(
+                            window_bounds.center + Vec2(0, height(window_bounds)*0.25f),
+                            Vec2(window_bounds.extents.x, cleared_height*0.5f)
                         );
 
+                        auto bg_color = Vec4(0.65f, 0.62f, 0.58f, 0.75f);
+                        auto cleared_msg = "Mission Cleared!";
+                        auto baseline = center_text(font_large, cleared_msg, cleared_bounds);
+                        render_rect(render_passes.hud_rects, cleared_bounds, bg_color);
+                        render_text(p_text, font_large, baseline, cleared_msg, Vec4(0.8f, 0.8f, 0.2f, 1));
+
+
+                        float score_height = font_large.metrics.height + font_large.metrics.line_gap + font_small.metrics.height;
+                        auto score_bounds = Rect(
+                            window_bounds.center - Vec2(0, score_height*0.5f),
+                            Vec2(window_bounds.extents.x*0.75f, score_height*0.5f)
+                        );
+
+                        //auto players_count = s.session.player_count;
+                        auto players_count = 4;
+                        auto players_text = alloc_array!String(&s.frame_memory, players_count);
+
+                        float mission_scores_text_width = 0.0f;
+                        auto mission_scores = s.session.mission_kills[0 .. players_count];
+                        foreach(player_index, score; mission_scores){
+                            auto writer = begin_buffer_writer(&s.frame_memory);
+                            format(writer, "{0}: {1} ", Player_Index_Strings[player_index], score);
+                            auto text = end_buffer_writer(&s.frame_memory, &writer);
+                            players_text[player_index] = text;
+                            mission_scores_text_width += get_text_width(font_small, text);
+                        }
+
+                        render_rect(render_passes.hud_rects, score_bounds, bg_color);
+
+                        auto pen = Vec2(score_bounds.center.x, top(score_bounds));
+                        pen.y -= cast(float)font_large.metrics.height;
+                        auto score_head_text = "Destroyed:";
+                        baseline = center_text(font_large, score_head_text, pen);
+                        render_text(p_text, font_large, baseline, score_head_text, Text_White);
+
+                        float score_advance = (width(score_bounds) - mission_scores_text_width)
+                            / (cast(float)players_count);
+
+                        pen.x = left(score_bounds);
                         pen.y -= cast(float)font_large.metrics.line_gap;
-                        render_text(
-                            p_text, font_large, pen,
-                            "Destroyed",
-                            Text_White, Text_Align.Center_X
-                        );
 
-                        // TODO: Show who destroyed how many tanks
-                        pen.y -= cast(float)font_small.metrics.line_gap;
-                        auto kills = s.session.mission_kills[0];
-                        render_text(
-                            p_text, font_small, pen,
-                            gen_string("P1 {0}", kills, &s.frame_memory),
-                            Text_White, Text_Align.Center_X
-                        );
+                        foreach(player_index, text; players_text){
+                            pen.x += score_advance;
+                            baseline = center_text(font_small, text, pen);
+                            auto text_color = Player_Text_Colors[player_index];
+                            render_text(p_text, font_small, pen, text, text_color);
+                        }
                     } break;
                 }
 
@@ -3736,7 +3748,7 @@ extern(C) int main(int args_count, char** args){
                     auto crosshair_color = Vec4(1, 0, 0, 0.65f); // TODO: This should be based off the player color.
                     auto cursor_p = Vec2(s.mouse_pixel.x, window.height - s.mouse_pixel.y);
                     set_texture(render_passes.hud_text, s.img_crosshair);
-                    render_rect(render_passes.hud_text, Rect(cursor_p, Vec2(30, 30)), crosshair_color);
+                    render_rect(render_passes.hud_text, Rect(cursor_p, Vec2(window.width, window.width)*0.025f), crosshair_color);
                 }
             } break;
         }

@@ -367,23 +367,30 @@ void pop_scissor(Render_Pass* pass){
 
 Vec2 center_text_left(Font* font, String text, Rect bounds){
     auto h = cast(float)font.metrics.cap_height;
-    auto result = floor(Vec2(left(bounds), bounds.center.y - 0.5f*h));
+    auto result = Vec2(left(bounds), bounds.center.y - 0.5f*h);
     return result;
 }
 
 Vec2 center_text_right(Font* font, String text, Rect bounds){
     auto text_width = get_text_width(font, text);
     auto h = cast(float)font.metrics.cap_height;
-    auto result = floor(Vec2(right(bounds) - text_width, bounds.center.y - 0.5f*h));
+    auto result = Vec2(right(bounds) - text_width, bounds.center.y - 0.5f*h);
     return result;
 }
 
 Vec2 center_text(Font* font, String text, Rect bounds){
     auto text_width = get_text_width(font, text);
-    auto result = floor(bounds.center - 0.5f*Vec2(text_width, font.metrics.cap_height));
+    auto result = bounds.center - 0.5f*Vec2(text_width, font.metrics.cap_height);
     return result;
 }
 
+Vec2 center_text(Font* font, String text, Vec2 pos){
+    auto text_width = get_text_width(font, text);
+    auto result = pos - 0.5f*Vec2(text_width, 0);
+    return result;
+}
+
+// TODO: Remove the Text_Align parameters. Prefer using the text_align functions.
 void render_text(Render_Pass* pass, Font* font, Vec2 pos, String text,
 Vec4 color = Vec4(1, 1, 1, 1), Text_Align text_align = Text_Align.Left){
     auto cmd       = push_command!Render_Text(pass);
