@@ -13,7 +13,9 @@ alias String = const(char)[];
 
 void clear_to_zero(T)(ref T t){
     static if(isArray!T){
-        memset(t.ptr, 0, t.length * T[0].init.sizeof);
+        if(t.length > 0){
+            memset(&t[0], 0, t.length * t[0].sizeof);
+        }
     }
     else{
         memset(&t, 0, T.sizeof);

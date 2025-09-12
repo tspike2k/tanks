@@ -227,7 +227,6 @@ struct App_State{
     Particle_Emitter emitter_explosion_flames;
 
     // Assets
-
     Font font_menu_large;
     Font font_menu_small;
     Font font_editor_small;
@@ -246,7 +245,7 @@ struct App_State{
 
     union{
         struct{
-            Shader shader;
+            Shader default_shader;
             Shader text_shader;
             Shader rect_shader;
             Shader shadow_map_shader;
@@ -1905,13 +1904,12 @@ void render_entity(App_State* s, Entity* e, Render_Passes rp, bool highlighted =
             }
             else{
                 auto bounds = Rect(e.pos, Vec2(0.5f, 0.5f));
-                //render_ground_decal(rp.ground_decals, bounds, Vec4(1, 1, 1, 1), 0, s.img_x_mark);
+                render_ground_decal(rp.ground_decals, bounds, Vec4(1, 1, 1, 1), 0, s.img_x_mark);
             }
         } break;
 
         case Entity_Type.Bullet:{
-            //auto mat_tran = mat4_translate(p);
-            auto mat_tran = mat4_translate(p + Bullet_Ground_Offset); // TODO: Use this offset when we're done testing the camera
+            auto mat_tran = mat4_translate(p + Bullet_Ground_Offset);
             auto x_form = mat_tran*mat4_rot_y(e.angle);
             render_mesh(rp.world, &s.bullet_mesh, materials, x_form);
             render_mesh(rp.shadow_map, &s.bullet_mesh, materials, x_form);
@@ -2302,7 +2300,7 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
     s.session.enemies_remaining = 0;
     Vec2 hit_normal = void;
     float hit_depth = void;
-    // TODO: Store the world bounds in the app_state somewhere? We seem to need it a lot.
+
     auto map = get_current_map(s);
     auto world_bounds = rect_from_min_max(Vec2(0, 0), Vec2(map.width, map.height));
 
@@ -2407,8 +2405,6 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
                 } break;
             }
 
-            // Since no objects accelerate in this game, we can simplify integration.
-            // TODO: This isn't true: tanks do accelerate in the original game, though it's barely noticable.
             e.pos += e.vel*dt;
 
             // TODO: Broadphase, Spatial partitioning to limit the number of entitites
@@ -2830,7 +2826,8 @@ void begin_campaign(App_State* s, uint variant_index, uint players_count, uint p
     auto player_score = &score.player_scores[0];
     player_score.name = s.player_name;
 
-    load_campaign_mission(s, &s.campaign, s.session.mission_index);
+    //load_campaign_mission(s, &s.campaign, s.session.mission_index);
+    load_campaign_mission(s, &s.campaign, 5);
 }
 
 void end_campaign(App_State* s, bool aborted){
@@ -3077,7 +3074,13 @@ void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
                 s.session.state = Session_State.Mission_Intro;
                 s.session.mission_index++;
 
-                load_campaign_mission(s, &s.campaign, s.session.mission_index);
+                auto variant = &s.campaign.variants[s.session.variant_index];
+                if(s.session.mission_index < variant.missions.length){
+                    load_campaign_mission(s, &s.campaign, s.session.mission_index);
+                }
+                else{
+                    end_campaign(s, false);
+                }
             }
         } break;
 
@@ -3380,7 +3383,6 @@ extern(C) int main(int args_count, char** args){
     ulong current_timestamp = ns_timestamp();
     ulong prev_timestamp    = current_timestamp;
 
-    // TODO: Z value doesn't seem to have any affect?
     s.world_camera_polar = Default_World_Camera_Polar;
 
     while(s.running){
@@ -3443,20 +3445,20 @@ extern(C) int main(int args_count, char** args){
 
         pass = add_render_pass(&world_camera);
         render_passes.holes = pass;
-        set_shader(pass, &s.shader);
+        set_shader(pass, &s.default_shader);
 
         pass = add_render_pass(&world_camera);
         render_passes.hole_cutouts = pass;
-        set_shader(pass, &s.shader); // TODO: We should use a more stripped-down shader for this. We don't need lighting!
+        set_shader(pass, &s.default_shader);
         pass.flags = Render_Flag_Disable_Culling|Render_Flag_Disable_Color;
 
         pass = add_render_pass(&world_camera);
         render_passes.ground = pass;
-        set_shader(pass, &s.shader);
+        set_shader(pass, &s.default_shader);
 
         pass = add_render_pass(&world_camera);
         render_passes.ground_decals = pass;
-        set_shader(pass, &s.shader);
+        set_shader(pass, &s.default_shader);
         set_light(pass, &s.light);
 
         pass = add_render_pass(&world_camera);
@@ -3467,7 +3469,7 @@ extern(C) int main(int args_count, char** args){
 
         pass = add_render_pass(&world_camera);
         render_passes.world = pass;
-        set_shader(pass, &s.shader);
+        set_shader(pass, &s.default_shader);
         set_light(pass, &s.light);
 
         pass = add_render_pass(&world_camera);
@@ -3744,11 +3746,10 @@ extern(C) int main(int args_count, char** args){
                 }
 
                 if(!g_debug_mode && menu_is_closed(&s.menu)){
-                    // TODO: Crosshair size should be resolution-independent
-                    auto crosshair_color = Vec4(1, 0, 0, 0.65f); // TODO: This should be based off the player color.
+                    auto color = Player_Text_Colors[s.session.player_index];
                     auto cursor_p = Vec2(s.mouse_pixel.x, window.height - s.mouse_pixel.y);
                     set_texture(render_passes.hud_text, s.img_crosshair);
-                    render_rect(render_passes.hud_text, Rect(cursor_p, Vec2(window.width, window.width)*0.025f), crosshair_color);
+                    render_rect(render_passes.hud_text, Rect(cursor_p, Vec2(window.width, window.width)*0.025f), color);
                 }
             } break;
         }
