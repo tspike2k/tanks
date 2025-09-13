@@ -8,9 +8,12 @@ import files;
 import memory;
 import logging;
 import assets;
+import math;
 
 enum Total_Maps = 30;
 void[6*1024*1024] g_memory;
+
+enum Enemy_Tank_Main_Color = Vec3(0.6f, 0.5f, 0.3f);
 
 struct Mission_Def{
     bool    tank_bonus;
@@ -269,6 +272,281 @@ Map[] maps_16x9 = [
     {[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 405, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 404, 0, 0, 0, 0, 0, 0, 0, 0, 401, 0, 0, 0, 0, 0, 0, 0, 0, 201, 0, 0, 0, 0, 0, 201, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 201, 0, 0, 0, 0, 0, 201, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 101, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 300, 0, 0, 0, 0, 0, 0, 0, 0, 101, 0, 0, 0, 0, 0, 0, 0, 400, 0, 0, 0, 0, 0, 0, 0, 201, 0, 0, 0, 0, 0, 201, 0, 0, 0, 0, 403, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 201, 0, 0, 0, 0, 0, 201, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 407, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 406, 0, 0, 0, 402, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 201, 201, 201, 201, 201, 201, 201, 201, 201, 201, 201, 201, 201, 201, 201, 201, 201, 201, 201, 201, 201, 201, 0, 0, 0, 0, 0, 0, 0, 0, 201, 0, 0, 0, 0, 201, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ]},
 ];
 
+// TODO: These are debug values. Final values should be stored in the mission file itself.
+__gshared Tank_Type[] g_tank_types = [
+    {
+        // Player
+        invisible: false,
+        speed: 1.8f,
+
+        bullet_limit:       5,
+        bullet_ricochets:   1,
+        bullet_speed:       3.0f,
+        bullet_min_ally_dist: 2.0f,
+
+        mine_limit:            2,
+        mine_stun_time:        1.0f/60.0f,
+        mine_cooldown_time:    6.0f/60.0f,
+        mine_placement_chance: 0.1f,
+        mine_min_ally_dist:    3.0f,
+
+        fire_cooldown_time: 6.0f/60.0f,
+        fire_stun_time:     5.0f/60.0f,
+    },
+    {
+        // Brown
+        invisible: false,
+        speed: 0,
+        main_color: Enemy_Tank_Main_Color,
+        alt_color: Vec3(0.45f, 0.22f, 0.13f),
+
+        bullet_limit:         1,
+        bullet_ricochets:     1,
+        bullet_speed:         3.0f,
+        bullet_min_ally_dist: 2.0f,
+
+        mine_limit:         0,
+        mine_cooldown_time: 6.0f/60.0f,
+        mine_timer_min:     0.0f,
+        mine_timer_max:     0.0f,
+        mine_stun_time:     3.0f/60.0f,
+        mine_placement_chance: 0.0f,
+        mine_min_ally_dist:    3.0f,
+
+        fire_cooldown_time: (300.0f)/60.0f,
+        fire_timer_max:     (45.0f)/60.0f,
+        fire_timer_min:     (30.0f)/60.0f,
+        fire_stun_time:     60.0f/60.0f,
+
+        aim_timer: 60.0f/60.0f,
+        aim_max_angle: deg_to_rad(170),
+    },
+    {
+        // Ash
+        invisible: false,
+        speed: 1.2f,
+        main_color: Enemy_Tank_Main_Color,
+        alt_color: Vec3(0.38f, 0.35f, 0.35f),
+
+        bullet_limit:     1,
+        bullet_ricochets: 1,
+        bullet_speed:     3.0f,
+        bullet_min_ally_dist: 2.0f,
+
+        mine_limit:          0,
+        mine_cooldown_time:  6.0f/60.0f,
+        mine_timer_min:      0.0f,
+        mine_timer_max:      0.0f,
+        mine_stun_time:      3.0f/60.0f,
+        mine_placement_chance: 0.0f,
+        mine_min_ally_dist:    3.0f,
+
+        fire_cooldown_time: (180.0f)/60.0f,
+        fire_timer_max:     (45.0f)/60.0f,
+        fire_timer_min:     (30.0f)/60.0f,
+        fire_stun_time:     10.0f/60.0f,
+
+        aim_timer: 45.0f/60.0f,
+        aim_max_angle: deg_to_rad(40),
+    },
+    {
+        // Teal
+        invisible: false,
+        speed: 1.0f,
+        main_color: Enemy_Tank_Main_Color,
+        alt_color: Vec3(0.10f, 0.45f, 0.43f),
+
+        bullet_limit:         1,
+        bullet_ricochets:     0,
+        bullet_speed:         6.0f,
+        bullet_min_ally_dist: 2.0f,
+
+        mine_limit:         0,
+        mine_cooldown_time: 6.0f/60.0f,
+        mine_timer_min:     0.0f,
+        mine_timer_max:     0.0f,
+        mine_stun_time:     3.0f/60.0f,
+        mine_placement_chance: 0.0f,
+        mine_min_ally_dist:    3.0f,
+
+        fire_cooldown_time: (180.0f)/60.0f,
+        fire_timer_max:     (10.0f)/60.0f,
+        fire_timer_min:     (5.0f)/60.0f,
+        fire_stun_time:     20.0f/60.0f,
+
+        aim_timer: 8.0f/60.0f,
+        aim_max_angle: 0,
+    },
+    {
+        // Pink
+        invisible: false,
+        speed: 1.2f,
+        main_color: Enemy_Tank_Main_Color,
+        alt_color: Vec3(0.72f, 0.26f, 0.54f),
+
+        bullet_limit:         3,
+        bullet_ricochets:     1,
+        bullet_speed:         3.0f,
+        bullet_min_ally_dist: 2.0f,
+
+        mine_limit:         0,
+        mine_cooldown_time: 6.0f/60.0f,
+        mine_timer_min:     0.0f,
+        mine_timer_max:     0.0f,
+        mine_stun_time:     3.0f/60.0f,
+        mine_placement_chance: 0.0f,
+        mine_min_ally_dist:    3.0f,
+
+        fire_cooldown_time: (30.0f)/60.0f,
+        fire_timer_max:     (10.0f)/60.0f,
+        fire_timer_min:     (5.0f)/60.0f,
+        fire_stun_time:     5.0f/60.0f,
+
+        aim_timer: 20.0f/60.0f,
+        aim_max_angle: deg_to_rad(40),
+    },
+    {
+        // Yellow
+        invisible: false,
+        speed: 1.8f,
+        main_color: Enemy_Tank_Main_Color,
+        alt_color: Vec3(0.73f, 0.60f, 0.15f),
+
+        bullet_limit:         1,
+        bullet_ricochets:     1,
+        bullet_speed:         3.0f,
+        bullet_min_ally_dist: 2.0f,
+
+        mine_limit:          4,
+        mine_cooldown_time:  6.0f/60.0f,
+        mine_timer_min:     40.0f/60.0f,
+        mine_timer_max:     60.0f/60.0f,
+        mine_stun_time:     1.0f/60.0f,
+        mine_min_ally_dist: 3.0f,
+
+        fire_cooldown_time: (180.0f)/60.0f,
+        fire_timer_max:     (45.0f)/60.0f,
+        fire_timer_min:     (30.0f)/60.0f,
+        fire_stun_time:     10.0f/60.0f,
+        mine_placement_chance: 0.5f,
+
+        aim_timer: 30.0f/60.0f,
+        aim_max_angle: deg_to_rad(40),
+    },
+    {
+        // Purple
+        invisible: false,
+        speed: 1.8f,
+        main_color: Enemy_Tank_Main_Color,
+        alt_color: Vec3(0.42f, 0.16f, 0.82f),
+
+        bullet_limit:         5,
+        bullet_ricochets:     1,
+        bullet_speed:         3.0f,
+        bullet_min_ally_dist: 2.0f,
+
+        mine_limit:         2,
+        mine_cooldown_time: 6.0f/60.0f,
+        mine_timer_min:     40.0f/60.0f,
+        mine_timer_max:     60.0f/60.0f,
+        mine_stun_time:     1.0f/60.0f,
+        mine_placement_chance: 0.03f,
+        mine_min_ally_dist: 3.0f,
+
+        fire_cooldown_time: (30.0f)/60.0f,
+        fire_timer_max:     (10.0f)/60.0f,
+        fire_timer_min:     (5.0f)/60.0f,
+        fire_stun_time:     5.0f/60.0f,
+
+        aim_timer: 20.0f/60.0f,
+        aim_max_angle: deg_to_rad(40),
+    },
+    {
+        // Green
+        invisible: false,
+        speed: 0,
+        main_color: Enemy_Tank_Main_Color,
+        alt_color: Vec3(0.21f, 0.36f, 0.06f),
+
+        bullet_limit:         2,
+        bullet_ricochets:     2,
+        bullet_speed:         6.0f,
+        bullet_min_ally_dist: 2.0f,
+
+        mine_limit:         0,
+        mine_cooldown_time: 6.0f/60.0f,
+        mine_timer_min:     0.0f,
+        mine_timer_max:     0.0f,
+        mine_stun_time:     3.0f/60.0f,
+        mine_placement_chance: 0.0f,
+        mine_min_ally_dist: 3.0f,
+
+        fire_cooldown_time: (60.0f)/60.0f,
+        fire_timer_max:     (10.0f)/60.0f,
+        fire_timer_min:     (5.0f)/60.0f,
+        fire_stun_time:     5.0f/60.0f,
+
+        aim_timer: 30.0f/60.0f,
+        aim_max_angle: deg_to_rad(80),
+    },
+    {
+        // White
+        invisible: true,
+        speed: 1.2f,
+        main_color: Enemy_Tank_Main_Color,
+        alt_color: Vec3(0.68f, 0.70f, 0.73f),
+
+        bullet_limit:         5,
+        bullet_ricochets:     1,
+        bullet_speed:         3.0f,
+        bullet_min_ally_dist: 2.0f,
+
+        mine_limit:          2,
+        mine_cooldown_time:  6.0f/60.0f,
+        mine_timer_min:     40.0f/60.0f,
+        mine_timer_max:     60.0f/60.0f,
+        mine_stun_time:     1.0f/60.0f,
+        mine_placement_chance: 0.03f,
+        mine_min_ally_dist: 3.0f,
+
+        fire_cooldown_time: (30.0f)/60.0f,
+        fire_timer_max:     (10.0f)/60.0f,
+        fire_timer_min:     (5.0f)/60.0f,
+        fire_stun_time:     5.0f/60.0f,
+
+        aim_timer: 30.0f/60.0f,
+        aim_max_angle: deg_to_rad(40),
+    },
+    {
+        // Black
+        invisible: false,
+        speed: 2.4f,
+        main_color: Enemy_Tank_Main_Color,
+        alt_color: Vec3(0.15f, 0.18f, 0.20f),
+
+        bullet_limit:         3,
+        bullet_ricochets:     0,
+        bullet_speed:         6.0f,
+        bullet_min_ally_dist: 2.0f,
+
+        mine_limit:           2,
+        mine_cooldown_time:   6.0f/60.0f,
+        mine_timer_max:     40.0f/60.0f,
+        mine_timer_min:     60.0f/60.0f,
+        mine_stun_time:     1.0f/60.0f,
+        mine_placement_chance: 0.03f,
+        mine_min_ally_dist: 3.0f,
+
+        fire_cooldown_time: (60.0f)/60.0f,
+        fire_timer_max:     (10.0f)/60.0f,
+        fire_timer_min:     (5.0f)/60.0f,
+        fire_stun_time:     10.0f/60.0f,
+
+        aim_timer: 20.0f/60.0f,
+        aim_max_angle: deg_to_rad(5),
+    },
+];
+
 ubyte convert_cell_to_custom_encoding(uint original){
     ubyte result = 0;
     if(original >= 101 && original <= 107){
@@ -377,6 +655,7 @@ void main(){
     campaign.author      = "Nintendo";
     campaign.date        = "December 2, 2006";
     campaign.description = "Originally developed by Nintendo. Map data converted from files by Cyndifusic. Mission data converted from files by TheGoldfishKing";
+    campaign.tank_types  = g_tank_types[];
 
     auto total_maps_count = maps_16x9.length + maps_4x3.length;
     campaign.maps = alloc_array!Campaign_Map(&allocator, total_maps_count);
@@ -407,5 +686,5 @@ void main(){
     header.asset_type   = Asset_Type.Campaign;
     write(&writer, header);
     write(&writer, campaign);
-    write_file_from_memory("./build/main.camp", writer.buffer[0 .. writer.buffer_used]);
+    write_file_from_memory("./build/campaigns/main.camp", writer.buffer[0 .. writer.buffer_used]);
 }
