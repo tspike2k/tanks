@@ -904,17 +904,31 @@ void menu_render(Render_Passes* rp, Menu* menu, float time, Allocator* allocator
                 auto tw = get_text_width(font, entry.text);
                 float text_baseline_y = bounds.center.y - 0.5f*cast(float)font.metrics.cap_height;
                 auto label_pos = Vec2(left(bounds) - tw, text_baseline_y);
-                if(menu.text_input_mode && menu.hover_item_index == entry_index){
+
+                bool is_active = menu.text_input_mode && menu.hover_item_index == entry_index;
+                if(is_active){
                     text_color = Vec4(1, 1, 1, 1);
                 }
 
                 auto text_pos = Vec2(left(bounds) + Padding, text_baseline_y);
-
                 render_text(rp.hud_text, font, label_pos, entry.text, text_color);
 
                 auto text_buffer = get_textfield_used(entry.text_buffer);
                 render_text(rp.hud_text, font, text_pos, text_buffer, text_color);
                 render_rect(rp.hud_rects, bounds, Vec4(1, 1, 1, 1));
+
+                if(is_active){
+                    auto cursor = min(get_text_input_cursor(), text_buffer.length);
+                    auto cursor_pos_x = get_text_width(font, text_buffer[0 .. cursor]);
+
+                    auto cursor_bounds = rect_from_min_wh(
+                        Vec2(left(bounds) + cursor_pos_x + Padding, text_baseline_y),
+                        2, font.metrics.height
+                    );
+                    assert(bottom(cursor_bounds) == text_baseline_y);
+                    render_rect(rp.hud_rects, cursor_bounds, Vec4(0, 0, 0, 1));
+                }
+
                 render_rect_outline(rp.hud_rects, bounds, Vec4(0, 0, 0, 1), 1);
             } break;
 

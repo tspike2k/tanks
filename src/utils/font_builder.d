@@ -182,10 +182,6 @@ bool rasterize_glyph_and_copy_metrics(Font_Builder *builder, uint codepoint, Fon
     glyph.height    = pixels.height;
     glyph.advance   = (cast(uint)face.glyph.advance.x) >> 6;
 
-    if(codepoint == '-'){
-        int i = 42;
-    }
-
     // NOTE: The offset values are added to the pen position to correctly align the glyph bitmap
     // when rendering text. The x-offset is the left-side bearing of the glyph. The y-offset
     // expects glyph bitmaps to be drawn from the bottom-left, with the y-axis growing upwards.
@@ -196,7 +192,8 @@ bool rasterize_glyph_and_copy_metrics(Font_Builder *builder, uint codepoint, Fon
     // FT_BitmapGlyph.top:         top-side bearing (ascender?)
     // FT_BitmapGlyph.bitmap.rows: glyph pixel height
     glyph.offset.x  = bitmap_glyph.left;
-    glyph.offset.y  = -(cast(float)(bitmap_glyph.bitmap.rows) - cast(float)(bitmap_glyph.top)); // Must cast before negation as the metrics are unsigned integers
+    // NOTE: We must cast before negation as the metrics are unsigned integers
+    glyph.offset.y  = -(cast(float)(bitmap_glyph.bitmap.rows) - cast(float)(bitmap_glyph.top)) + cast(float)font_entry.stroke;
 
     uint target_color = font_entry.stroke == 0 ? builder.fill_color : builder.stroke_color;
     blit_to_dest(bitmap_glyph, pixels, target_color, 0, 0);
@@ -255,10 +252,6 @@ bool begin_building_font(Font_Builder *builder, String source_file_name, Font_En
 }
 
 void add_codepoint(Font_Builder* builder, uint codepoint){
-    if(codepoint == '-'){
-        int i = 42;
-    }
-
     auto glyph = alloc_type!Rasterized_Glyph(builder.allocator);
     if(rasterize_glyph_and_copy_metrics(builder, codepoint, &glyph.glyph, &glyph.pixels)){
         add_item(&builder.atlas, glyph.pixels.width, glyph.pixels.height, glyph);
@@ -421,7 +414,6 @@ extern(C) int main(){
                     foreach(c; '!' .. '~'+1){
                         add_codepoint(&builder, c);
                     }
-                    //add_codepoint(&builder, '-');
                     end_building_font(&builder, &entry);
                 }
             }
