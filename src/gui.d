@@ -43,7 +43,7 @@ struct Gui_State{
     uint window_resize_flags;
     Vec2 grab_offset;
 
-    Text_Buffer text_buffer;
+    //Text_Buffer text_buffer;
     Window* edit_window;
 
     // "Events" that are passed to widgets.
@@ -440,14 +440,14 @@ void handle_event(Gui_State* gui, Event* evt){
 
     auto display_window = get_window_info();
 
-    bool consumed = false;
+    bool consumed = false;/+
     if(is_text_input_enabled()){
         // Unfortunately, D can't deduce which handle_event function we mean without specifying
         // the module name.
         display.handle_event(&gui.text_buffer, evt);
         consumed = evt.consumed;
     }
-    else{
+    else{+/
         switch(evt.type){
             default: break;
 
@@ -550,7 +550,7 @@ void handle_event(Gui_State* gui, Event* evt){
                 }
             } break;
         }
-    }
+    //}
 
     evt.consumed = consumed;
 }
@@ -639,6 +639,7 @@ void update_gui(Gui_State* gui, float dt){
     if(gui.action == Gui_Action.None){
         if(gui.mouse_left_pressed){
             gui.active_id = Null_Gui_ID;
+            /+
             if(hover_widget){
                 // TODO: Deactivate text input mode if we already activated it. This is important if
                 // the previously actvie widget it a text field and the next one is as well.
@@ -657,7 +658,7 @@ void update_gui(Gui_State* gui, float dt){
             }
             else{
                 set_text_input_status(false);
-            }
+            }+/
         }
 
         if(gui.mouse_left_released && active_widget){
@@ -676,10 +677,11 @@ void update_gui(Gui_State* gui, float dt){
 
         // Update the active widget.
         if(active_widget){
+            /+
             if(active_widget.type == Widget_Type.Text_Field){
                 auto field = cast(Text_Field*)active_widget;
                 (*field.used) = gui.text_buffer.used;
-            }
+            }+/
         }
     }
 

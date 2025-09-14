@@ -16,8 +16,6 @@ TODO:
     - Improved collision handling. For instance, bullets can get lodged between two blocks,
       destroying it before the player sees it reflected.
     - Finish porting over tank params
-    - Shadows cut off at the edges of 16:9 maps. This is probably an issue with the shadow map
-      camera.
     - Support playing custom campaigns.
     - Bundle all save information into a single save file. This includes scores for ALL campaigns,
       and any user settings (such as player name).
@@ -2026,10 +2024,6 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
     auto map = get_current_map(s);
     auto world_bounds = rect_from_min_max(Vec2(0, 0), Vec2(map.width, map.height));
 
-    float light_radius = 12.0f;
-    s.light.pos.x = world_bounds.center.x + cos(s.time*0.25f)*light_radius;
-    s.light.pos.z = world_bounds.center.y + sin(s.time*0.25f)*light_radius;
-
     s.session.score.time_spent_in_seconds += dt;
 
     foreach(ref e; iterate_entities(&s.world)){
@@ -2275,6 +2269,7 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
                 add_button(menu, "Campaign", Menu_Action.Push_Menu, Menu_ID.Campaign);
                 add_button(menu, "Scores", Menu_Action.Push_Menu, Menu_ID.High_Scores);
                 add_button(menu, "Editor", Menu_Action.Open_Editor, Menu_ID.None);
+                add_button(menu, "Options", Menu_Action.Push_Menu, Menu_ID.Options);
                 add_button(menu, "Quit", Menu_Action.Quit_Game, Menu_ID.None);
                 end_block(menu);
                 end_menu_def(menu);
@@ -2479,6 +2474,22 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
                 end_menu_def(menu);
             }
         } break;
+
+        case Menu_ID.Options:{
+            if(menu_changed){
+                begin_menu_def(menu);
+                begin_block(menu, title_block_height);
+                add_heading(menu, "Options");
+                end_block(menu);
+                begin_block(menu, 1.0f-title_block_height);
+
+                add_textfield(menu, "Player name: ", s.player_name.text[]);
+
+                add_button(menu, "Back", Menu_Action.Pop_Menu, Menu_ID.None);
+                end_block(menu);
+                end_menu_def(menu);
+            }
+        } break;
     }
 
     menu_update(menu, canvas);
@@ -2548,8 +2559,7 @@ void begin_campaign(App_State* s, uint variant_index, uint players_count, uint p
     auto player_score = &score.player_scores[0];
     player_score.name = s.player_name;
 
-    //load_campaign_mission(s, &s.campaign, s.session.mission_index);
-    load_campaign_mission(s, &s.campaign, 5);
+    load_campaign_mission(s, &s.campaign, s.session.mission_index);
 }
 
 void end_campaign(App_State* s, bool aborted){
@@ -2765,6 +2775,13 @@ void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
             break;
 
         case Session_State.Playing_Mission:{
+            auto map = get_current_map(s);
+            auto world_bounds = rect_from_min_max(Vec2(0, 0), Vec2(map.width, map.height));
+
+            float light_radius = 8.0f;
+            s.light.pos.x = world_bounds.center.x + cos(s.time*0.25f)*light_radius;
+            s.light.pos.z = world_bounds.center.y + sin(s.time*0.25f)*light_radius;
+
             // TODO: The pause menu should only stop the simulation if this is a single-player
             // campaign.
             if(!g_debug_pause && menu_is_closed(&s.menu)){
@@ -3264,6 +3281,7 @@ extern(C) int main(int args_count, char** args){
                 if(!g_debug_mode && menu_is_closed(&s.menu))
                     hide_and_grab_cursor_this_frame();
                 campaign_simulate(s, &player_input, target_dt);
+                render_mesh(render_passes.world, &s.cube_mesh, (&s.material_ground)[0..1], mat4_translate(s.light.pos));
             } break;
         }
 
@@ -3422,15 +3440,13 @@ extern(C) int main(int args_count, char** args){
                         render_rect(render_passes.hud_rects, cleared_bounds, bg_color);
                         render_text(p_text, font_large, baseline, cleared_msg, Vec4(0.8f, 0.8f, 0.2f, 1));
 
-
                         float score_height = font_large.metrics.height + font_large.metrics.line_gap + font_small.metrics.height;
                         auto score_bounds = Rect(
                             window_bounds.center - Vec2(0, score_height*0.5f),
                             Vec2(window_bounds.extents.x*0.75f, score_height*0.5f)
                         );
 
-                        //auto players_count = s.session.player_count;
-                        auto players_count = 4;
+                        auto players_count = s.session.players_count;
                         auto players_text = alloc_array!String(&s.frame_memory, players_count);
 
                         float mission_scores_text_width = 0.0f;
@@ -3452,7 +3468,7 @@ extern(C) int main(int args_count, char** args){
                         render_text(p_text, font_large, baseline, score_head_text, Text_White);
 
                         float score_advance = (width(score_bounds) - mission_scores_text_width)
-                            / (cast(float)players_count);
+                            / (cast(float)players_count+1);
 
                         pen.x = left(score_bounds);
                         pen.y -= cast(float)font_large.metrics.line_gap;

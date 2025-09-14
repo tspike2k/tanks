@@ -155,32 +155,41 @@ Window* get_window_info(){
     return result;
 }
 
-bool is_text_input_enabled(){
-    bool result = g_text_input_enabled;
+////
+//
+// Text input handling.
+//
+////
+
+private{
+    struct Text_Input{
+        char[] text;
+        uint   used;
+        uint   cursor;
+    }
+
+    __gshared Text_Input g_text_input;
+}
+
+bool is_text_input_mode_enabled(){
+    auto result = g_text_input.text != null;
     return result;
 }
 
-// TODO: This may require platform-specific things to be done. For instance, platforms like the
-// PS4 use an on-screen keyboard for input. This function should handle toggling that off and on
-// and ignore it if g_text_input_enabled is already set to the value of "status."
-void set_text_input_status(bool status){
-    g_text_input_enabled = status;
+void enable_text_input_mode(char[] buffer, uint buffer_used, uint text_cursor){
+    g_text_input.text = buffer;
+    g_text_input.used = buffer_used;
+    g_text_input.cursor = text_cursor;
 }
 
-struct Text_Buffer{
-    char[] text;
-    uint   used;
-    uint   cursor;
+void disable_text_input_mode(){
+    g_text_input.text = null;
 }
 
-void set_buffer(Text_Buffer* buffer, char[] source, uint used, uint cursor){
-    buffer.text   = source;
-    buffer.cursor = cursor;
-    buffer.used    = used;
-}
+void text_input_handle_event(Event* evt){
+    if(evt.consumed) return;
 
-void handle_event(Text_Buffer* buffer, Event* evt){
-    bool consumed_event = false;
+    auto buffer = &g_text_input;
     switch(evt.type){
         default: break;
 
@@ -188,11 +197,16 @@ void handle_event(Text_Buffer* buffer, Event* evt){
             auto key = &evt.key;
 
             if(key.pressed){
-                consumed_event = true;
+                evt.consumed = true;
                 switch(key.id){
                     default:
-                        consumed_event = false;
+                        evt.consumed = false;
                         break;
+
+                    case Key_ID_Escape:
+                    case Key_ID_Enter:{
+                        disable_text_input_mode();
+                    } break;
 
                     case Key_ID_Delete:{
                         // TODO: The ctrl key should allow you to delete the next word
@@ -221,25 +235,31 @@ void handle_event(Text_Buffer* buffer, Event* evt){
                             buffer.cursor = buffer.cursor + 1;
                         }
                     } break;
+
+                    // TODO: We're consuming direction keys here so that other systems (such as the menu or GUI)
+                    // do not navigate away from an textfield currently taking user input. Is this really the
+                    // right place to do this or should this be done at the level of the callee?
+                    case Key_ID_Arrow_Down:
+                    case Key_ID_Arrow_Up:
+                        break;
                 }
             }
         } break;
 
         case Event_Type.Text:{
-            consumed_event = true;
+            evt.consumed = true;
             insert_text(buffer, buffer.cursor, evt.text.data);
         } break;
 
         case Event_Type.Paste:{
             // TODO: Only do this event if the paste type is text? Do all platforms support this?
-            consumed_event = true;
+            evt.consumed = true;
             insert_text(buffer, buffer.cursor, cast(char[])evt.paste.data);
         } break;
     }
-    evt.consumed = consumed_event;
 }
 
-void remove_text(Text_Buffer* buffer, uint start, uint count){
+void remove_text(Text_Input* buffer, uint start, uint count){
     assert(count > 0);
     assert(start <= buffer.used);
     assert(buffer.used > 0);
@@ -256,7 +276,7 @@ void remove_text(Text_Buffer* buffer, uint start, uint count){
     buffer.cursor = min(start, buffer.used);
 }
 
-void insert_text(Text_Buffer* buffer, uint start, char[] text){
+void insert_text(Text_Input* buffer, uint start, char[] text){
     assert(text.length);
     assert(start <= buffer.used);
 
@@ -285,7 +305,6 @@ import logging;
 import core.stdc.string : strlen, memcpy, memmove; // TODO: Have a strlen of our own?
 
 __gshared Window g_window_info;
-__gshared bool   g_text_input_enabled;
 __gshared bool   g_hide_and_grab_cursor;
 __gshared bool   g_is_cursor_grabbed_and_hidden;
 __gshared bool   g_has_focus;
@@ -931,7 +950,7 @@ version(linux){
                     break;
                 }
 
-                if(g_text_input_enabled){
+                if(is_text_input_mode_enabled()){
                     if(just_pressed){
                         KeySym keysym_result;
                         // TODO: Use Xutf8LookupString instead. This will require all sorts of crazy

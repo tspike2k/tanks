@@ -49,6 +49,7 @@ enum Menu_Item_Type : uint{
     High_Score_Row,
     Text_Block,
     High_Score_Table_Head,
+    Textfield,
 }
 
 enum Menu_Action : uint{
@@ -70,6 +71,7 @@ enum Menu_ID : uint{
     High_Scores,
     Campaign_Pause,
     High_Score_Details,
+    Options,
 }
 
 enum Align : uint{
@@ -104,6 +106,7 @@ struct Menu_Item{
             Score_Entry* score_entry;
             uint         score_rank;
         }
+        char[] text_buffer;
     }
 }
 
@@ -141,6 +144,7 @@ struct Menu{
     uint         variant_index;
     Score_Entry* newly_added_score;
 
+    bool    text_input_mode;
     bool    changed_menu;
     Rect    canvas;
     bool    mouse_moved;
@@ -208,7 +212,9 @@ Menu_ID get_parent_menu_id(Menu_ID id){
 
         case Menu_ID.Campaign:
         case Menu_ID.High_Scores:
+        case Menu_ID.Options:
             result = Menu_ID.Main_Menu; break;
+
 
         case Menu_ID.High_Score_Details:
             result = Menu_ID.High_Scores; break;
@@ -354,6 +360,15 @@ void add_high_score_row(Menu* menu, Score_Entry* score, uint rank, uint user_id)
     entry.score_entry = score;
 }
 
+void add_textfield(Menu* menu, String label, char[] buffer){
+    auto entry = add_menu_item(menu, Menu_Item_Type.Textfield, label);
+    auto font = get_font(menu, entry.type);
+
+    entry.target_height = font.metrics.height + Padding*2.0f;
+    entry.target_width  = High_Score_Row_Width;
+    entry.text_buffer = buffer;
+}
+
 void add_text_block(Menu* menu, String text, uint user_id = 0){
     auto entry = add_menu_item(menu, Menu_Item_Type.Text_Block, text);
     entry.target_width  = 0.45f;
@@ -416,6 +431,17 @@ struct Menu_Event{
     uint        user_id;
 }
 
+char[] get_textfield_used(char[] buffer){
+    char[] result;
+    foreach(i, c; buffer){
+        if(!is_whitespace(c) && c != '\0'){
+            result = buffer[0 .. i];
+        }
+    }
+
+    return result;
+}
+
 private Menu_Event do_action(Menu* menu, Menu_Item* item){
     Menu_Event result;
 
@@ -423,6 +449,12 @@ private Menu_Event do_action(Menu* menu, Menu_Item* item){
 
     if(item.type == Menu_Item_Type.Index_Picker){
         index_incr(item.index, item.index_max);
+    }
+    else if(item.type == Menu_Item_Type.Textfield){
+        menu.text_input_mode = true;
+        auto buffer = item.text_buffer;
+        auto used_text = get_textfield_used(buffer);
+        enable_text_input_mode(item.text_buffer, cast(uint)used_text.length, 0);
     }
     else{
         result.action  = item.action;
@@ -463,6 +495,17 @@ Menu_Item* get_item_by_user_id(Menu* menu, uint user_id){
 Menu_Event menu_process_event(Menu* menu, Event* event){
     Menu_Event result;
     if(menu_is_closed(menu)) return result;
+
+    if(menu.text_input_mode){
+        if(is_text_input_mode_enabled()){
+            text_input_handle_event(event);
+        }
+        else{
+            // We lost text input mode. Time to accept the changes to the text in the buffer.
+            menu.text_input_mode = false;
+        }
+    }
+    if(event.consumed) return result;
 
     switch(event.type){
         default: break;
@@ -857,6 +900,24 @@ void menu_render(Render_Passes* rp, Menu* menu, float time, Allocator* allocator
                 }
             } break;
 
+            case Menu_Item_Type.Textfield:{
+                auto tw = get_text_width(font, entry.text);
+                float text_baseline_y = bounds.center.y - 0.5f*cast(float)font.metrics.cap_height;
+                auto label_pos = Vec2(left(bounds) - tw, text_baseline_y);
+                if(menu.text_input_mode && menu.hover_item_index == entry_index){
+                    text_color = Vec4(1, 1, 1, 1);
+                }
+
+                auto text_pos = Vec2(left(bounds) + Padding, text_baseline_y);
+
+                render_text(rp.hud_text, font, label_pos, entry.text, text_color);
+
+                auto text_buffer = get_textfield_used(entry.text_buffer);
+                render_text(rp.hud_text, font, text_pos, text_buffer, text_color);
+                render_rect(rp.hud_rects, bounds, Vec4(1, 1, 1, 1));
+                render_rect_outline(rp.hud_rects, bounds, Vec4(0, 0, 0, 1), 1);
+            } break;
+
             case Menu_Item_Type.High_Score_Row:{
                 auto bg_color = Button_Color;
                 if(entry.score_entry == menu.newly_added_score){
@@ -994,6 +1055,7 @@ bool is_interactive(Menu_Item* item){
         case Menu_Item_Type.Button:
         case Menu_Item_Type.Index_Picker:
         case Menu_Item_Type.High_Score_Row:
+        case Menu_Item_Type.Textfield:
             result = true; break;
     }
 

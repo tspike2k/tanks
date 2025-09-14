@@ -278,7 +278,7 @@ void set_hud_camera(Camera* camera, float camera_w, float camera_h){
 }
 
 void set_shadow_map_camera(Camera* camera, Shader_Light* light, Vec3 camera_target, Vec3 up){
-    auto camera_extents = Vec2(10, 10); // TODO: What is an appropriate size here?
+    auto camera_extents = Vec2(20, 10); // TODO: What is an appropriate size here?
     camera.proj = orthographic_projection(Rect(Vec2(0, 0), camera_extents));
     camera.view.mat = make_lookat_matrix(light.pos, camera_target, up);
     camera.view.inv = invert_view_matrix(camera.view.mat);
