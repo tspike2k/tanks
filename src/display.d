@@ -186,10 +186,8 @@ void disable_text_input_mode(){
     g_text_input.text = null;
 }
 
-// TODO: This feels a bit like a getter/setter in the making. Should we have a better way of
-// exposing the text buffer to the client?
-uint get_text_input_cursor(){
-    auto result = g_text_input.cursor;
+Text_Input* get_text_input_state(){
+    auto result = &g_text_input;
     return result;
 }
 

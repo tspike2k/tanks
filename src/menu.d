@@ -106,7 +106,10 @@ struct Menu_Item{
             Score_Entry* score_entry;
             uint         score_rank;
         }
-        char[] text_buffer;
+        struct{
+            char[] text_buffer;
+            uint*  text_buffer_used;
+        }
     }
 }
 
@@ -144,7 +147,6 @@ struct Menu{
     uint         variant_index;
     Score_Entry* newly_added_score;
 
-    bool    text_input_mode;
     bool    changed_menu;
     Rect    canvas;
     bool    mouse_moved;
@@ -155,6 +157,8 @@ struct Menu{
     bool    is_scrolling_y;
     uint    hover_item_stack_count;
     uint[8] hover_item_stack;
+
+    Menu_Item*     text_input_item;
 
     uint           hover_item_index;
     uint           items_count;
@@ -360,13 +364,14 @@ void add_high_score_row(Menu* menu, Score_Entry* score, uint rank, uint user_id)
     entry.score_entry = score;
 }
 
-void add_textfield(Menu* menu, String label, char[] buffer){
+void add_textfield(Menu* menu, String label, char[] buffer, uint* buffer_used){
     auto entry = add_menu_item(menu, Menu_Item_Type.Textfield, label);
     auto font = get_font(menu, entry.type);
 
     entry.target_height = font.metrics.height + Padding*2.0f;
     entry.target_width  = High_Score_Row_Width;
-    entry.text_buffer = buffer;
+    entry.text_buffer      = buffer;
+    entry.text_buffer_used = buffer_used;
 }
 
 void add_text_block(Menu* menu, String text, uint user_id = 0){
@@ -431,17 +436,6 @@ struct Menu_Event{
     uint        user_id;
 }
 
-char[] get_textfield_used(char[] buffer){
-    char[] result;
-    foreach(i, c; buffer){
-        if(!is_whitespace(c) && c != '\0'){
-            result = buffer[0 .. i];
-        }
-    }
-
-    return result;
-}
-
 private Menu_Event do_action(Menu* menu, Menu_Item* item){
     Menu_Event result;
 
@@ -451,10 +445,10 @@ private Menu_Event do_action(Menu* menu, Menu_Item* item){
         index_incr(item.index, item.index_max);
     }
     else if(item.type == Menu_Item_Type.Textfield){
-        menu.text_input_mode = true;
+        menu.text_input_item = item;
         auto buffer = item.text_buffer;
-        auto used_text = get_textfield_used(buffer);
-        enable_text_input_mode(item.text_buffer, cast(uint)used_text.length, 0);
+        auto buffer_used = *item.text_buffer_used;
+        enable_text_input_mode(item.text_buffer, buffer_used, 0); // TODO: Base cursor position on mouse click offset (if clicked)
     }
     else{
         result.action  = item.action;
@@ -496,13 +490,16 @@ Menu_Event menu_process_event(Menu* menu, Event* event){
     Menu_Event result;
     if(menu_is_closed(menu)) return result;
 
-    if(menu.text_input_mode){
+    if(menu.text_input_item){
         if(is_text_input_mode_enabled()){
             text_input_handle_event(event);
+            auto item = menu.text_input_item;
+            auto text_input = get_text_input_state();
+            (*item.text_buffer_used) = text_input.used;
         }
         else{
             // We lost text input mode. Time to accept the changes to the text in the buffer.
-            menu.text_input_mode = false;
+            menu.text_input_item = null;
         }
     }
     if(event.consumed) return result;
@@ -583,10 +580,26 @@ Menu_Event menu_process_event(Menu* menu, Event* event){
                         }
                     }
 
+                    auto mouse_rel_p = menu.mouse_p - offset;
+                    if(!event.consumed && button.pressed){
+                        if(menu.text_input_item){
+                            if(is_point_inside_rect(mouse_rel_p, menu.text_input_item.bounds)){
+                                // TODO: Set cursor position
+                                event.consumed = true;
+                            }
+                            else{
+                                // NOTE: Don't consume the event! If the user clicks on a button
+                                // outside of an active textfield, that should count as a button
+                                // press.
+                                menu.text_input_item = null;
+                                disable_text_input_mode();
+                            }
+                        }
+                    }
+
                     if(!event.consumed && button.pressed){
                         auto item = get_hover_item(menu);
-
-                        if(item && is_point_inside_rect(menu.mouse_p - offset, item.bounds)){
+                        if(item && is_point_inside_rect(mouse_rel_p, item.bounds)){
                             result = do_action(menu, item);
                             event.consumed = true;
                         }
@@ -905,7 +918,7 @@ void menu_render(Render_Passes* rp, Menu* menu, float time, Allocator* allocator
                 float text_baseline_y = bounds.center.y - 0.5f*cast(float)font.metrics.cap_height;
                 auto label_pos = Vec2(left(bounds) - tw, text_baseline_y);
 
-                bool is_active = menu.text_input_mode && menu.hover_item_index == entry_index;
+                bool is_active = &entry && menu.text_input_item;
                 if(is_active){
                     text_color = Vec4(1, 1, 1, 1);
                 }
@@ -913,12 +926,14 @@ void menu_render(Render_Passes* rp, Menu* menu, float time, Allocator* allocator
                 auto text_pos = Vec2(left(bounds) + Padding, text_baseline_y);
                 render_text(rp.hud_text, font, label_pos, entry.text, text_color);
 
-                auto text_buffer = get_textfield_used(entry.text_buffer);
+                auto text_buffer = entry.text_buffer[0 .. *entry.text_buffer_used];
+
                 render_text(rp.hud_text, font, text_pos, text_buffer, text_color);
                 render_rect(rp.hud_rects, bounds, Vec4(1, 1, 1, 1));
 
                 if(is_active){
-                    auto cursor = min(get_text_input_cursor(), text_buffer.length);
+                    auto text_input = get_text_input_state();
+                    auto cursor = min(text_input.cursor, text_buffer.length);
                     auto cursor_pos_x = get_text_width(font, text_buffer[0 .. cursor]);
 
                     auto cursor_bounds = rect_from_min_wh(

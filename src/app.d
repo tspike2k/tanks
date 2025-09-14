@@ -2483,7 +2483,7 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
                 end_block(menu);
                 begin_block(menu, 1.0f-title_block_height);
 
-                add_textfield(menu, "Player name: ", s.player_name.text[]);
+                add_textfield(menu, "Player name: ", s.player_name.text[], &s.player_name.count);
 
                 add_button(menu, "Back", Menu_Action.Pop_Menu, Menu_ID.None);
                 end_block(menu);
