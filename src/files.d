@@ -17,10 +17,11 @@ else{
 }
 
 enum{
-    File_Flag_Read     = (1 << 1),
-    File_Flag_Write    = (1 << 2),
-    File_Flag_No_Trunc = (1 << 3),
-    File_Flag_Is_Open  = (1 << 4),
+    File_Flag_Read           = (1 << 1),
+    File_Flag_Write          = (1 << 2),
+    File_Flag_No_Trunc       = (1 << 3),
+    File_Flag_Is_Open        = (1 << 4),
+    File_Flag_No_Open_Errors = (1 << 5),
 }
 
 struct File{
@@ -33,10 +34,12 @@ bool is_open(File* file){
     return result;
 }
 
-void[] read_file_into_memory(const(char)[] file_name, Allocator* allocator){
+void[] read_file_into_memory(const(char)[] file_name, Allocator* allocator, uint additional_flags = 0){
     void[] result;
 
-    auto file = open_file(file_name, File_Flag_Read);
+    auto file_flags = File_Flag_Read|additional_flags;
+
+    auto file = open_file(file_name, file_flags);
     if(is_open(&file)){
         auto file_size = get_file_size(&file);
         if(file_size > 0){
@@ -170,13 +173,13 @@ version(linux):
 File open_file(const(char)[] file_name, uint flags){
     int permissions = 0;
     int oflags = 0;
-    if ((flags & File_Flag_Read) && (flags & File_Flag_Write)){
+    if((flags & File_Flag_Read) && (flags & File_Flag_Write)){
         oflags = O_RDWR|O_CREAT;
     }
-    else if (flags & File_Flag_Read){
+    else if(flags & File_Flag_Read){
         oflags = O_RDONLY;
     }
-    else if (flags & File_Flag_Write){
+    else if(flags & File_Flag_Write){
         oflags = O_WRONLY|O_CREAT;
         permissions = Dest_File_Permissions;
     }
@@ -191,8 +194,9 @@ File open_file(const(char)[] file_name, uint flags){
         *fd_from_file(&result) = fd;
         result.flags |= flags|File_Flag_Is_Open;
     }
-    else{
-        log_error("Unable to open {0}\n", file_name.ptr);
+    else if(!(flags & File_Flag_No_Open_Errors)){
+        auto error_msg = strerror(errno);
+        log_error("Unable to open {0}: {1}\n", file_name.ptr, error_msg);
     }
     return result;
 }

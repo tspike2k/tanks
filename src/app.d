@@ -17,9 +17,6 @@ TODO:
       destroying it before the player sees it reflected.
     - Finish porting over tank params
     - Support playing custom campaigns.
-    - Bundle all save information into a single save file. This includes scores for ALL campaigns,
-      and any user settings (such as player name).
-    - Allow custom player name.
     - Add enemy missiles
 
 Enemy AI:
@@ -63,7 +60,7 @@ enum Total_Memory_Size   = Main_Memory_Size + Frame_Memory_Size + Editor_Memory_
 
 enum Audio_Frames_Per_Sec = 44100;
 
-enum Campaign_File_Name = "main.camp"; // TODO: Use a specific folder for campaigns?
+enum Campaign_File_Name = "main.camp";
 
 enum Mine_Detonation_Time    = 10.0f;
 enum Mine_Explosion_End_Time = Mine_Detonation_Time + 0.5f;
@@ -186,6 +183,10 @@ Vec4[Max_Players] Player_Text_Colors = [
     Vec4(1.0f,  0.68f, 0.18f, 1.0f),
 ];
 
+struct Settings{
+    Player_Name player_name;
+}
+
 struct App_State{
     Allocator main_memory;
     Allocator frame_memory;
@@ -212,7 +213,7 @@ struct App_State{
     Xorshift32   rng;
     Score_Entry* score_to_detail;
 
-    Player_Name player_name;
+    Settings settings;
 
     bool moving_camera;
 
@@ -373,7 +374,7 @@ struct Variant_Scores{
 }
 
 struct High_Scores{
-    uint campaign_name_hash;
+    String           campaign_file_name;
     Variant_Scores[] variants;
 }
 
@@ -427,55 +428,56 @@ Score_Entry* maybe_post_highscore(Variant_Scores* scores, Score_Entry* current){
     return ranking;
 }
 
-enum Score_File_Version = 1;
-enum Score_File_Magic   = ('S' << 0 | 'c' << 8 | 'o' << 16 | 'r' << 24);
+enum Save_File_Version = 1;
+enum Save_File_Magic   = ('T' << 0 | 'S' << 8 | 'a' << 16 | 'v' << 24);
 
-struct Score_File_Header{
+struct Save_File_Header{
     uint magic;
     uint file_version;
 }
 
-bool verify_score_file_header(Score_File_Header* header, String file_name){
-    if(header.magic != Score_File_Magic){
-        log_error("Unexpected magic for score file {0}: got {1} but expected {2}", file_name, header.magic, Score_File_Magic);
+bool verify_save_file_header(Save_File_Header* header, String file_name){
+    if(header.magic != Save_File_Magic){
+        log_error("Unexpected magic for save file {0}: got {1} but expected {2}", file_name, header.magic, Save_File_Magic);
         return false;
     }
 
-    if(header.file_version != Score_File_Version){
-        log_error("Unsupported file version for file {0}: got {1} but expected {2}", file_name, header.file_version, Score_File_Version);
+    if(header.file_version != Save_File_Version){
+        log_error("Unsupported file version for save file {0}: got {1} but expected {2}", file_name, header.file_version, Save_File_Version);
         return false;
     }
     return true;
 }
 
-String get_high_scores_full_path(App_State* s, Allocator* allocator){
-    auto source = s.campaign_file_name;
-    source = trim_file_extension(trim_leading_path(source));
-
-    auto base_path = trim_ending_if_char(s.data_path, Dir_Char);
-    auto result = concat(base_path, to_string(Dir_Char), "tanks_", source, ".score", allocator);
+String get_save_file_full_path(App_State* s, Allocator* allocator){
+    auto result = concat(s.data_path, "tanks.save", allocator);
     return result;
 }
 
-bool load_high_scores(App_State* s){
+bool load_high_scores_for_campaign(App_State* s){
     auto allocator = &s.campaign_memory;
+    mixin(Scratch_Frame!());
 
-    auto scratch = allocator.scratch;
-    push_frame(scratch);
-    scope(exit) pop_frame(scratch);
-
-    auto file_name = get_high_scores_full_path(s, scratch);
+    auto file_name = get_save_file_full_path(s, scratch);
 
     bool success = false;
-    auto memory = read_file_into_memory(file_name, scratch);
+    auto memory = read_file_into_memory(file_name, scratch, File_Flag_No_Open_Errors);
     if(memory.length){
-        auto reader = Serializer(memory, allocator);
-        auto header = eat_type!Score_File_Header(&reader);
-        if(verify_score_file_header(header, file_name)){
-            read(&reader, s.high_scores);
+        auto reader = Serializer(memory, scratch);
+        auto header = eat_type!Save_File_Header(&reader);
+        if(verify_save_file_header(header, file_name)){
+            Settings settings;
+            read(&reader, settings);
+            High_Scores[] scores;
+            read(&reader, scores);
+            foreach(ref score; scores){
+                if(score.campaign_file_name == s.high_scores.campaign_file_name){
+                    s.high_scores.variants = dup_array(score.variants, allocator);
+                    success = true;
+                    break;
+                }
+            }
         }
-
-        success = !reader.errors;
     }
 
     if(!success){
@@ -485,23 +487,74 @@ bool load_high_scores(App_State* s){
     return success;
 }
 
-void save_high_scores(App_State* s){
+bool load_preferences(App_State* s){
     auto allocator = &s.campaign_memory;
+    mixin(Scratch_Frame!());
 
-    auto scratch = allocator.scratch;
-    push_frame(scratch);
-    scope(exit) pop_frame(scratch);
+    auto file_name = get_save_file_full_path(s, scratch);
 
-    auto file_name = get_high_scores_full_path(s, scratch);
+    bool success = false;
+    auto memory = read_file_into_memory(file_name, scratch, File_Flag_No_Open_Errors);
+    if(memory.length){
+        auto reader = Serializer(memory, scratch);
+        auto header = eat_type!Save_File_Header(&reader);
+        if(verify_save_file_header(header, file_name)){
+            read(&reader, s.settings);
 
-    auto header = Score_File_Header(Score_File_Magic, Score_File_Version);
+            success = !reader.errors;
+            if(!success){
+                log_error("Unable to read settings from file {0}\n", file_name);
+            }
+        }
+    }
 
-    auto writer = Serializer(begin_reserve_all(scratch));
+    return success;
+}
+
+void save_preferences_and_scores(App_State* s){
+    auto allocator = &s.campaign_memory;
+    mixin(Scratch_Frame!());
+
+    auto file_name = get_save_file_full_path(s, scratch);
+    auto memory = read_file_into_memory(file_name, scratch, File_Flag_No_Open_Errors);
+    High_Scores[] old_scores;
+    if(memory){
+        auto reader = Serializer(memory, scratch);
+        auto header = eat_type!Save_File_Header(&reader);
+        Settings settings;
+        if(verify_save_file_header(header, file_name)){
+            read(&reader, settings);
+            read(&reader, old_scores);
+        }
+    }
+
+    auto dest = begin_reserve_all(scratch);
+    auto writer = Serializer(dest, scratch);
+
+    auto header = Save_File_Header(Save_File_Magic, Save_File_Version);
     write(&writer, header);
-    write(&writer, s.high_scores);
+    write(&writer, s.settings);
+    auto scores_count = eat_type!uint(&writer);
+    *scores_count     = cast(uint)old_scores.length;
 
-    end_reserve_all(scratch, writer.buffer, writer.buffer_used);
-    write_file_from_memory(file_name, writer.buffer[0 .. writer.buffer_used]);
+    bool replaced_score = false;
+    foreach(ref score; old_scores){
+        if(score.campaign_file_name == s.campaign_file_name){
+            foreach(i, ref src_variant; score.variants){
+                src_variant = s.high_scores.variants[i];
+            }
+            replaced_score = true;
+        }
+        write(&writer, score);
+    }
+
+    if(!replaced_score){
+        *scores_count += 1;
+        write(&writer, s.high_scores);
+    }
+
+    end_reserve_all(scratch, dest, writer.buffer_used);
+    write_file_from_memory(file_name, dest[0 .. writer.buffer_used]);
 }
 
 bool load_campaign_from_file(App_State* s, String file_name){
@@ -541,7 +594,8 @@ bool load_campaign_from_file(App_State* s, String file_name){
                 setup_basic_material(&tank_mats.materials[1], s.img_blank_mesh, entry.alt_color, 256);
             }
 
-            if(!load_high_scores(s)){
+            s.high_scores.campaign_file_name = file_name;
+            if(!load_high_scores_for_campaign(s)){
                 s.high_scores.variants = alloc_array!Variant_Scores(allocator, campaign.variants.length);
             }
         }
@@ -2483,7 +2537,8 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
                 end_block(menu);
                 begin_block(menu, 1.0f-title_block_height);
 
-                add_textfield(menu, "Player name: ", s.player_name.text[], &s.player_name.count);
+                auto player_name = &s.settings.player_name;
+                add_textfield(menu, "Player name: ", player_name.text[], &player_name.count);
 
                 add_button(menu, "Back", Menu_Action.Pop_Menu, Menu_ID.None);
                 end_block(menu);
@@ -2495,6 +2550,13 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
     menu_update(menu, canvas);
 }
 
+void app_quit(App_State* s){
+    // TODO: If the game is running, make a temp save.
+    // TODO: If the editor is running, make a temp save?
+    s.running    = false;
+    save_preferences_and_scores(s);
+}
+
 void handle_event_common(App_State* s, Event* evt, float dt){
     handle_event(&s.gui, evt);
 
@@ -2503,9 +2565,7 @@ void handle_event_common(App_State* s, Event* evt, float dt){
             default: break;
 
             case Event_Type.Window_Close:{
-                // TODO: If the game is running, make a temp save.
-                // TODO: If the editor is running, make a temp save?
-                s.running    = false;
+                app_quit(s);
                 evt.consumed = true;
             } break;
 
@@ -2557,7 +2617,7 @@ void begin_campaign(App_State* s, uint variant_index, uint players_count, uint p
     score.total_lives += s.session.lives;
 
     auto player_score = &score.player_scores[0];
-    player_score.name = s.player_name;
+    player_score.name = s.settings.player_name;
 
     load_campaign_mission(s, &s.campaign, s.session.mission_index);
 }
@@ -2573,7 +2633,7 @@ void end_campaign(App_State* s, bool aborted){
     set_menu(&s.menu, Menu_ID.High_Scores);
     s.menu.variant_index = s.session.variant_index;
     if(score_slot){
-        save_high_scores(s);
+        save_preferences_and_scores(s);
     }
 }
 
@@ -2607,7 +2667,7 @@ void handle_menu_event(App_State* s, Event* evt){
         } break;
 
         case Menu_Action.Quit_Game:{
-            s.running = false;
+            app_quit(s);
         } break;
 
         case Menu_Action.Show_High_Score_Details:{
@@ -2983,13 +3043,23 @@ extern(C) int main(int args_count, char** args){
         s.campaign_memory.scratch = &scratch_memory;
     }
 
+    auto asset_path   = make_path_string("$APP_DIR/assets/", &s.main_memory);
+    auto shaders_path = make_path_string("$APP_DIR/shaders/", &s.main_memory);
+    s.data_path       = make_path_string("$DATA/tspike2k/tanks/", &s.main_memory);
+    s.asset_path      = asset_path;
+    s.campaigns_path  = make_path_string("$APP_DIR/campaigns/", &s.main_memory);
+
+    build_directory_from_path("$DATA/", "tspike2k/tanks", &s.frame_memory);
+
+    // TODO: Only use file watchers if we're in a testing build.
     File_Watcher file_watcher = watch_begin(alloc_array!void(&s.main_memory, 2048));
     scope(exit) watch_end(&file_watcher);
 
     auto shaders_watch_fd = watch_add(&file_watcher, "./build/shaders/", Watch_Event_Modified);
 
     // NOTE: These are the default names, these should be configurable by the player.
-    set_name(&s.player_name, "Player 1");
+    set_name(&s.settings.player_name, "Player 1");
+    load_preferences(s);
 
     if(!open_display("Tanks", 1920, 1080, 0)){
         log_error("Unable to open display.\n");
@@ -3004,14 +3074,6 @@ extern(C) int main(int args_count, char** args){
     scope(exit) render_close();
 
     seed(&s.rng, 1247865); // TODO: Seed using current time value?
-
-    auto asset_path   = make_path_string("$APP_DIR/assets/", &s.main_memory);
-    auto shaders_path = make_path_string("$APP_DIR/shaders/", &s.main_memory);
-    s.data_path       = make_path_string("$DATA/tspike2k/tanks/", &s.main_memory);
-    s.asset_path      = asset_path;
-    s.campaigns_path  = make_path_string("$APP_DIR/campaigns/", &s.main_memory);
-
-    build_directory_from_path("$DATA/", "tspike2k/tanks", &s.frame_memory);
 
     load_font(asset_path, "editor_small_en.fnt", &s.font_editor_small, &s.main_memory);
     load_font(asset_path, "menu_large_en.fnt", &s.font_menu_large, &s.main_memory);
@@ -3096,7 +3158,6 @@ extern(C) int main(int args_count, char** args){
     }
 
     load_campaign_from_file(s, Campaign_File_Name);
-    save_high_scores(s); // TODO: For testing only!
 
     s.mouse_pixel = Vec2(0, 0);
 
