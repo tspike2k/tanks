@@ -239,8 +239,7 @@ void set_world_projection(Camera* camera, float target_w, float target_h, float 
     // bottom and top edges of the map. If not, then the camera should snap to the left
     // and right adges of the map. Since our map will be displayed at an angle, we need to
     // correct for that so we know where the top and bottom of the map will be in the window.
-    auto angle_correction = cos(x_rot_degrees);
-    target_h = target_h*angle_correction;
+    target_h = target_h*cos(deg_to_rad(x_rot_degrees));
     if(window_aspect_ratio >= target_w/target_h){
         camera_size = Vec2(target_h*window_aspect_ratio, target_h);
     }

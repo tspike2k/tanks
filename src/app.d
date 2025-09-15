@@ -521,8 +521,8 @@ void save_preferences_and_scores(App_State* s){
     if(memory){
         auto reader = Serializer(memory, scratch);
         auto header = eat_type!Save_File_Header(&reader);
-        Settings settings;
         if(verify_save_file_header(header, file_name)){
+            Settings settings;
             read(&reader, settings);
             read(&reader, old_scores);
         }
@@ -539,7 +539,7 @@ void save_preferences_and_scores(App_State* s){
 
     bool replaced_score = false;
     foreach(ref score; old_scores){
-        if(score.campaign_file_name == s.campaign_file_name){
+        if(score.campaign_file_name == s.high_scores.campaign_file_name){
             foreach(i, ref src_variant; score.variants){
                 src_variant = s.high_scores.variants[i];
             }
