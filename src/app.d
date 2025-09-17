@@ -18,6 +18,14 @@ TODO:
     - Finish porting over tank params
     - Support playing custom campaigns.
     - Add enemy missiles
+    - Fix horrid explosion particles
+
+Collisions:
+    The only entities that move are the tanks and the bullets. Both of these can interact with
+    each other. Tanks should be able to shove tanks, and when a bullet touches a tanks, the tank
+    is destroyed. This means we can simplify things a lot. Bullets should simply use a ray-based
+    collision scheme for bullet vs block and bullet vs tank and bullet vs bullet collisions.
+    Tanks should push each other apart.
 
 Enemy AI:
     - Improved bullet prediction. Right now, even enemies with good aim stats are surprisingly
@@ -705,7 +713,11 @@ void restart_campaign_mission(App_State* s){
     remove_destroyed_entities(&s.world);
 }
 
-void load_campaign_mission(App_State* s, Campaign* campaign, uint mission_index){
+void begin_mission(App_State* s, uint mission_index){
+    push_frame(&s.campaign_memory);
+
+    auto campaign = &s.campaign;
+
     auto world = &s.world;
     world.entities_count = 0;
 
@@ -772,6 +784,11 @@ void load_campaign_mission(App_State* s, Campaign* campaign, uint mission_index)
     max(&score.last_mission_index, mission_index);
     score.total_enemies += s.session.mission_enemy_tanks_count;
 }
+
+void end_mission(App_State* s){
+    pop_frame(&s.campaign_memory);
+}
+
 
 bool timer_update(AI_Timer* timer, float dt, Xorshift32* rng){
     timer.time -= dt;
@@ -1148,11 +1165,6 @@ ulong make_collision_id(Entity_Type a, Entity_Type b){
     return result;
 }
 
-struct Ray{
-    Vec3 pos;
-    Vec3 dir;
-}
-
 bool ray_vs_world_bounds(Vec2 ray_start, Vec2 ray_delta, Rect bounds, float* t_min, Vec2* hit_normal){
     auto delta_sign = Vec2(signf(ray_delta.x), signf(ray_delta.y));
 
@@ -1173,6 +1185,26 @@ bool ray_vs_world_bounds(Vec2 ray_start, Vec2 ray_delta, Rect bounds, float* t_m
     }
 
     return result;
+}
+
+void ray_vs_world_bounds(Vec2 ray_start, Vec2 ray_delta, Rect bounds, Hit_Tester* hit){
+    auto delta_sign = Vec2(signf(ray_delta.x), signf(ray_delta.y));
+
+    auto edge_x = bounds.extents.x * delta_sign.x + bounds.center.x;
+    auto edge_y = bounds.extents.y * delta_sign.y + bounds.center.y;
+    auto x_normal = Vec2(-delta_sign.x, 0);
+    auto y_normal = Vec2(0, -delta_sign.y);
+
+    bool result = false;
+    if(ray_vs_segment(ray_start, ray_delta, Vec2(edge_x, bounds.center.y), x_normal, &hit.t_min)){
+        hit.normal = x_normal;
+        hit.pos    = ray_start + ray_delta*hit.t_min;
+    }
+
+    if(ray_vs_segment(ray_start, ray_delta, Vec2(bounds.center.x, edge_y), y_normal, &hit.t_min)){
+        hit.normal = y_normal;
+        hit.pos    = ray_start + ray_delta*hit.t_min;
+    }
 }
 
 bool ray_vs_plane(Vec3 ray_start, Vec3 ray_dir, Vec3 plane_p, Vec3 plane_n, Vec3* hit_p){
@@ -1343,6 +1375,7 @@ bool should_seperate(Entity_Type a, Entity_Type b){
     return result;
 }
 
+/+
 bool detect_collision(Entity* a, Entity* b, Vec2* hit_normal, float* hit_depth){
     bool result = false;
     if(should_handle_overlap(a, b)){
@@ -1361,7 +1394,7 @@ bool detect_collision(Entity* a, Entity* b, Vec2* hit_normal, float* hit_depth){
     }
 
     return result;
-}
+}+/
 
 bool is_tank_player(Entity* e){
     assert(e.type == Entity_Type.Tank);
@@ -2069,6 +2102,13 @@ Entity* get_closest_live_player(App_State* s, Vec2 pos){
     return result;
 }
 
+struct Hit_Tester{
+    float   t_min;
+    Vec2    pos;
+    Vec2    normal;
+    Entity* entity;
+}
+
 void simulate_world(App_State* s, Tank_Commands* input, float dt){
     // Entity simulation
     s.session.enemies_remaining = 0;
@@ -2080,123 +2120,148 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
 
     s.session.score.time_spent_in_seconds += dt;
 
+    // Simulate entities.
     foreach(ref e; iterate_entities(&s.world)){
-        if(is_dynamic_entity(e.type) && !is_destroyed(&e)){
-            float meters_moved_prev = e.total_meters_moved;
+        if(!is_dynamic_entity(e.type)) continue;
+        if(is_destroyed(&e)) continue;
 
-            switch(e.type){
-                default: break;
+        float meters_moved_prev = e.total_meters_moved;
 
-                case Entity_Type.Tank:{
-                    auto commands = zero_type!Tank_Commands;
-                    bool is_current_player = e.id == s.session.player_entity_ids[s.session.player_index];
+        switch(e.type){
+            default: break;
 
-                    if(is_player_tank(&e)){
-                        assert(is_current_player);
-                        // TODO: Do we really want to do a copy here? For now we do this since
-                        // apply_tank_commands modifies things like the turn_angle. That's useful
-                        // for enemy AI, but doing that for the player tank would override player
-                        // input. As things are, they're perhaps a little too hackey.
-                        commands = *input;
-                    }
-                    else{
-                        handle_enemy_ai(s, &e, &commands, dt);
-                    }
+            case Entity_Type.Tank:{
+                auto commands = zero_type!Tank_Commands;
+                bool is_current_player = e.id == s.session.player_entity_ids[s.session.player_index];
 
-                    apply_tank_commands(s, &e, &commands, dt);
-
-                    e.fire_cooldown_timer -= dt;
-                    e.mine_cooldown_timer -= dt;
-                    if(e.action_stun_timer >= 0.0f){
-                        e.action_stun_timer -= dt;
-                    }
-
-                    if(is_current_player){
-                        e.turret_angle = get_angle(s.mouse_world - e.pos);
-                    }
-
-                    if(!is_player_tank(&e) && !is_destroyed(&e)){
-                        s.session.enemies_remaining++;
-                    }
-
-                    if(passed_range(meters_moved_prev, e.total_meters_moved, Meters_Per_Treadmark)){
-                        play_sfx(&s.sfx_treads, 0, 0.10f);
-                        auto pos = world_to_render_pos(e.pos);
-                        add_particle(&s.emitter_treadmarks, 1.0f, pos, e.angle + deg_to_rad(90));
-                    }
-                } break;
-
-                case Entity_Type.Mine:{
-                    if(e.flags & Entity_Flag_Mine_Active){
-                        bool was_exploding = is_exploding(&e);
-                        e.mine_timer += dt;
-                        if(e.mine_timer > Mine_Explosion_End_Time){
-                            destroy_entity(&e);
-                        }
-                        else if(is_exploding(&e)){
-                            if(!was_exploding){
-                                auto pitch = random_f32_between(&s.rng, 1.0f - 0.10f, 1.0f + 0.10f);
-                                play_sfx(&s.sfx_mine_explosion, 0, 1.0f, pitch);
-                            }
-
-                            auto t = normalized_range_clamp(e.mine_timer, Mine_Detonation_Time, Mine_Explosion_End_Time);
-                            auto radius = Mine_Explosion_Radius * sin(t);
-                            e.extents = Vec2(radius, radius);
-                        }
-                        else if(!is_about_to_explode(&e)){
-                            // Prime the mine to explode if a tank gets close enough
-                            foreach(ref target; iterate_entities(&s.world)){
-                                if(target.health > 0 && target.type == Entity_Type.Tank
-                                && dist_sq(target.pos, e.pos) < squared(Mine_Explosion_Radius)){
-                                    e.mine_timer = Mine_Detonation_Time - 0.5f;
-                                }
-                            }
-                        }
-                    }
-                    else{
-                        auto parent = get_entity_by_id(&s.world, e.parent_id);
-                        auto parent_within_activation_dist = parent && parent.health
-                            && dist_sq(e.pos, parent.pos) <= squared(Mine_Activation_Dist);
-
-                        if(!parent_within_activation_dist){
-                            e.flags |= Entity_Flag_Mine_Active;
-                        }
-                    }
-                } break;
-
-                case Entity_Type.Bullet:{
-                    // TODO: Is there a better way to get the speed than getting the length of the
-                    // bulelt velocity?
-                    e.total_meters_moved += length(e.vel)*dt;
-                    if(passed_range(meters_moved_prev, e.total_meters_moved, Meters_Per_Bullet_Smoke)){
-                        auto pos = world_to_render_pos(e.pos) + Bullet_Ground_Offset;
-                        add_particle(&s.emitter_bullet_contrails, Bullet_Smoke_Lifetime, pos, 0);
-                    }
-                } break;
-            }
-
-            e.pos += e.vel*dt;
-
-            // TODO: Broadphase, Spatial partitioning to limit the number of entitites
-            // we check here.
-            foreach(ref target; iterate_entities(&s.world)){
-                if(is_destroyed(&target) || &target == &e) continue;
-
-                if(detect_collision(&e, &target, &hit_normal, &hit_depth)){
-                    enum epsilon = 0.01f;
-                    // TODO: This probably works well enough, but gliding along blocks
-                    // at a steep enough angle will cause a tank to noticeably hitch.
-                    // What is the best way to solve that using intersection tests?
-                    //
-                    // Note this also happens with bullets. If a bullet hits two blocks
-                    // just right, it'll be regisered as two collisions in one frame.
-                    // This will destroy the bullet before it can be reflected properly.
-                    // This is a HUGE problem and must be fixed.
-                    resolve_collision(s, &e, &target, hit_normal, hit_depth + epsilon);
+                if(is_player_tank(&e)){
+                    assert(is_current_player);
+                    // TODO: Do we really want to do a copy here? For now we do this since
+                    // apply_tank_commands modifies things like the turn_angle. That's useful
+                    // for enemy AI, but doing that for the player tank would override player
+                    // input. As things are, they're perhaps a little too hackey.
+                    commands = *input;
                 }
-            }
-            entity_vs_world_bounds(s, &e);
+                else{
+                    handle_enemy_ai(s, &e, &commands, dt);
+                }
+
+                apply_tank_commands(s, &e, &commands, dt);
+
+                e.fire_cooldown_timer -= dt;
+                e.mine_cooldown_timer -= dt;
+                if(e.action_stun_timer >= 0.0f){
+                    e.action_stun_timer -= dt;
+                }
+
+                if(is_current_player){
+                    e.turret_angle = get_angle(s.mouse_world - e.pos);
+                }
+
+                if(!is_player_tank(&e) && !is_destroyed(&e)){
+                    s.session.enemies_remaining++;
+                }
+
+                if(passed_range(meters_moved_prev, e.total_meters_moved, Meters_Per_Treadmark)){
+                    play_sfx(&s.sfx_treads, 0, 0.10f);
+                    auto pos = world_to_render_pos(e.pos);
+                    add_particle(&s.emitter_treadmarks, 1.0f, pos, e.angle + deg_to_rad(90));
+                }
+            } break;
+
+            case Entity_Type.Mine:{
+                if(e.flags & Entity_Flag_Mine_Active){
+                    bool was_exploding = is_exploding(&e);
+                    e.mine_timer += dt;
+                    if(e.mine_timer > Mine_Explosion_End_Time){
+                        destroy_entity(&e);
+                    }
+                    else if(is_exploding(&e)){
+                        if(!was_exploding){
+                            auto pitch = random_f32_between(&s.rng, 1.0f - 0.10f, 1.0f + 0.10f);
+                            play_sfx(&s.sfx_mine_explosion, 0, 1.0f, pitch);
+                        }
+
+                        auto t = normalized_range_clamp(e.mine_timer, Mine_Detonation_Time, Mine_Explosion_End_Time);
+                        auto radius = Mine_Explosion_Radius * sin(t);
+                        e.extents = Vec2(radius, radius);
+                    }
+                    else if(!is_about_to_explode(&e)){
+                        // Prime the mine to explode if a tank gets close enough
+                        foreach(ref target; iterate_entities(&s.world)){
+                            if(target.health > 0 && target.type == Entity_Type.Tank
+                            && dist_sq(target.pos, e.pos) < squared(Mine_Explosion_Radius)){
+                                e.mine_timer = Mine_Detonation_Time - 0.5f;
+                            }
+                        }
+                    }
+                }
+                else{
+                    auto parent = get_entity_by_id(&s.world, e.parent_id);
+                    auto parent_within_activation_dist = parent && parent.health
+                        && dist_sq(e.pos, parent.pos) <= squared(Mine_Activation_Dist);
+
+                    if(!parent_within_activation_dist){
+                        e.flags |= Entity_Flag_Mine_Active;
+                    }
+                }
+            } break;
+
+            case Entity_Type.Bullet:{
+                // TODO: Is there a better way to get the speed than getting the length of the
+                // bulelt velocity?
+                e.total_meters_moved += length(e.vel)*dt;
+                if(passed_range(meters_moved_prev, e.total_meters_moved, Meters_Per_Bullet_Smoke)){
+                    auto pos = world_to_render_pos(e.pos) + Bullet_Ground_Offset;
+                    add_particle(&s.emitter_bullet_contrails, Bullet_Smoke_Lifetime, pos, 0);
+                }
+            } break;
         }
+
+        auto delta = e.vel*dt;
+        foreach(iteration; 0 .. 4){
+            auto hit = Hit_Tester(1.0f);
+            ray_vs_world_bounds(e.pos, delta, shrink(s.world.bounds, e.extents), &hit);
+
+            if(hit.t_min < 1.0f){
+                /+if(hitEntity)
+                {
+                    doCollisionInteraction(s, e, hitEntity, hitNormal);
+                }+/
+
+                e.pos = hit.pos + hit_normal*0.0001f;
+
+                e.vel = reflect(e.vel, hit.normal, 0.0f);
+                delta = reflect(delta, hit.normal, 0.0f);
+                delta = delta*(1.0f - hit.t_min);
+            }
+            else{
+                e.pos += delta;
+                break;
+            }
+        }
+
+        /+
+        entity_vs_world_bounds(s, &e);
+
+        // TODO: Broadphase, Spatial partitioning to limit the number of entitites
+        // we check here.
+        foreach(ref target; iterate_entities(&s.world)){
+            if(is_destroyed(&target) || &target == &e) continue;
+
+            if(detect_collision(&e, &target, &hit_normal, &hit_depth)){
+                enum epsilon = 0.01f;
+                // TODO: This probably works well enough, but gliding along blocks
+                // at a steep enough angle will cause a tank to noticeably hitch.
+                // What is the best way to solve that using intersection tests?
+                //
+                // Note this also happens with bullets. If a bullet hits two blocks
+                // just right, it'll be regisered as two collisions in one frame.
+                // This will destroy the bullet before it can be reflected properly.
+                // This is a HUGE problem and must be fixed.
+                resolve_collision(s, &e, &target, hit_normal, hit_depth + epsilon);
+            }
+        }+/
     }
 
     update_particles(&s.emitter_bullet_contrails, dt);
@@ -2619,7 +2684,7 @@ void begin_campaign(App_State* s, uint variant_index, uint players_count, uint p
     auto player_score = &score.player_scores[0];
     player_score.name = s.settings.player_name;
 
-    load_campaign_mission(s, &s.campaign, s.session.mission_index);
+    begin_mission(s, s.session.mission_index);
 }
 
 void end_campaign(App_State* s, bool aborted){
@@ -2873,9 +2938,10 @@ void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
                 s.session.state = Session_State.Mission_Intro;
                 s.session.mission_index++;
 
+                end_mission(s);
                 auto variant = &s.campaign.variants[s.session.variant_index];
                 if(s.session.mission_index < variant.missions.length){
-                    load_campaign_mission(s, &s.campaign, s.session.mission_index);
+                    begin_mission(s, s.session.mission_index);
                 }
                 else{
                     end_campaign(s, false);
