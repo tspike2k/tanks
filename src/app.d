@@ -1187,26 +1187,6 @@ bool ray_vs_world_bounds(Vec2 ray_start, Vec2 ray_delta, Rect bounds, float* t_m
     return result;
 }
 
-void ray_vs_world_bounds(Vec2 ray_start, Vec2 ray_delta, Rect bounds, Hit_Tester* hit){
-    auto delta_sign = Vec2(signf(ray_delta.x), signf(ray_delta.y));
-
-    auto edge_x = bounds.extents.x * delta_sign.x + bounds.center.x;
-    auto edge_y = bounds.extents.y * delta_sign.y + bounds.center.y;
-    auto x_normal = Vec2(-delta_sign.x, 0);
-    auto y_normal = Vec2(0, -delta_sign.y);
-
-    bool result = false;
-    if(ray_vs_segment(ray_start, ray_delta, Vec2(edge_x, bounds.center.y), x_normal, &hit.t_min)){
-        hit.normal = x_normal;
-        hit.pos    = ray_start + ray_delta*hit.t_min;
-    }
-
-    if(ray_vs_segment(ray_start, ray_delta, Vec2(bounds.center.x, edge_y), y_normal, &hit.t_min)){
-        hit.normal = y_normal;
-        hit.pos    = ray_start + ray_delta*hit.t_min;
-    }
-}
-
 bool ray_vs_plane(Vec3 ray_start, Vec3 ray_dir, Vec3 plane_p, Vec3 plane_n, Vec3* hit_p){
     // Ray vs plane formula thanks to:
     // https://lousodrome.net/blog/light/2020/07/03/intersection-of-a-ray-and-a-plane/
@@ -2109,11 +2089,48 @@ struct Hit_Tester{
     Entity* entity;
 }
 
+void ray_vs_entity(Vec2 ray_start, Vec2 ray_delta, Entity* target, Vec2 e_extents, Hit_Tester* hit){
+    if(target.type == Entity_Type.Block){
+        auto bounds = Rect(target.pos, target.extents + e_extents);
+        if(ray_vs_rect(ray_start, ray_delta, bounds, &hit.t_min, &hit.normal)){
+            hit.pos = ray_start + ray_delta*hit.t_min;
+            hit.entity = target;
+        }
+    }
+    else{
+        auto radius = target.extents.x + e_extents.x;
+        if(ray_vs_circle(ray_start, ray_delta, target.pos, radius, &hit.t_min, &hit.normal)){
+            hit.pos = ray_start + ray_delta*hit.t_min;
+            hit.entity = target;
+        }
+    }
+}
+
+void ray_vs_world_bounds(Vec2 ray_start, Vec2 ray_delta, Rect bounds, Hit_Tester* hit){
+    auto delta_sign = Vec2(signf(ray_delta.x), signf(ray_delta.y));
+
+    auto edge_x = bounds.extents.x * delta_sign.x + bounds.center.x;
+    auto edge_y = bounds.extents.y * delta_sign.y + bounds.center.y;
+    auto x_normal = Vec2(-delta_sign.x, 0);
+    auto y_normal = Vec2(0, -delta_sign.y);
+
+    bool result = false;
+    if(ray_vs_segment(ray_start, ray_delta, Vec2(edge_x, bounds.center.y), x_normal, &hit.t_min)){
+        hit.normal = x_normal;
+        hit.pos    = ray_start + ray_delta*hit.t_min;
+        hit.entity = null;
+    }
+
+    if(ray_vs_segment(ray_start, ray_delta, Vec2(bounds.center.x, edge_y), y_normal, &hit.t_min)){
+        hit.normal = y_normal;
+        hit.pos    = ray_start + ray_delta*hit.t_min;
+        hit.entity = null;
+    }
+}
+
 void simulate_world(App_State* s, Tank_Commands* input, float dt){
     // Entity simulation
     s.session.enemies_remaining = 0;
-    Vec2 hit_normal = void;
-    float hit_depth = void;
 
     auto map = get_current_map(s);
     auto world_bounds = rect_from_min_max(Vec2(0, 0), Vec2(map.width, map.height));
@@ -2223,13 +2240,22 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
             auto hit = Hit_Tester(1.0f);
             ray_vs_world_bounds(e.pos, delta, shrink(s.world.bounds, e.extents), &hit);
 
-            if(hit.t_min < 1.0f){
-                /+if(hitEntity)
-                {
-                    doCollisionInteraction(s, e, hitEntity, hitNormal);
-                }+/
+            // TODO: Broadphase, Spatial partitioning to limit the number of entitites
+            // we check here.
+            foreach(ref target; iterate_entities(&s.world)){
+                if(is_destroyed(&target) || &target == &e) continue;
+                ray_vs_entity(e.pos, delta, &target, e.extents, &hit);
+            }
 
-                e.pos = hit.pos + hit_normal*0.0001f;
+            if(hit.t_min < 1.0f){
+                if(hit.entity){
+                    //do_collision_interaction(s, e, hit.entity, &hit);
+                }
+
+                if(is_destroyed(&e))
+                    break;
+
+                e.pos = hit.pos + hit.normal*0.0001f;
 
                 e.vel = reflect(e.vel, hit.normal, 0.0f);
                 delta = reflect(delta, hit.normal, 0.0f);
@@ -2244,8 +2270,7 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
         /+
         entity_vs_world_bounds(s, &e);
 
-        // TODO: Broadphase, Spatial partitioning to limit the number of entitites
-        // we check here.
+
         foreach(ref target; iterate_entities(&s.world)){
             if(is_destroyed(&target) || &target == &e) continue;
 
