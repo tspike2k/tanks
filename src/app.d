@@ -17,6 +17,7 @@ TODO:
     - Support playing custom campaigns.
     - Add enemy missiles
     - Fix horrid explosion particles
+    - Show HUD during campaign with score, multipliers, and enemies remaining.
 
 Enemy AI:
     - Improved bullet prediction. Right now, even enemies with good aim stats are surprisingly
@@ -846,7 +847,7 @@ void make_entity(Entity* e, Entity_ID id, Vec2 pos, Entity_Type type){
             assert(0);
 
         case Entity_Type.Tank:
-            e.extents = Vec2(0.55f, 0.324f); break;
+            e.extents = Vec2(0.40f, 0.40f); break;
 
         case Entity_Type.Block:
             e.extents = Vec2(0.5f, 0.5f);
@@ -1115,6 +1116,7 @@ Rect aabb_from_obb(Vec2 p, Vec2 extents, float angle){
     return result;
 }
 
+// Collision ID concept inspired by Handmade Hero
 ulong make_collision_id(Entity_Type a, Entity_Type b){
     assert(a <= b);
     ulong result = (cast(ulong)b) | ((cast(ulong)a) << 24);
@@ -2676,6 +2678,7 @@ void begin_campaign(App_State* s, uint variant_index, uint players_count, uint p
     player_score.name = s.settings.player_name;
 
     begin_mission(s, s.session.mission_index);
+    //begin_mission(s, 3);
 }
 
 void end_campaign(App_State* s, bool aborted){
