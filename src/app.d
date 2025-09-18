@@ -13,19 +13,10 @@ TODO:
     - Temp saves
     - More editor features (tank params, level size, etc)
     - Debug collision volume display?
-    - Improved collision handling. For instance, bullets can get lodged between two blocks,
-      destroying it before the player sees it reflected.
     - Finish porting over tank params
     - Support playing custom campaigns.
     - Add enemy missiles
     - Fix horrid explosion particles
-
-Collisions:
-    The only entities that move are the tanks and the bullets. Both of these can interact with
-    each other. Tanks should be able to shove tanks, and when a bullet touches a tanks, the tank
-    is destroyed. This means we can simplify things a lot. Bullets should simply use a ray-based
-    collision scheme for bullet vs block and bullet vs tank and bullet vs bullet collisions.
-    Tanks should push each other apart.
 
 Enemy AI:
     - Improved bullet prediction. Right now, even enemies with good aim stats are surprisingly
@@ -1091,41 +1082,6 @@ Campaign_Map* get_current_map(App_State* s){
     return result;
 }
 
-void entity_vs_world_bounds(App_State* s, Entity* e){
-    Rect aabb = void;
-    if(e.type == Entity_Type.Tank){
-        aabb = aabb_from_obb(e.pos, e.extents, e.angle);
-    }
-    else{
-        aabb = Rect(e.pos, e.extents);
-    }
-
-    auto world_bounds = shrink(s.world.bounds, aabb.extents);
-    auto p = aabb.center;
-
-    Entity fake_e; // TODO: This is a hack. Should we break entity seperation and collision event handling into two different functions?
-    fake_e.type = Entity_Type.None;
-
-    enum epsilon = 0.01f;
-    if(p.x < left(world_bounds)){
-        auto hit_dist = left(world_bounds) - p.x;
-        resolve_collision(s, e, &fake_e, Vec2(1, 0), hit_dist + epsilon);
-    }
-    else if(p.x > right(world_bounds)){
-        auto hit_dist = p.x - right(world_bounds);
-        resolve_collision(s, e, &fake_e, Vec2(-1, 0), hit_dist + epsilon);
-    }
-
-    if(p.y < bottom(world_bounds)){
-        auto hit_dist = bottom(world_bounds) - p.y;
-        resolve_collision(s, e, &fake_e, Vec2(0, 1), hit_dist + epsilon);
-    }
-    else if(p.y > top(world_bounds)){
-        auto hit_dist = p.y - top(world_bounds);
-        resolve_collision(s, e, &fake_e, Vec2(0, -1), hit_dist + epsilon);
-    }
-}
-
 bool is_destroyed(Entity* e){
     bool result = e.health == 0;
     return result;
@@ -1355,27 +1311,6 @@ bool should_seperate(Entity_Type a, Entity_Type b){
     return result;
 }
 
-/+
-bool detect_collision(Entity* a, Entity* b, Vec2* hit_normal, float* hit_depth){
-    bool result = false;
-    if(should_handle_overlap(a, b)){
-        auto sa = get_collision_shape(a);
-        auto sb = get_collision_shape(b);
-
-        if(sa.type == Shape_Type.Circle && sb.type == Shape_Type.Circle){
-            result = circle_vs_circle(sa.center, sa.radius, sb.center, sb.radius, hit_normal, hit_depth);
-        }
-        else if(sa.type == Shape_Type.Circle && sb.type == Shape_Type.AABB){
-            result = rect_vs_circle(sb.center, sb.extents, sa.center, sa.radius, hit_normal, hit_depth);
-        }
-        else if(sa.type == Shape_Type.AABB && sb.type == Shape_Type.Circle){
-            result = rect_vs_circle(sa.center, sa.extents, sb.center, sb.radius, hit_normal, hit_depth);
-        }
-    }
-
-    return result;
-}+/
-
 bool is_tank_player(Entity* e){
     assert(e.type == Entity_Type.Tank);
     bool result = (e.cell_info & Map_Cell_Is_Player) != 0;
@@ -1403,100 +1338,6 @@ void emit_tank_explosion(Particle_Emitter* emitter, Vec2 pos, Xorshift32* rng){
         auto height = random_f32_between(rng, 0.25f, 0.75f);
         auto offset = Vec3(cos(angle)*0.5f, height, 0.0f);
         add_particle(emitter, Tank_Explosion_Particles_Time, p + offset, 0);
-    }
-}
-
-void resolve_collision(App_State* s, Entity* a, Entity* b, Vec2 normal, float depth){
-    if(should_seperate(a.type, b.type)){
-        // TODO: Handle energy transfer here somehow
-        // Use this as a resource?
-        // https://erikonarheim.com/posts/understanding-collision-constraint-solvers/
-
-        if(is_dynamic_entity(a.type)){
-            a.pos += depth*normal;
-            a.vel = reflect(a.vel, normal);
-        }
-        if(is_dynamic_entity(b.type)){
-            b.pos += depth*normal*-1.0f;
-            b.vel = reflect(b.vel, normal*-1.0f);
-        }
-    }
-
-    if(a.type > b.type)
-        swap(a, b);
-
-    auto collision_id = make_collision_id(a.type, b.type);
-    switch(collision_id){
-        default: break;
-
-        case make_collision_id(Entity_Type.Tank, Entity_Type.Bullet):{
-            auto is_player = is_player_tank(a);
-            bool is_immortal = is_player && Immortal;
-            if(!is_immortal){
-                if(is_player){
-                    auto player_index = get_player_index(a);
-                    s.session.score.player_scores[player_index].tanks_lost += 1;
-                }
-
-                emit_tank_explosion(&s.emitter_explosion_flames, a.pos, &s.rng);
-                play_sfx(&s.sfx_explosion, 0, 2.0f);
-                destroy_entity(a);
-                destroy_entity(b);
-                add_to_score_if_killed_by_player(s, a, b.parent_id);
-            }
-        } break;
-
-        case make_collision_id(Entity_Type.Bullet, Entity_Type.Bullet):{
-            // HACK: For now we use discrete collision tests. This means that we step entity A
-            // and then check it's position against the position of all other entities before
-            // we simulate entity B. In the case of two rapidly fired bullets, if the second
-            // bullet is simulated first it could "catch up" to the first and cause a collision
-            // before A has had a chance to move. This shouldn't happen. This hack should prevent
-            // that case.
-            if(dot(a.vel, b.vel) < 0){
-                // TODO: Show minor explosion
-                destroy_entity(a);
-                destroy_entity(b);
-                play_sfx(&s.sfx_pop, 0, 0.75f);
-            }
-        } break;
-
-        case make_collision_id(Entity_Type.None, Entity_Type.Bullet): // HACK: Reflect off syntetic entities. For use against world bounds.
-        case make_collision_id(Entity_Type.Block, Entity_Type.Bullet):{
-            if(b.health > 1){
-                b.health--;
-                play_sfx(&s.sfx_ricochet, 0, 0.75f);
-            }
-            else{
-                b.health = 0;
-                play_sfx(&s.sfx_pop, 0, 0.75f);
-            }
-            b.angle = atan2(b.vel.y, b.vel.x);
-        } break;
-
-        case make_collision_id(Entity_Type.Bullet, Entity_Type.Mine):{
-            destroy_entity(a);
-            if(!is_exploding(b))
-                detonate(b);
-        } break;
-
-        case make_collision_id(Entity_Type.Block, Entity_Type.Mine):{
-            if(is_breakable(a) && is_exploding(b)){
-                destroy_entity(a);
-            }
-        } break;
-
-        case make_collision_id(Entity_Type.Tank, Entity_Type.Mine):{
-            if(is_exploding(b)){
-                if(is_player_tank(a)){
-                    auto player_index = get_player_index(a);
-                    s.session.score.player_scores[player_index].tanks_lost += 1;
-                }
-
-                destroy_entity(a);
-                add_to_score_if_killed_by_player(s, a, b.parent_id);
-            }
-        } break;
     }
 }
 
@@ -2106,7 +1947,7 @@ void ray_vs_entity(Vec2 ray_start, Vec2 ray_delta, Entity* target, Vec2 e_extent
     }
 }
 
-void ray_vs_world_bounds(Vec2 ray_start, Vec2 ray_delta, Rect bounds, Hit_Tester* hit){
+void ray_vs_world_bounds(Vec2 ray_start, Vec2 ray_delta, Entity* world_entity, Rect bounds, Hit_Tester* hit){
     auto delta_sign = Vec2(signf(ray_delta.x), signf(ray_delta.y));
 
     auto edge_x = bounds.extents.x * delta_sign.x + bounds.center.x;
@@ -2118,13 +1959,138 @@ void ray_vs_world_bounds(Vec2 ray_start, Vec2 ray_delta, Rect bounds, Hit_Tester
     if(ray_vs_segment(ray_start, ray_delta, Vec2(edge_x, bounds.center.y), x_normal, &hit.t_min)){
         hit.normal = x_normal;
         hit.pos    = ray_start + ray_delta*hit.t_min;
-        hit.entity = null;
+        hit.entity = world_entity;
     }
 
     if(ray_vs_segment(ray_start, ray_delta, Vec2(bounds.center.x, edge_y), y_normal, &hit.t_min)){
         hit.normal = y_normal;
         hit.pos    = ray_start + ray_delta*hit.t_min;
-        hit.entity = null;
+        hit.entity = world_entity;
+    }
+}
+
+void do_collision_interaction(App_State* s, Entity* a, Entity* b, Hit_Tester* hit){
+    if(a.type > b.type)
+        swap(a, b);
+
+    auto collision_id = make_collision_id(a.type, b.type);
+    switch(collision_id){
+        default: break;
+
+        case make_collision_id(Entity_Type.Tank, Entity_Type.Bullet):{
+            auto is_player = is_player_tank(a);
+            bool is_immortal = is_player && Immortal;
+            if(!is_immortal){
+                if(is_player){
+                    auto player_index = get_player_index(a);
+                    s.session.score.player_scores[player_index].tanks_lost += 1;
+                }
+
+                emit_tank_explosion(&s.emitter_explosion_flames, a.pos, &s.rng);
+                play_sfx(&s.sfx_explosion, 0, 2.0f);
+                destroy_entity(a);
+                destroy_entity(b);
+                add_to_score_if_killed_by_player(s, a, b.parent_id);
+            }
+        } break;
+
+        case make_collision_id(Entity_Type.Bullet, Entity_Type.Bullet):{
+            // HACK: For now we use discrete collision tests. This means that we step entity A
+            // and then check it's position against the position of all other entities before
+            // we simulate entity B. In the case of two rapidly fired bullets, if the second
+            // bullet is simulated first it could "catch up" to the first and cause a collision
+            // before A has had a chance to move. This shouldn't happen. This hack should prevent
+            // that case.
+            if(dot(a.vel, b.vel) < 0){
+                // TODO: Show minor explosion
+                destroy_entity(a);
+                destroy_entity(b);
+                play_sfx(&s.sfx_pop, 0, 0.75f);
+            }
+        } break;
+
+        case make_collision_id(Entity_Type.None, Entity_Type.Bullet): // HACK: Reflect off syntetic entities. For use against world bounds.
+        case make_collision_id(Entity_Type.Block, Entity_Type.Bullet):{
+            if(b.health > 1){
+                b.health--;
+                play_sfx(&s.sfx_ricochet, 0, 0.75f);
+            }
+            else{
+                b.health = 0;
+                play_sfx(&s.sfx_pop, 0, 0.75f);
+            }
+            auto new_dir = reflect(b.vel, hit.normal);
+            b.angle = atan2(new_dir.y, new_dir.x);
+        } break;
+
+        case make_collision_id(Entity_Type.Bullet, Entity_Type.Mine):{
+            destroy_entity(a);
+            if(!is_exploding(b))
+                detonate(b);
+        } break;
+    }
+}
+
+bool should_collide(Entity* a, Entity* b){
+    if(a.type > b.type)
+        swap(a, b);
+
+    auto collision_id = make_collision_id(a.type, b.type);
+    bool result = false;
+    switch(collision_id){
+        default: break;
+
+        case make_collision_id(Entity_Type.Block, Entity_Type.Bullet):{
+            result = !is_hole(a);
+        } break;
+
+        case make_collision_id(Entity_Type.Bullet, Entity_Type.Bullet):
+        case make_collision_id(Entity_Type.None, Entity_Type.Bullet): // Bullet vs world bounds
+        case make_collision_id(Entity_Type.Block, Entity_Type.Tank):
+        case make_collision_id(Entity_Type.Tank, Entity_Type.Bullet):
+        case make_collision_id(Entity_Type.Tank, Entity_Type.Tank):
+        case make_collision_id(Entity_Type.Bullet, Entity_Type.Mine):
+            result = true;
+            break;
+    }
+    return result;
+}
+
+void handle_entity_overlap(App_State* s, Entity* a, Entity* b){
+    if(a.type > b.type){
+        swap(a, b);
+    }
+
+    auto collision_id = make_collision_id(a.type, b.type);
+    switch(collision_id){
+        default: break;
+
+        case make_collision_id(Entity_Type.Block, Entity_Type.Mine):{
+            if(is_breakable(a) && is_exploding(b)){
+                destroy_entity(a);
+            }
+        } break;
+
+        case make_collision_id(Entity_Type.Mine, Entity_Type.Mine):{
+            if(is_exploding(a) && !is_exploding(b)){
+                detonate(b);
+            }
+            else if(!is_exploding(a) && is_exploding(b)){
+                detonate(a);
+            }
+        } break;
+
+        case make_collision_id(Entity_Type.Tank, Entity_Type.Mine):{
+            if(is_exploding(b)){
+                if(is_player_tank(a)){
+                    auto player_index = get_player_index(a);
+                    s.session.score.player_scores[player_index].tanks_lost += 1;
+                }
+
+                destroy_entity(a);
+                add_to_score_if_killed_by_player(s, a, b.parent_id);
+            }
+        } break;
     }
 }
 
@@ -2141,6 +2107,8 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
     foreach(ref e; iterate_entities(&s.world)){
         if(!is_dynamic_entity(e.type)) continue;
         if(is_destroyed(&e)) continue;
+
+        auto synthetic_entity = zero_type!Entity;
 
         float meters_moved_prev = e.total_meters_moved;
 
@@ -2238,18 +2206,20 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
         auto delta = e.vel*dt;
         foreach(iteration; 0 .. 4){
             auto hit = Hit_Tester(1.0f);
-            ray_vs_world_bounds(e.pos, delta, shrink(s.world.bounds, e.extents), &hit);
+            ray_vs_world_bounds(e.pos, delta, &synthetic_entity, shrink(s.world.bounds, e.extents), &hit);
 
             // TODO: Broadphase, Spatial partitioning to limit the number of entitites
             // we check here.
             foreach(ref target; iterate_entities(&s.world)){
                 if(is_destroyed(&target) || &target == &e) continue;
-                ray_vs_entity(e.pos, delta, &target, e.extents, &hit);
+                if(should_collide(&e, &target)){
+                    ray_vs_entity(e.pos, delta, &target, e.extents, &hit);
+                }
             }
 
             if(hit.t_min < 1.0f){
                 if(hit.entity){
-                    //do_collision_interaction(s, e, hit.entity, &hit);
+                    do_collision_interaction(s, &e, hit.entity, &hit);
                 }
 
                 if(is_destroyed(&e))
@@ -2257,7 +2227,15 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
 
                 e.pos = hit.pos + hit.normal*0.0001f;
 
-                e.vel = reflect(e.vel, hit.normal, 0.0f);
+                if(e.type == Entity_Type.Bullet){
+                    e.vel = reflect(e.vel, hit.normal, 1.0f);
+                }
+                else{
+                    e.vel = reflect(e.vel, hit.normal, 1.0f);
+                }
+
+                // TODO: Reflecting the delta this way results in loss of energy.
+                // Figure out a way to conserve the energy.
                 delta = reflect(delta, hit.normal, 0.0f);
                 delta = delta*(1.0f - hit.t_min);
             }
@@ -2267,26 +2245,14 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
             }
         }
 
-        /+
-        entity_vs_world_bounds(s, &e);
-
-
-        foreach(ref target; iterate_entities(&s.world)){
-            if(is_destroyed(&target) || &target == &e) continue;
-
-            if(detect_collision(&e, &target, &hit_normal, &hit_depth)){
-                enum epsilon = 0.01f;
-                // TODO: This probably works well enough, but gliding along blocks
-                // at a steep enough angle will cause a tank to noticeably hitch.
-                // What is the best way to solve that using intersection tests?
-                //
-                // Note this also happens with bullets. If a bullet hits two blocks
-                // just right, it'll be regisered as two collisions in one frame.
-                // This will destroy the bullet before it can be reflected properly.
-                // This is a HUGE problem and must be fixed.
-                resolve_collision(s, &e, &target, hit_normal, hit_depth + epsilon);
+        // Handle overlap with mines
+        foreach(ref a; iterate_entities(&s.world)){
+            foreach(ref b; iterate_entities(&s.world, 1)){
+                if(circles_overlap(a.pos, a.extents.x, b.pos, b.extents.x)){
+                    handle_entity_overlap(s, &a, &b);
+                }
             }
-        }+/
+        }
     }
 
     update_particles(&s.emitter_bullet_contrails, dt);
