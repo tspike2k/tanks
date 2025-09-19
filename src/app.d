@@ -3540,6 +3540,31 @@ extern(C) int main(int args_count, char** args){
                                 "Start!", Text_White, Text_Align.Center_X
                             );
                         }
+
+                        auto font = &s.font_menu_small;
+                        auto enemies_msg = gen_string("X {0}", s.session.enemies_remaining, &s.frame_memory);
+                        auto tw = get_text_width(font, enemies_msg);
+
+                        auto baseline = Vec2(window.width - 24 - tw, 24);
+                        render_text(render_passes.hud_text, font, baseline, enemies_msg, Vec4(1, 1, 1, 1));
+
+                        // TODO: Icon aspect ratio is hard-coded. It would be better if we
+                        // could access the width/height from the texture itself.
+                        float icon_w = 1024.0f;
+                        float icon_h =  512.0f;
+                        auto  icon_offset = Vec2(418.0f/icon_w, 360.0f/icon_h);
+                        float icon_aspect_ratio = icon_w/icon_h;
+                        float target_icon_height = font.metrics.height;
+                        auto icon_extents = Vec2(target_icon_height*icon_aspect_ratio, target_icon_height);
+
+                        auto icon_center = Vec2(
+                            baseline.x - icon_extents.x,
+                            baseline.y + icon_offset.y*target_icon_height,
+                        );
+
+                        auto icon_bounds = Rect(icon_center, icon_extents);
+                        set_texture(render_passes.hud_text, s.img_tank_icon);
+                        render_rect(render_passes.hud_text, icon_bounds, Vec4(1, 1, 1, 1));
                     } break;
 
                     case Session_State.Mission_End:{
