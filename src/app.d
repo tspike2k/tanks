@@ -280,6 +280,7 @@ struct App_State{
     Texture img_crosshair;
     Texture img_tank_icon;
     Texture img_block;
+    Texture img_explosion;
 }
 
 alias Entity_ID = ulong;
@@ -3170,6 +3171,7 @@ extern(C) int main(int args_count, char** args){
     s.img_crosshair   = load_texture(asset_path, "crosshair.tga", 0, &s.frame_memory);
     s.img_tank_icon   = load_texture(asset_path, "tank_icon.tga", Texture_Flag_Wrap, &s.frame_memory);
     s.img_block       = load_texture(asset_path, "block.tga", 0, &s.frame_memory);
+    s.img_explosion   = load_texture(asset_path, "explosion.tga", 0, &s.frame_memory);
 
     Vec3 light_color = Vec3(1.0f, 1.0f, 1.0f);
     s.light.ambient  = light_color*0.15f;
@@ -3442,13 +3444,13 @@ extern(C) int main(int args_count, char** args){
 
                 foreach(ref p; get_particles(&s.emitter_explosion_flames)){
                     if(p.life > 0){
-                        enum color_red_0  = Vec4(1, 0.0f, 0.0f, 1.0f);
-                        enum color_red_1  = Vec4(1, 0.25f, 0.25f, 1.0f);
+                        enum color_red_0  = Vec4(1, 0.8f, 0.8f, 1.0f);
+                        enum color_red_1  = Vec4(1, 1.0f, 1.0f, 1.0f);
                         enum color_black  = Vec4(0.25f, 0.25f, 0.25f, 1.0f);
 
                         Vec4 color = Vec4(1, 1, 1, 0);
                         auto t = 1.0f - normalized_range_clamp(p.life, 0, Tank_Explosion_Particles_Time);
-                        if(t < 0.25f){
+                        if(t < 0.1f){
                             auto t0 = normalized_range_clamp(t, 0, 0.25f);
                             color = lerp(color_red_0, color_red_1, t0);
                         }
@@ -3464,7 +3466,7 @@ extern(C) int main(int args_count, char** args){
 
                         render_particle(
                             render_passes.particles, p.pos, Vec2(0.5f, 0.5f), color,
-                            s.img_smoke, p.angle
+                            s.img_explosion, p.angle
                         );
                     }
                 }
