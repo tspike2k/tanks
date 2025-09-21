@@ -10,7 +10,7 @@ Credits:
     TheGoldfishKing for the equally helpful "Tanks_Documentation"
 
 TODO:
-    - Temp saves
+    - Temp saves?
     - More editor features (tank params, level size, etc)
     - Debug collision volume display?
     - Finish porting over tank params
@@ -619,21 +619,19 @@ bool is_player_tank(Entity* e){
 bool ray_vs_obstacles(World* world, Vec2 ray_start, Vec2 ray_delta){
     float t_min = 1.0f;
     Vec2 collision_normal = void;
-    bool result = false;
+
+    auto hit = Hit_Tester(1.0f);
     foreach(ref e; iterate_entities(world)){
         if(e.type == Entity_Type.Block){
             auto bounds = Rect(e.pos, e.extents);
-            if(ray_vs_rect(ray_start, ray_delta, bounds, &t_min, &collision_normal)){
-                result = true;
+            if(ray_vs_rect(ray_start, ray_delta, bounds, &hit.t_min, &hit.normal)){
                 break;
             }
         }
     }
 
-    if(ray_vs_world_bounds(ray_start, ray_delta, world.bounds, &t_min, &collision_normal)){
-        result = true;
-    }
-
+    ray_vs_world_bounds(ray_start, ray_delta, null, world.bounds, &hit);
+    bool result = hit.t_min < 1.0f;
     return result;
 }
 
@@ -1123,28 +1121,6 @@ Rect aabb_from_obb(Vec2 p, Vec2 extents, float angle){
 ulong make_collision_id(Entity_Type a, Entity_Type b){
     assert(a <= b);
     ulong result = (cast(ulong)b) | ((cast(ulong)a) << 24);
-    return result;
-}
-
-bool ray_vs_world_bounds(Vec2 ray_start, Vec2 ray_delta, Rect bounds, float* t_min, Vec2* hit_normal){
-    auto delta_sign = Vec2(signf(ray_delta.x), signf(ray_delta.y));
-
-    auto edge_x = bounds.extents.x * delta_sign.x + bounds.center.x;
-    auto edge_y = bounds.extents.y * delta_sign.y + bounds.center.y;
-    auto x_normal = Vec2(-delta_sign.x, 0);
-    auto y_normal = Vec2(0, -delta_sign.y);
-
-    bool result = false;
-    if(ray_vs_segment(ray_start, ray_delta, Vec2(edge_x, bounds.center.y), x_normal, t_min)){
-        *hit_normal = x_normal;
-        result = true;
-    }
-
-    if(ray_vs_segment(ray_start, ray_delta, Vec2(bounds.center.x, edge_y), y_normal, t_min)){
-        *hit_normal = y_normal;
-        result = true;
-    }
-
     return result;
 }
 
@@ -1757,27 +1733,26 @@ bool should_take_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info,
     float test_radius = Bullet_Radius;
     auto world_bounds = world.bounds;
     outer: while(iterations){
-        float t_min = 1.0f;
-
         // TODO: The higher the ray delta, the less accurate the hit location can be calculated.
         // Using 100 is safe, since none of the maps from the original game are that large. However,
         // custom should be able to support that. A less hackey way of doing this would be to use a
         // different style of ray test altogether. We should probably use functions that perform an
         // infinite ray cast and return a hit position and a normal.
         auto ray_delta = ray_dir*100.0f;
+        auto hit = Hit_Tester(1.0f);
         foreach(ref target; iterate_entities(world)){
             if(target.type == Entity_Type.Block && !is_hole(&target)){
                 auto bounds = Rect(target.pos, target.extents + Vec2(Bullet_Radius, Bullet_Radius));
-                ray_vs_rect(ray_start, ray_delta, bounds, &t_min, &collision_normal);
+                ray_vs_rect(ray_start, ray_delta, bounds, &hit.t_min, &hit.normal);
             }
         }
-        ray_vs_world_bounds(ray_start, ray_delta, world_bounds, &t_min, &collision_normal);
+        ray_vs_world_bounds(ray_start, ray_delta, null, world_bounds, &hit);
 
-        if(t_min < 1.0f){
-            auto ray_end = ray_start + ray_delta*t_min;
+        if(hit.t_min < 1.0f){
+            auto ray_end = ray_start + ray_delta*hit.t_min;
 
             auto obb_center  = ray_start + (ray_end - ray_start)*0.5f;
-            auto obb_extents = Vec2(length(ray_delta*t_min)*0.5f, test_radius);
+            auto obb_extents = Vec2(length(ray_delta*hit.t_min)*0.5f, test_radius);
             auto obb_angle   = get_angle(ray_dir);
 
             foreach(ref target; world.entities){
