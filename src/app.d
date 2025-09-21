@@ -16,7 +16,6 @@ TODO:
     - Finish porting over tank params
     - Support playing custom campaigns.
     - Add enemy missiles
-    - Fix horrid explosion particles
     - Show HUD during campaign with score, multipliers, and enemies remaining.
 
 Enemy AI:
@@ -144,9 +143,12 @@ struct Session{
 }
 
 struct Particle{
-    Vec3  pos;
-    float angle;
     float life;
+    float angle;
+    Vec3  pos;
+    Vec3  vel;
+    uint  texture_bg;
+    uint  texture_fg;
 }
 
 // NOTE: The watermark member provides a fast way to "clear" all the particles in the ring buffer.
@@ -1336,11 +1338,15 @@ void add_to_score_if_killed_by_player(App_State* s, Entity* tank, Entity_ID atta
 
 void emit_tank_explosion(Particle_Emitter* emitter, Vec2 pos, Xorshift32* rng){
     auto p = world_to_render_pos(pos);
-    foreach(i; 0 .. 256){
+    foreach(i; 0 .. 64){
         auto angle  = random_angle(rng);
         auto height = random_f32_between(rng, 0.25f, 0.75f);
         auto offset = Vec3(cos(angle)*0.5f, height, 0.0f);
-        add_particle(emitter, Tank_Explosion_Particles_Time, p + offset, 0);
+        auto entry = add_particle(emitter, Tank_Explosion_Particles_Time, p + offset, 0);
+        entry.texture_bg = random_u32_between(rng, 0, 2);
+        entry.texture_fg = random_u32_between(rng, 0, 2);
+        auto speed = random_f32_between(rng, 0.25f, 0.5f);
+        entry.vel = Vec3(cos(angle)*speed, 0, sin(angle)*speed);
     }
 }
 
@@ -2329,10 +2335,11 @@ Particle[] get_particles(Particle_Emitter* emitter){
 void update_particles(Particle_Emitter* emitter, float dt){
     foreach(ref p; get_particles(emitter)){
         p.life -= dt;
+        p.pos += p.vel*dt;
     }
 }
 
-void add_particle(Particle_Emitter* emitter, float life, Vec3 pos, float angle){
+Particle* add_particle(Particle_Emitter* emitter, float life, Vec3 pos, float angle){
     auto p = &emitter.particles[emitter.cursor];
     p.life  = life;
     p.pos   = pos;
@@ -2346,6 +2353,7 @@ void add_particle(Particle_Emitter* emitter, float life, Vec3 pos, float angle){
     else{
         emitter.watermark = max(emitter.watermark, emitter.cursor);
     }
+    return p;
 }
 
 void init_particles(Particle_Emitter* emitter, uint count, Allocator* allocator){
@@ -2678,8 +2686,8 @@ void begin_campaign(App_State* s, uint variant_index, uint players_count, uint p
     auto player_score = &score.player_scores[0];
     player_score.name = s.settings.player_name;
 
-    begin_mission(s, s.session.mission_index);
-    //begin_mission(s, 3);
+    //begin_mission(s, s.session.mission_index);
+    begin_mission(s, 5);
 }
 
 void end_campaign(App_State* s, bool aborted){
@@ -3065,7 +3073,7 @@ void sort_and_render_bullet_particles(Particle_Emitter* emitter, Render_Pass* pa
             alpha = 1.0f-normalized_range_clamp(t, 0.15f, 1);
         }
 
-        render_particle(pass, p.pos, Vec2(0.25f, 0.25f), Vec4(1, 1, 1, alpha), texture, p.angle);
+        render_particle(pass, p.pos, Vec2(0.25f, 0.25f), Vec4(1, 1, 1, alpha), texture);
     }
 }
 
@@ -3444,29 +3452,39 @@ extern(C) int main(int args_count, char** args){
 
                 foreach(ref p; get_particles(&s.emitter_explosion_flames)){
                     if(p.life > 0){
-                        enum color_red_0  = Vec4(1, 0.8f, 0.8f, 1.0f);
-                        enum color_red_1  = Vec4(1, 1.0f, 1.0f, 1.0f);
+                        enum color_red_0  = Vec4(1, 1.0f, 0.8f, 1.0f);
+                        enum color_red_1  = Vec4(1, 1.0f, 1.0f, 0.8f);
                         enum color_black  = Vec4(0.25f, 0.25f, 0.25f, 1.0f);
 
                         Vec4 color = Vec4(1, 1, 1, 0);
                         auto t = 1.0f - normalized_range_clamp(p.life, 0, Tank_Explosion_Particles_Time);
-                        if(t < 0.1f){
-                            auto t0 = normalized_range_clamp(t, 0, 0.25f);
+                        if(t < 0.2f){
+                            auto t0 = normalized_range_clamp(t, 0, 0.2f);
                             color = lerp(color_red_0, color_red_1, t0);
                         }
-                        else if(t < 0.35f){
-                            auto t0 = normalized_range_clamp(t, 0.25f, 0.35f);
+                        else if(t < 0.5f){
+                            auto t0 = normalized_range_clamp(t, 0.2f, 0.5f);
                             color = lerp(color_red_1, color_black, t0);
                         }
                         else{
-                            auto t0 = normalized_range_clamp(t, 0.35f, 1.0f);
+                            auto t0 = normalized_range_clamp(t, 0.5f, 1.0f);
                             color = color_black;
                             color.a = 1.0f-t0;
                         }
 
+                        float angle = 0;
+
+                        float column = p.texture_bg;
+                        auto uvs = rect_from_min_wh(Vec2(0.5f*column, 0.5f), 0.5f, 0.5f);
                         render_particle(
                             render_passes.particles, p.pos, Vec2(0.5f, 0.5f), color,
-                            s.img_explosion, p.angle
+                            s.img_explosion, angle, uvs
+                        );
+                        column = p.texture_fg;
+                        uvs = rect_from_min_wh(Vec2(0.5f*column, 0), 0.5f, 0.5f);
+                        render_particle(
+                            render_passes.particles, p.pos, Vec2(0.5f, 0.5f), color,
+                            s.img_explosion, angle, uvs
                         );
                     }
                 }

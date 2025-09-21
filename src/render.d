@@ -416,13 +416,14 @@ void render_rect(Render_Pass* pass, Rect bounds, Vec4 color){
     cmd.color  = color;
 }
 
-void render_particle(Render_Pass* pass, Vec3 pos, Vec2 extents, Vec4 color, Texture texture, float angle = 0){
+void render_particle(Render_Pass* pass, Vec3 pos, Vec2 extents, Vec4 color, Texture texture, float angle = 0, Rect uvs = Default_UVs){
     auto cmd    = push_command!Render_Particle(pass);
     cmd.pos     = pos;
     cmd.extents = extents;
     cmd.texture = texture;
     cmd.color   = color;
     cmd.angle   = angle;
+    cmd.uvs     = uvs;
 }
 
 void render_ground_decal(Render_Pass* pass, Rect bounds, Vec4 color, float angle, Texture texture){
@@ -596,6 +597,7 @@ struct Render_Particle{
     Vec4 color;
     Texture texture;
     float angle;
+    Rect  uvs;
 }
 
 struct Set_Light{
@@ -1237,7 +1239,7 @@ version(opengl){
                         auto p3 = center - p_up + p_right;
 
                         Vertex[4] v = void;
-                        set_quad(v[], p0, p1, p2, p3, Default_UVs, cmd.color);
+                        set_quad(v[], p0, p1, p2, p3, cmd.uvs, cmd.color);
 
                         set_texture(cmd.texture);
                         draw_quads(v[]);
