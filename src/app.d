@@ -12,11 +12,10 @@ Credits:
 TODO:
     - Temp saves?
     - More editor features (tank params, level size, etc)
-    - Debug collision volume display?
     - Finish porting over tank params
     - Support playing custom campaigns.
     - Add enemy missiles
-    - Show HUD during campaign with score, multipliers, and enemies remaining.
+    - Show multiplier text during mission gameplay. Bounce score display each time you
 
 Enemy AI:
     - Improved bullet prediction. Right now, even enemies with good aim stats are surprisingly
@@ -452,6 +451,27 @@ bool verify_save_file_header(Save_File_Header* header, String file_name){
     return true;
 }
 
+enum Temp_Save_Version = 1;
+enum Temp_Save_Magic   = ('T' << 0 | 'T' << 8 | 'm' << 16 | 'p' << 24);
+
+struct Temp_Save_Header{
+    uint magic;
+    uint file_version;
+}
+
+bool verify_temp_save_header(Temp_Save_Header* header, String file_name){
+    if(header.magic != Temp_Save_Magic){
+        log_error("Unexpected magic for temp save file {0}: got {1} but expected {2}", file_name, header.magic, Temp_Save_Magic);
+        return false;
+    }
+
+    if(header.file_version != Temp_Save_Version){
+        log_error("Unsupported file version for temp save file {0}: got {1} but expected {2}", file_name, header.file_version, Temp_Save_Version);
+        return false;
+    }
+    return true;
+}
+
 String get_save_file_full_path(App_State* s, Allocator* allocator){
     auto result = concat(s.data_path, "tanks.save", allocator);
     return result;
@@ -512,6 +532,59 @@ bool load_preferences(App_State* s){
     }
 
     return success;
+}
+
+void make_temp_save(App_State* s){
+    auto allocator = &s.frame_memory;
+    mixin(Scratch_Frame!());
+
+    auto dest = begin_reserve_all(scratch);
+    auto writer = Serializer(dest, scratch);
+
+    auto header = Temp_Save_Header(Temp_Save_Magic, Temp_Save_Version);
+    write(&writer, header);
+    write(&writer, s.campaign_file_name);
+    write(&writer, s.session);
+    auto entities = s.world.entities[0 .. s.world.entities_count];
+    write(&writer, entities);
+
+    end_reserve_all(scratch, dest, writer.buffer_used);
+    auto file_name = concat(s.data_path, "temp.sav", scratch);
+    write_file_from_memory(file_name, dest[0 .. writer.buffer_used]);
+}
+
+bool load_temp_save(App_State* s){
+    auto allocator = &s.campaign_memory;
+    mixin(Scratch_Frame!());
+
+    auto file_name = concat(s.data_path, "temp.sav", scratch);
+    auto source = read_file_into_memory(file_name, scratch, File_Flag_No_Open_Errors);
+    auto reader = Serializer(source, scratch);
+
+    bool result = false;
+    if(source.length > 0){
+        Temp_Save_Header header;
+        read(&reader, header);
+        if(verify_temp_save_header(&header, file_name)){
+            read(&reader, s.campaign_file_name);
+            read(&reader, s.session);
+
+            Entity[] entities;
+            read(&reader, entities);
+
+            s.world.entities_count = cast(uint)entities.length;
+            copy(entities, s.world.entities[0 .. s.world.entities_count]);
+
+            result = !reader.errors;
+        }
+        delete_file(file_name);
+    }
+
+    if(result){
+        result = load_campaign_from_file(s, s.campaign_file_name);
+    }
+
+    return result;
 }
 
 void save_preferences_and_scores(App_State* s){
@@ -580,7 +653,7 @@ bool load_campaign_from_file(App_State* s, String file_name){
         *allocator = Allocator(os_alloc(campaign_memory_size, 0));
         allocator.scratch = scratch;
 
-        s.campaign_file_name = dup_array(full_path, allocator);
+        s.campaign_file_name = dup_array(file_name, &s.campaign_memory);
 
         auto reader = Serializer(memory, allocator);
         auto header = eat_type!Asset_Header(&reader);
@@ -2593,9 +2666,15 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
 }
 
 void app_quit(App_State* s){
-    // TODO: If the game is running, make a temp save.
     // TODO: If the editor is running, make a temp save?
     s.running    = false;
+
+    if(s.mode == Game_Mode.Campaign){
+        make_temp_save(s);
+    }
+
+    // TODO: Shouldn't we only save scores and preferences when they change?
+    // Split those into two and do them only when needed.
     save_preferences_and_scores(s);
 }
 
@@ -2661,8 +2740,8 @@ void begin_campaign(App_State* s, uint variant_index, uint players_count, uint p
     auto player_score = &score.player_scores[0];
     player_score.name = s.settings.player_name;
 
-    //begin_mission(s, s.session.mission_index);
-    begin_mission(s, 5);
+    begin_mission(s, s.session.mission_index);
+    //begin_mission(s, 5);
 }
 
 void end_campaign(App_State* s, bool aborted){
@@ -3202,8 +3281,6 @@ extern(C) int main(int args_count, char** args){
         scope(exit) close_socket(&socket);
     }
 
-    load_campaign_from_file(s, Campaign_File_Name);
-
     s.mouse_pixel = Vec2(0, 0);
 
     init_gui(&s.gui);
@@ -3214,9 +3291,6 @@ extern(C) int main(int args_count, char** args){
     audio_init(Audio_Frames_Per_Sec, 2, target_latency, mixer_buffer_size_in_frames, &s.main_memory);
     scope(exit) audio_shutdown();
 
-    //s.mode = Game_Mode.Campaign;
-    s.mode = Game_Mode.Menu;
-    s.next_mode = s.mode;
     s.menu.heading_font     = &s.font_menu_large;
     s.menu.title_font       = &s.font_title;
     s.menu.button_font      = &s.font_menu_small;
@@ -3228,6 +3302,15 @@ extern(C) int main(int args_count, char** args){
     ulong prev_timestamp    = current_timestamp;
 
     s.world_camera_polar = Default_World_Camera_Polar;
+
+    if(load_temp_save(s)){
+        s.mode = Game_Mode.Campaign;
+    }
+    else{
+        load_campaign_from_file(s, Campaign_File_Name);
+        s.mode = Game_Mode.Menu;
+    }
+    s.next_mode = s.mode;
 
     while(s.running){
         auto perf_timer_frame = begin_perf_timer("Entire Frame");
@@ -3523,7 +3606,6 @@ extern(C) int main(int args_count, char** args){
                                 Text_White, Text_Align.Center_X
                             );
                         }
-
                     } break;
 
                     case Session_State.Playing_Mission:{
@@ -3540,7 +3622,21 @@ extern(C) int main(int args_count, char** args){
                         auto enemies_msg = gen_string("X {0}", s.session.enemies_remaining, &s.frame_memory);
                         auto tw = get_text_width(font, enemies_msg);
 
-                        auto baseline = Vec2(window.width - 24 - tw, 24);
+                        auto margins = 24.0f;
+                        auto baseline = Vec2(margins, margins + font.metrics.line_gap);
+
+                        uint player_index = 0;
+
+                        auto player_string = Player_Index_Strings[player_index];
+                        auto player_color = Player_Text_Colors[player_index];
+                        render_text(render_passes.hud_text, font, baseline, player_string, player_color);
+
+                        baseline.y -= font.metrics.line_gap;
+                        auto player_score = s.session.score.player_scores[player_index].points;
+                        auto points_msg = gen_string("{0}", player_score, &s.frame_memory);
+                        render_text(render_passes.hud_text, font, baseline, points_msg, player_color);
+
+                        baseline = Vec2(window.width - margins - tw, margins);
                         render_text(render_passes.hud_text, font, baseline, enemies_msg, Vec4(1, 1, 1, 1));
 
                         // TODO: Icon aspect ratio is hard-coded. It would be better if we

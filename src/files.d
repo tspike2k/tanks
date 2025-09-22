@@ -221,6 +221,11 @@ size_t get_file_size(File* file){
     return result;
 }
 
+void delete_file(String file_path){
+    // TODO: Error handling?
+    unlink(file_path.ptr);
+}
+
 struct Directory_Range{
     import core.sys.posix.dirent;
     struct Node{
