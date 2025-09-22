@@ -10,7 +10,6 @@ Credits:
     TheGoldfishKing for the equally helpful "Tanks_Documentation"
 
 TODO:
-    - Temp saves?
     - More editor features (tank params, level size, etc)
     - Finish porting over tank params
     - Support playing custom campaigns.
@@ -545,6 +544,8 @@ void make_temp_save(App_State* s){
     write(&writer, header);
     write(&writer, s.campaign_file_name);
     write(&writer, s.session);
+    write(&writer, s.world.next_entity_id);
+    write(&writer, s.world.bounds);
     auto entities = s.world.entities[0 .. s.world.entities_count];
     write(&writer, entities);
 
@@ -568,6 +569,8 @@ bool load_temp_save(App_State* s){
         if(verify_temp_save_header(&header, file_name)){
             read(&reader, s.campaign_file_name);
             read(&reader, s.session);
+            read(&reader, s.world.next_entity_id);
+            read(&reader, s.world.bounds);
 
             Entity[] entities;
             read(&reader, entities);
@@ -582,6 +585,9 @@ bool load_temp_save(App_State* s){
 
     if(result){
         result = load_campaign_from_file(s, s.campaign_file_name);
+        auto map_center = s.world.bounds.center;
+        s.world_camera_target_pos = world_to_render_pos(map_center);
+        set_menu(&s.menu, Menu_ID.Campaign_Pause);
     }
 
     return result;
@@ -780,8 +786,6 @@ void restart_campaign_mission(App_State* s){
 }
 
 void begin_mission(App_State* s, uint mission_index){
-    push_frame(&s.campaign_memory);
-
     auto campaign = &s.campaign;
 
     auto world = &s.world;
@@ -852,7 +856,7 @@ void begin_mission(App_State* s, uint mission_index){
 }
 
 void end_mission(App_State* s){
-    pop_frame(&s.campaign_memory);
+
 }
 
 
@@ -3295,7 +3299,6 @@ extern(C) int main(int args_count, char** args){
     s.menu.title_font       = &s.font_title;
     s.menu.button_font      = &s.font_menu_small;
     s.menu.sfx_click        = &s.sfx_menu_click;
-    set_menu(&s.menu, Menu_ID.Main_Menu);
 
     float target_dt = 1.0f/60.0f;
     ulong current_timestamp = ns_timestamp();
@@ -3309,6 +3312,7 @@ extern(C) int main(int args_count, char** args){
     else{
         load_campaign_from_file(s, Campaign_File_Name);
         s.mode = Game_Mode.Menu;
+        set_menu(&s.menu, Menu_ID.Main_Menu);
     }
     s.next_mode = s.mode;
 

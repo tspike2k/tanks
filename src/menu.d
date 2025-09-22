@@ -624,6 +624,8 @@ bool should_scroll(Menu* menu){
 }
 
 void menu_update(Menu* menu, Rect canvas){
+    if(menu.active_menu_id == Menu_ID.None) return;
+
     if(menu.mouse_moved){
         foreach(item_index, ref item; menu.items[0 .. menu.items_count]){
             if(is_interactive(&item) && is_point_inside_rect(menu.mouse_p - menu.scroll_offset, item.bounds)){
