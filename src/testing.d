@@ -5,6 +5,9 @@ License:   Boost Software License 1.0 (https://www.boost.org/LICENSE_1_0.txt)
 */
 
 import render;
+import assets : Font;
+import memory;
+import math : Vec2, Vec4;
 
 debug{
     enum Testing = true;
@@ -19,7 +22,8 @@ __gshared bool  g_debug_pause_next;
 __gshared ulong g_perf_frequency;
 __gshared Render_Pass* g_debug_render_pass;
 
-private __gshared string[] g_timer_block_names;
+__gshared uint           g_perf_frames_cursor;
+__gshared Perf_Frame[32] g_perf_frames;
 
 void debug_pause(bool should_pause){
     g_debug_pause_next = should_pause;
@@ -55,6 +59,30 @@ struct Perf_Frame{
     uint            entries_count;
 }
 
+struct Perf_Timer{
+    ulong cycles;
+    const(char)* name;
+    Perf_Entry*  entry;
+}
+
+void begin_perf_frame(){
+    // TODO: We're currently using a double-buffering approach to recording performance
+    // information. In the future, we want this to be a rolling buffer with the history
+    // of each frame.
+    if(g_perf_frames_cursor == 0){
+        g_perf_frames_cursor = 1;
+    }
+    else{
+        g_perf_frames_cursor = 0;
+    }
+
+    g_perf_frames[g_perf_frames_cursor].entries_count = 0;
+}
+
+void end_perf_frame(){
+
+}
+
 Perf_Entry* add_perf_entry(ulong cycles, const(char)* name, Perf_Event event){
     auto frame = &g_perf_frames[g_perf_frames_cursor];
 
@@ -63,15 +91,6 @@ Perf_Entry* add_perf_entry(ulong cycles, const(char)* name, Perf_Event event){
     entry.name   = name;
     entry.event  = event;
     return entry;
-}
-
-__gshared uint           g_perf_frames_cursor;
-__gshared Perf_Frame[32] g_perf_frames;
-
-struct Perf_Timer{
-    ulong cycles;
-    const(char)* name;
-    Perf_Entry*  entry;
 }
 
 Perf_Timer begin_perf_timer(string name){
@@ -96,29 +115,31 @@ template Perf_Function(){
     };
 }
 
-void update_perf_info(bool should_display){
-    import logging;
-    auto frame = &g_perf_frames[0];
-
+void render_perf_info(Render_Pass* hud_pass, Font* font, float window_height, Allocator* allocator){
     // TODO: Make this print to the screen rather than STDOUT.
-    if(should_display){
-        int indent = -1;
-        foreach(ref entry; frame.entries[0 .. frame.entries_count]){
-            if(entry.event == Perf_Event.Begin_Timer){
-                indent++;
+    auto margin = 16.0f;
+    auto pen = Vec2(margin, window_height - margin - font.metrics.height);
 
-                foreach(i; 0 .. indent){
-                    log(" "); // This is just for testing. It's grossly inneficient!
-                }
-                log("{0}: cycles: {1}\n", entry.name, entry.cycles);
-            }
-            else if(entry.event == Perf_Event.End_Timer){
-                indent--;
-            }
+    auto frame_index = 0;
+    if(g_perf_frames_cursor == 0)
+        frame_index = 1;
+
+    auto frame = &g_perf_frames[frame_index];
+    uint depth = 0;
+    foreach(ref entry; frame.entries[0 .. frame.entries_count]){
+        if(entry.event == Perf_Event.Begin_Timer){
+            auto msg = gen_string("{0}: cycles: {1}", entry.name, entry.cycles, allocator);
+
+            auto offset = Vec2(margin*cast(float)depth, 0);
+            render_text(hud_pass, font, pen + offset, msg, Vec4(1, 1, 1, 1));
+            pen.y -= cast(float)font.metrics.line_gap;
+            depth++;
+        }
+        else if(entry.event == Perf_Event.End_Timer){
+            assert(depth > 0);
+            depth--;
         }
     }
-
-    frame.entries_count = 0;
 }
 
 /+

@@ -15,6 +15,7 @@ TODO:
     - Support playing custom campaigns.
     - Add enemy missiles
     - Show multiplier text during mission gameplay. Bounce score display each time you
+    - Save particles into temp files.
 
 Enemy AI:
     - Improved bullet prediction. Right now, even enemies with good aim stats are surprisingly
@@ -1848,16 +1849,16 @@ bool should_take_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info,
             }
 
             if(g_debug_mode){
+                auto bg_color = Vec4(0.5f, 0.5f, 0.5f, 1.0f);
                 auto line_color = Vec4(1, 1, 1, 1);
                 if(has_opportunity){
-                    line_color = Vec4(1, 0, 0, 1);
+                    bg_color = Vec4(1, 0, 0, 1);
                 }
                 if(result){
-                    //debug_pause(true);
                     line_color = Vec4(0, 1, 0, 1);
                 }
                 render_debug_line(g_debug_render_pass, ray_start, ray_end, line_color);
-                render_debug_obb(g_debug_render_pass, obb_center, obb_extents, Vec4(1, 1, 1, 0.5f), obb_angle);
+                render_debug_obb(g_debug_render_pass, obb_center, obb_extents, bg_color, obb_angle);
             }
 
             ray_dir   = reflect(ray_dir, collision_normal);
@@ -1890,7 +1891,6 @@ void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
     // - Random turning
     // - Turning in smaller increments
     // - Aiming at player before firing
-    //
 
     auto tank_info = get_tank_info(&s.campaign, e);
     cmd.turn_angle = e.target_angle;
@@ -2745,7 +2745,6 @@ void begin_campaign(App_State* s, uint variant_index, uint players_count, uint p
     player_score.name = s.settings.player_name;
 
     begin_mission(s, s.session.mission_index);
-    //begin_mission(s, 5);
 }
 
 void end_campaign(App_State* s, bool aborted){
@@ -3317,8 +3316,8 @@ extern(C) int main(int args_count, char** args){
     s.next_mode = s.mode;
 
     while(s.running){
+        begin_perf_frame();
         auto perf_timer_frame = begin_perf_timer("Entire Frame");
-
         begin_frame();
 
         push_frame(&s.frame_memory);
@@ -3741,6 +3740,9 @@ extern(C) int main(int args_count, char** args){
             render_rect(render_passes.hud_rects, Rect(Vec2(200, 200), Vec2(100, 100)), Vec4(1, 1, 1, 1));
         }
 
+        if(g_debug_mode)
+            render_perf_info(render_passes.hud_text, &s.font_menu_small, window.height, &s.frame_memory);
+
         end_perf_timer(&perf_render_prep);
         render_end_frame();
 
@@ -3756,10 +3758,10 @@ extern(C) int main(int args_count, char** args){
 
         if(!g_debug_pause)
             render_submit_frame();
-        end_frame();
 
+        end_frame();
         end_perf_timer(&perf_timer_frame);
-        update_perf_info(g_debug_mode);
+        end_perf_frame();
 
         watch_update(&file_watcher);
         Watch_Event w_evt;
