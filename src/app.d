@@ -1731,21 +1731,6 @@ void apply_tank_commands(App_State* s, Entity* e, Tank_Commands* input, float dt
     }
 }
 
-bool is_point_in_sight(World* world, Entity* e, float sight_angle, float sight_range, Vec2 target_p){
-    bool result = false;
-    if(dist_sq(e.pos, target_p) <= squared(sight_range)){
-        // Line-of-sight algorithm thanks to:
-        // https://nic-gamedev.blogspot.com/2011/11/using-vector-mathematics-and-bit-of.html
-        auto look_dir = vec2_from_angle(e.turret_angle);
-        auto target_dir  = normalize(target_p - e.pos);
-        if(dot(target_dir, look_dir) >= cos(sight_angle)){
-            result = !ray_vs_obstacles(world, e.pos, target_dir*sight_range);
-        }
-    }
-    return result;
-}
-
-
 /+
     Turret aiming:
     This determines where the tank is currently aiming.
@@ -1802,7 +1787,6 @@ bool should_take_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info,
     auto ray_dir   = vec2_from_angle(e.turret_angle);
     auto ray_start = get_bullet_spawn_pos(e.pos, ray_dir);
 
-    Vec2 collision_normal = void;
     auto result = false;
     uint iterations = tank_info.bullet_ricochets+1;
 
@@ -1810,7 +1794,7 @@ bool should_take_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info,
     // why some shots miss.
     float test_radius = Bullet_Radius;
     auto world_bounds = world.bounds;
-    outer: while(iterations){
+    outer: foreach(i; 0 .. iterations){
         // TODO: The higher the ray delta, the less accurate the hit location can be calculated.
         // Using 100 is safe, since none of the maps from the original game are that large. However,
         // custom should be able to support that. A less hackey way of doing this would be to use a
@@ -1820,20 +1804,32 @@ bool should_take_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info,
         auto hit = Hit_Tester(1.0f);
         foreach(ref target; iterate_entities(world)){
             if(target.type == Entity_Type.Block && !is_hole(&target)){
-                auto bounds = Rect(target.pos, target.extents + Vec2(Bullet_Radius, Bullet_Radius));
-                ray_vs_rect(ray_start, ray_delta, bounds, &hit.t_min, &hit.normal);
+                auto bullet_extents = Vec2(Bullet_Radius, Bullet_Radius);
+                ray_vs_entity(ray_start, ray_delta, &target, bullet_extents, &hit);
             }
         }
         ray_vs_world_bounds(ray_start, ray_delta, null, world_bounds, &hit);
 
         if(hit.t_min < 1.0f){
-            auto ray_end = ray_start + ray_delta*hit.t_min;
+            auto ray_end = hit.pos;
 
             auto obb_center  = ray_start + (ray_end - ray_start)*0.5f;
             auto obb_extents = Vec2(length(ray_delta*hit.t_min)*0.5f, test_radius);
             auto obb_angle   = get_angle(ray_dir);
 
-            foreach(ref target; world.entities){
+            /+
+            // Line-of-sight algorithm thanks to:
+            // https://nic-gamedev.blogspot.com/2011/11/using-vector-mathematics-and-bit-of.html
+            Vect2 mag = normalizeSafe(fs->player.pos - enemy->pos);
+            f32 dot = dotProduct(mag, enemy->facing);
+
+            // TODO: Tune the angle (in radians)
+            if (dot >= cosine(0.7f))
+            {
+
+            }+/
+
+            foreach(ref target; iterate_entities(world)){
                 if(target.type == Entity_Type.Tank){
                     auto tank_radius = target.extents.x;
                     if(circle_overlaps_obb(target.pos, tank_radius + Bullet_Radius, obb_center, obb_extents, obb_angle)){
@@ -1861,15 +1857,15 @@ bool should_take_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info,
                 render_debug_obb(g_debug_render_pass, obb_center, obb_extents, bg_color, obb_angle);
             }
 
-            ray_dir   = reflect(ray_dir, collision_normal);
+            ray_dir   = reflect(ray_dir, hit.normal);
             ray_start = ray_end;
         }
         else{
             // Sanity check. The ray should always at the very least hit the world bounds.
             // However, if it doesn't, we'll just abort.
+            assert(0);
             break;
         }
-        iterations--;
     }
     return result && has_opportunity;
 }
