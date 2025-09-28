@@ -29,6 +29,8 @@ enum Window_Min_Width    = 200;
 enum Window_Min_Height   = 140;
 enum Window_Resize_Slack = 4; // Additional space for grabbing window border for resize operation
 
+enum Button_BG_Color = Vec4(0.75f, 0.75f, 0.75f, 1);
+
 struct Gui_State{
     List!Window windows;
     Font*   font;
@@ -223,6 +225,8 @@ enum Widget_Type : uint{
     Button,
     Label,
     Text_Field,
+    Spin_Button,
+
     Custom,
 }
 
@@ -351,6 +355,32 @@ void text_field(Gui_State* gui, Gui_ID id, char[] buffer, uint* buffer_used){
     widget.used = buffer_used;
 
     end_window_cmd(window, &writer);+/
+}
+
+struct Spin_Button{
+    enum Type = Widget_Type.Spin_Button;
+    Widget widget;
+    alias widget this;
+
+    float sub_width;
+    float add_width;
+    uint* data;
+}
+
+enum Spin_Button_Text_Entry_Width = 96.0f;
+
+void spin_button(Gui_State* gui, Gui_ID id, uint* data){
+    auto btn = cast(Spin_Button*)begin_widget(gui, id, Widget_Type.Spin_Button, Spin_Button.sizeof);
+
+    auto font = gui.font;
+    btn.data = data;
+    btn.add_width = get_text_width(font, "+") + Button_Padding*2.0f;
+    btn.sub_width = btn.add_width;
+
+    float w = Spin_Button_Text_Entry_Width + btn.sub_width + btn.add_width;
+    float h = font.metrics.height + Button_Padding*2.0f;
+
+    end_widget(gui, &btn.widget, w, h);
 }
 
 void label(Gui_State* gui, Gui_ID id, String text){
@@ -699,6 +729,7 @@ void render_gui(Gui_State* gui, Camera* camera_data, Shader* shader_rects, Shade
         auto rp_text = add_render_pass(camera_data);
         set_shader(rp_text, shader_text);
         rp_text.flags = Render_Flag_Disable_Depth_Test;
+        rp_text.blend_mode = Blend_Mode.One_Minus_Source_Alpha;
 
         // TODO: Clamp text to pixel boundaries?
         Vec4 seperator_color = Vec4(0.22f, 0.23f, 0.24f, 1.0f);
@@ -735,7 +766,7 @@ void render_gui(Gui_State* gui, Camera* camera_data, Shader* shader_rects, Shade
 
                 case Widget_Type.Button:{
                     auto btn = cast(Button*)widget;
-                    auto bg_color = Vec4(0.75f, 0.75f, 0.75f, 1);
+                    auto bg_color = Button_BG_Color;
                     if(gui.active_id == widget.id){
                         bg_color *= 0.75f;
                         bg_color.a = 1;
@@ -752,7 +783,7 @@ void render_gui(Gui_State* gui, Camera* camera_data, Shader* shader_rects, Shade
 
                 case Widget_Type.Text_Field:{
                     auto field = cast(Text_Field*)widget;
-                    auto bg_color = Vec4(0.75f, 0.75f, 0.75f, 1);
+                    auto bg_color = Button_BG_Color;
                     if(gui.active_id == widget.id){
                         bg_color *= 0.75f;
                         bg_color.a = 1;
@@ -773,6 +804,26 @@ void render_gui(Gui_State* gui, Camera* camera_data, Shader* shader_rects, Shade
                     auto label = cast(Label*)widget;
                     auto baseline = center_text_left(font, label.text, bounds) + Vec2(Button_Padding, 0);
                     render_text(rp_text, font, baseline, label.text, Vec4(0, 0, 0, 1));
+                } break;
+
+                case Widget_Type.Spin_Button:{
+                    auto btn = cast(Spin_Button*)widget;
+                    auto h = height(bounds);
+                    auto input_bounds = rect_from_min_wh(min(bounds), Spin_Button_Text_Entry_Width, h);
+                    auto bounds_pen = Vec2(right(input_bounds), bottom(input_bounds));
+                    auto sub_bounds = rect_from_min_wh(bounds_pen, btn.sub_width, h);
+                    bounds_pen.x += btn.sub_width;
+                    auto add_bounds = rect_from_min_wh(bounds_pen, btn.add_width, h);
+                    render_rect(rp_rects, input_bounds, Vec4(1, 1, 1, 1));
+                    render_rect_outline(rp_rects, input_bounds, Vec4(0, 0, 0, 1), 1.0f);
+
+                    render_text(rp_text, font, sub_bounds, "-", Vec4(0, 0, 0, 1));
+                    render_rect(rp_rects, sub_bounds, Button_BG_Color);
+                    render_button_bounds(rp_rects, sub_bounds, 0);
+
+                    render_text(rp_text, font, add_bounds, "+", Vec4(0, 0, 0, 1));
+                    render_rect(rp_rects, add_bounds, Button_BG_Color);
+                    render_button_bounds(rp_rects, add_bounds, 0);
                 } break;
             }
         }

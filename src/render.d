@@ -400,6 +400,11 @@ Vec4 color = Vec4(1, 1, 1, 1), Text_Align text_align = Text_Align.Left){
     cmd.text_align = text_align;
 }
 
+void render_text(Render_Pass* pass, Font* font, Rect bounds, String text, Vec4 color = Vec4(1, 1, 1, 1)){
+    auto baseline = center_text(font, text, bounds);
+    render_text(pass, font, baseline, text, color);
+}
+
 void render_text_block(Render_Pass* pass, Font* font, Vec2 pos, String text,
 Vec4 color, float width){
     auto cmd       = push_command!Render_Text_Block(pass);

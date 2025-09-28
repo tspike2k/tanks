@@ -27,12 +27,6 @@ import meta;
 import gui;
 import menu;
 
-enum Window_ID_Main           = 1;
-enum Label_Map_ID             = gui_id(Window_ID_Main);
-enum Button_Prev_Map          = gui_id(Window_ID_Main);
-enum Button_Next_Map          = gui_id(Window_ID_Main);
-enum Button_New_Map           = gui_id(Window_ID_Main);
-
 private:
 
 enum Place_Type : uint{
@@ -772,12 +766,25 @@ public void editor_toggle(App_State* s){
         auto map_center = 0.5f*Vec2(map.width, map.height);
         s.world_camera_target_pos = world_to_render_pos(map_center);
 
+        enum Window_ID_Main            = 1;
+        enum Button_Prev_Map           = gui_id(Window_ID_Main);
+        enum Button_Next_Map           = gui_id(Window_ID_Main);
+        enum Button_New_Map            = gui_id(Window_ID_Main);
+        enum Spin_Button_ID_Map_Width  = gui_id(Window_ID_Main);
+        enum Spin_Button_ID_Map_Height = gui_id(Window_ID_Main);
+
         auto memory = (malloc(4086)[0 .. 4086]);
         begin_window(gui, Window_ID_Main, "Test Window", rect_from_min_wh(Vec2(20, 20), 200, 80), memory);
             button(gui, Button_Prev_Map, "<");
-            label(gui, Label_Map_ID, "map_id");
+            label(gui, gui_id(Window_ID_Main), "map_id");
             button(gui, Button_Next_Map, ">");
             button(gui, Button_New_Map, "+");
+            next_row(gui);
+            label(gui, gui_id(Window_ID_Main), "Map width:");
+            spin_button(gui, Spin_Button_ID_Map_Width, &map.width);
+            next_row(gui);
+            label(gui, gui_id(Window_ID_Main), "Map height:");
+            spin_button(gui, Spin_Button_ID_Map_Width, &map.height);
             next_row(gui);
         end_window(gui);
 
