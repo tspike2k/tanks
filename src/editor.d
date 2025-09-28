@@ -25,6 +25,7 @@ import files;
 import assets;
 import meta;
 import gui;
+import menu;
 
 enum Window_ID_Main           = 1;
 enum Label_Map_ID             = gui_id(Window_ID_Main);
@@ -756,6 +757,8 @@ public void editor_toggle(App_State* s){
     if(!g_editor_is_open){
         g_allocator       = &s.editor_memory;
         g_frame_allocator = &s.frame_memory;
+
+        set_menu(&s.menu, Menu_ID.None);
 
         g_mouse_left_is_down  = false;
         g_mouse_right_is_down = false;

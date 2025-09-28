@@ -14,12 +14,9 @@ TODO:
     - Finish porting over tank params
     - Support playing custom campaigns.
     - Add enemy missiles
-    - Show multiplier text during mission gameplay. Bounce score display each time you
-    - Save particles into temp files.
+    - Show multiplier text during mission gameplay. Bounce score display each time you get a point
 
 Enemy AI:
-    - Improved bullet prediction. Right now, even enemies with good aim stats are surprisingly
-    off target.
     - Enemies are supposed to enter "survival mode" when they see a bullet (I think) or a mine.
       In this mode, the enemy tries to move as far back as needed.
     - Enemies should make sure they have room to drive away from a mine before placing one.
@@ -451,7 +448,7 @@ bool verify_save_file_header(Save_File_Header* header, String file_name){
     return true;
 }
 
-enum Temp_Save_Version = 1;
+enum Temp_Save_Version = 2;
 enum Temp_Save_Magic   = ('T' << 0 | 'T' << 8 | 'm' << 16 | 'p' << 24);
 
 struct Temp_Save_Header{
@@ -547,8 +544,12 @@ void make_temp_save(App_State* s){
     write(&writer, s.session);
     write(&writer, s.world.next_entity_id);
     write(&writer, s.world.bounds);
+    write(&writer, s.world.entities_count);
     auto entities = s.world.entities[0 .. s.world.entities_count];
     write(&writer, entities);
+    write(&writer, s.emitter_treadmarks);
+    write(&writer, s.emitter_bullet_contrails);
+    write(&writer, s.emitter_explosion_flames);
 
     end_reserve_all(scratch, dest, writer.buffer_used);
     auto file_name = concat(s.data_path, "temp.sav", scratch);
@@ -572,12 +573,12 @@ bool load_temp_save(App_State* s){
             read(&reader, s.session);
             read(&reader, s.world.next_entity_id);
             read(&reader, s.world.bounds);
-
-            Entity[] entities;
+            read(&reader, s.world.entities_count);
+            auto entities = s.world.entities[0 .. s.world.entities_count];
             read(&reader, entities);
-
-            s.world.entities_count = cast(uint)entities.length;
-            copy(entities, s.world.entities[0 .. s.world.entities_count]);
+            read(&reader, s.emitter_treadmarks);
+            read(&reader, s.emitter_bullet_contrails);
+            read(&reader, s.emitter_explosion_flames);
 
             result = !reader.errors;
         }
@@ -1774,6 +1775,10 @@ bool is_ally_within_range(World* world, Entity* e, float test_range){
     return result;
 }
 
+void push_debug_line(Vec2 p0, Vec2 p1, Vec4 color){
+    g_debug_lines[g_debug_lines_count++] = Debug_Line(p0, p1, color);
+}
+
 bool should_take_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info, bool has_opportunity){
     if(is_ally_within_range(world, e, tank_info.bullet_min_ally_dist)){
         return false;
@@ -1792,6 +1797,7 @@ bool should_take_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info,
 
     // TODO: When test_radius is set to the bullet radius, shots are usually accurate. Figure out
     // why some shots miss.
+    auto bullet_extents = Vec2(Bullet_Radius, Bullet_Radius);
     float test_radius = Bullet_Radius;
     auto world_bounds = world.bounds;
     outer: foreach(i; 0 .. iterations){
@@ -1804,11 +1810,10 @@ bool should_take_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info,
         auto hit = Hit_Tester(1.0f);
         foreach(ref target; iterate_entities(world)){
             if(target.type == Entity_Type.Block && !is_hole(&target)){
-                auto bullet_extents = Vec2(Bullet_Radius, Bullet_Radius);
                 ray_vs_entity(ray_start, ray_delta, &target, bullet_extents, &hit);
             }
         }
-        ray_vs_world_bounds(ray_start, ray_delta, null, world_bounds, &hit);
+        ray_vs_world_bounds(ray_start, ray_delta, null, shrink(world_bounds, bullet_extents), &hit);
 
         if(hit.t_min < 1.0f){
             auto ray_end = hit.pos;
@@ -1835,6 +1840,7 @@ bool should_take_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info,
                     if(circle_overlaps_obb(target.pos, tank_radius + Bullet_Radius, obb_center, obb_extents, obb_angle)){
                         if(is_player_tank(&target)){
                             result = true;
+                            //debug_pause(true);
                         }
                         else{
                             result = false;
@@ -1853,8 +1859,10 @@ bool should_take_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info,
                 if(result){
                     line_color = Vec4(0, 1, 0, 1);
                 }
-                render_debug_line(g_debug_render_pass, ray_start, ray_end, line_color);
-                render_debug_obb(g_debug_render_pass, obb_center, obb_extents, bg_color, obb_angle);
+
+                push_debug_line(ray_start, ray_end, line_color);
+
+                //render_debug_obb(g_debug_render_pass, obb_center, obb_extents, bg_color, obb_angle);
             }
 
             ray_dir   = reflect(ray_dir, hit.normal);
@@ -1863,10 +1871,10 @@ bool should_take_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info,
         else{
             // Sanity check. The ray should always at the very least hit the world bounds.
             // However, if it doesn't, we'll just abort.
-            assert(0);
             break;
         }
     }
+
     return result && has_opportunity;
 }
 
@@ -1886,7 +1894,6 @@ void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
     // TODO: A LOT of work needs to be done here. Here's just a few features we need:
     // - Random turning
     // - Turning in smaller increments
-    // - Aiming at player before firing
 
     auto tank_info = get_tank_info(&s.campaign, e);
     cmd.turn_angle = e.target_angle;
@@ -1987,18 +1994,23 @@ struct Hit_Tester{
     Entity* entity;
 }
 
+Vec2 get_final_hit_pos(Vec2 ray_start, Vec2 ray_delta, float t_min, Vec2 hit_normal){
+    auto result = ray_start + ray_delta*t_min + hit_normal*0.0001f;
+    return result;
+}
+
 void ray_vs_entity(Vec2 ray_start, Vec2 ray_delta, Entity* target, Vec2 e_extents, Hit_Tester* hit){
     if(target.type == Entity_Type.Block){
         auto bounds = Rect(target.pos, target.extents + e_extents);
         if(ray_vs_rect(ray_start, ray_delta, bounds, &hit.t_min, &hit.normal)){
-            hit.pos = ray_start + ray_delta*hit.t_min;
+            hit.pos = get_final_hit_pos(ray_start, ray_delta, hit.t_min, hit.normal);
             hit.entity = target;
         }
     }
     else{
         auto radius = target.extents.x + e_extents.x;
         if(ray_vs_circle(ray_start, ray_delta, target.pos, radius, &hit.t_min, &hit.normal)){
-            hit.pos = ray_start + ray_delta*hit.t_min;
+            hit.pos = get_final_hit_pos(ray_start, ray_delta, hit.t_min, hit.normal);
             hit.entity = target;
         }
     }
@@ -2015,13 +2027,13 @@ void ray_vs_world_bounds(Vec2 ray_start, Vec2 ray_delta, Entity* world_entity, R
     bool result = false;
     if(ray_vs_segment(ray_start, ray_delta, Vec2(edge_x, bounds.center.y), x_normal, &hit.t_min)){
         hit.normal = x_normal;
-        hit.pos    = ray_start + ray_delta*hit.t_min;
+        hit.pos    = get_final_hit_pos(ray_start, ray_delta, hit.t_min, hit.normal);
         hit.entity = world_entity;
     }
 
     if(ray_vs_segment(ray_start, ray_delta, Vec2(bounds.center.x, edge_y), y_normal, &hit.t_min)){
         hit.normal = y_normal;
-        hit.pos    = ray_start + ray_delta*hit.t_min;
+        hit.pos    = get_final_hit_pos(ray_start, ray_delta, hit.t_min, hit.normal);
         hit.entity = world_entity;
     }
 }
@@ -2154,6 +2166,7 @@ void handle_entity_overlap(App_State* s, Entity* a, Entity* b){
 void simulate_world(App_State* s, Tank_Commands* input, float dt){
     // Entity simulation
     s.session.enemies_remaining = 0;
+    g_debug_lines_count = 0;
 
     auto map = get_current_map(s);
     auto world_bounds = rect_from_min_max(Vec2(0, 0), Vec2(map.width, map.height));
@@ -2282,18 +2295,12 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
                 if(is_destroyed(&e))
                     break;
 
-                e.pos = hit.pos + hit.normal*0.0001f;
-
-                if(e.type == Entity_Type.Bullet){
-                    e.vel = reflect(e.vel, hit.normal, 1.0f);
-                }
-                else{
-                    e.vel = reflect(e.vel, hit.normal, 1.0f);
-                }
+                e.pos = hit.pos;
+                e.vel = reflect(e.vel, hit.normal);
 
                 // TODO: Reflecting the delta this way results in loss of energy.
                 // Figure out a way to conserve the energy.
-                delta = reflect(delta, hit.normal, 0.0f);
+                delta = reflect(delta, hit.normal);
                 delta = delta*(1.0f - hit.t_min);
             }
             else{
@@ -2715,6 +2722,32 @@ void handle_event_common(App_State* s, Event* evt, float dt){
 
                 s.mouse_pixel = Vec2(motion.pixel_x, motion.pixel_y);
             } break;
+
+            case Event_Type.Key:{
+                auto key = &evt.key;
+                switch(key.id){
+                    default: break;
+
+                    case Key_ID_P:{
+                        if(key.pressed){
+                            if(g_debug_mode){
+                                debug_pause(!g_debug_pause);
+                            }
+                        }
+                    } break;
+
+                    case Key_ID_F2:{
+                        if(!key.is_repeat && key.pressed){
+                            //editor_toggle(s);
+                            g_debug_mode = !g_debug_mode;
+                            if(!g_debug_mode){
+                                s.world_camera_polar = Default_World_Camera_Polar;
+                            }
+                            evt.consumed = true;
+                        }
+                    } break;
+                }
+            } break;
         }
     }
 }
@@ -2928,17 +2961,6 @@ void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
                             handle_dir_key(key.pressed, &player_input.move_dir, -1);
                             evt.consumed = true;
                         } break;
-
-                        case Key_ID_F2:
-                            if(!key.is_repeat && key.pressed){
-                                //editor_toggle(s);
-                                g_debug_mode = !g_debug_mode;
-                                if(!g_debug_mode){
-                                    s.world_camera_polar = Default_World_Camera_Polar;
-                                }
-                                evt.consumed = true;
-                            }
-                            break;
                     }
                 } break;
             }
@@ -2965,7 +2987,7 @@ void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
 
             // TODO: The pause menu should only stop the simulation if this is a single-player
             // campaign.
-            if(!g_debug_pause && menu_is_closed(&s.menu)){
+            if(!(g_debug_mode && g_debug_pause) && menu_is_closed(&s.menu)){
                 simulate_world(s, player_input, dt);
             }
         } break;
@@ -3730,14 +3752,16 @@ extern(C) int main(int args_count, char** args){
         render_gui(&s.gui, &hud_camera, &s.rect_shader, &s.text_shader);
         menu_render(&render_passes, &s.menu, s.time, &s.frame_memory);
 
-        // Render the shadow map
         if(g_debug_mode){
+            foreach(ref line; g_debug_lines[0 .. g_debug_lines_count]){
+                render_debug_line(g_debug_render_pass, line.start, line.end, line.color);
+            }
+
             set_shader(render_passes.hud_rects, &s.view_depth);
             render_rect(render_passes.hud_rects, Rect(Vec2(200, 200), Vec2(100, 100)), Vec4(1, 1, 1, 1));
-        }
 
-        if(g_debug_mode)
             render_perf_info(render_passes.hud_text, &s.font_menu_small, window.height, &s.frame_memory);
+        }
 
         end_perf_timer(&perf_render_prep);
         render_end_frame();
@@ -3752,8 +3776,7 @@ extern(C) int main(int args_count, char** args){
         }
         prev_timestamp = current_timestamp;
 
-        if(!g_debug_pause)
-            render_submit_frame();
+        render_submit_frame();
 
         end_frame();
         end_perf_timer(&perf_timer_frame);

@@ -713,35 +713,42 @@ void serialize(Serialize_Mode Mode, T)(Serializer* serializer, ref T t){
     }
     else static if(isArray!T){
         alias Element = ArrayElementType!T;
+        auto count = cast(uint)t.length;
         static if(isDynamicArray!T){
-            auto count = cast(uint)t.length;
             serialize!Mode(serializer, count);
 
             if(count == 0)
                 return;
 
-            // When reading dynamic arrays from a buffer you can choose one of two strategies:
-            // 1) Make a deep copy.
-            // 2) Make a shallow copy.
-            // We support both here. If the allocator on the serializer is not null, space is
-            // allocated for the array and the elements are copied to this newly allocated memory.
-            // If the allocator is null, the array points to the memory in the source buffer.
+            /+
+            When serializing out dynamic arrays there are two strategies you can take:
+            1) Make a deep copy.
+            2) Make a shallow copy.
+            All writes using the serializer are deep copies. But when reading the data back
+            in there needs to be some place to put the source data. If the destination array
+            is not null, then the data is assumed to be of a predictible size and the source
+            data is copied to the destination. If null, and an allocator is present, the memory
+            for the destination is allocated and the source is copied to it. Otherwise, the
+            destination is set to point to the source array.
+            +/
             static if(is_reading){
-                if(serializer.allocator){
-                    t = alloc_array!Element(serializer.allocator, count);
-                }
-                else{
-                    t = eat_array!Element(serializer, count);
-                    if(t.length == 0){
-                        serializer.errors = true;
+                if(t.length == 0){
+                    if(serializer.allocator){
+                        t = alloc_array!Element(serializer.allocator, count);
                     }
-                    return;
+                    else{
+                        t = eat_array!Element(serializer, count);
+                        if(t.length == 0){
+                            serializer.errors = true;
+                        }
+                        return;
+                    }
                 }
             }
         }
 
         static if(isBuiltinType!Element){
-            copy_data(serializer, cast(void[])t);
+            copy_data(serializer, cast(void[])t[0 .. count]);
         }
         else{
             foreach(ref e; t){

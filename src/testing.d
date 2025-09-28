@@ -29,6 +29,15 @@ void debug_pause(bool should_pause){
     g_debug_pause_next = should_pause;
 }
 
+struct Debug_Line{
+    Vec2 start;
+    Vec2 end;
+    Vec4 color;
+}
+
+__gshared uint           g_debug_lines_count;
+__gshared Debug_Line[32] g_debug_lines;
+
 long rdtsc(){
     // Adapted from the following:
     // https://wiki.dlang.org/Timing_Code

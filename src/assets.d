@@ -182,12 +182,12 @@ struct Tank_Type{
     Vec3  alt_color;
     bool  invisible;
     float speed;
-    uint  bullet_limit;
-    uint  bullet_ricochets;
+    uint  bullet_limit;          // Word 30
+    uint  bullet_ricochets;      // Word 34
     float bullet_speed;
     float bullet_min_ally_dist;  // Word 41
 
-    uint mine_limit;
+    uint mine_limit;             // Word 3
     float mine_timer_min;        // Word 5
     float mine_timer_max;        // Word 4
     float mine_cooldown_time;    // Word 9
