@@ -363,8 +363,7 @@ struct Spin_Button{
     Widget widget;
     alias widget this;
 
-    float sub_width;
-    float add_width;
+    float button_width;
     uint* data;
 }
 
@@ -375,13 +374,21 @@ void spin_button(Gui_State* gui, Gui_ID id, uint* data){
 
     auto font = gui.font;
     btn.data = data;
-    btn.add_width = get_text_width(font, "+") + Button_Padding*2.0f;
-    btn.sub_width = btn.add_width;
+    btn.button_width = get_text_width(font, "+") + Button_Padding*2.0f;
 
-    float w = Spin_Button_Text_Entry_Width + btn.sub_width + btn.add_width;
+    float w = Spin_Button_Text_Entry_Width + btn.button_width*2.0f;
     float h = font.metrics.height + Button_Padding*2.0f;
 
     end_widget(gui, &btn.widget, w, h);
+}
+
+private void get_spin_button_bounds(Rect bounds, float button_width, Rect* input_bounds, Rect* sub_bounds, Rect* add_bounds){
+    auto h = height(bounds);
+    *input_bounds = rect_from_min_wh(min(bounds), Spin_Button_Text_Entry_Width, h);
+    auto bounds_pen = Vec2(right(*input_bounds), bottom(*input_bounds));
+    *sub_bounds = rect_from_min_wh(bounds_pen, button_width, h);
+    bounds_pen.x += button_width;
+    *add_bounds = rect_from_min_wh(bounds_pen, button_width, h);
 }
 
 void label(Gui_State* gui, Gui_ID id, String text){
@@ -634,7 +641,7 @@ void update_gui(Gui_State* gui, float dt){
     gui.message_id        = Null_Gui_ID;
     Widget* hover_widget  = null;
     Widget* active_widget = null;
-    Gui_ID  next_hover_window_id = Null_Gui_ID;
+    Window* hover_window  = null;
 
     auto cursor = gui.cursor_pos;
     foreach(window; gui.windows.iterate!(-1)()){
@@ -643,15 +650,14 @@ void update_gui(Gui_State* gui, float dt){
             window.dirty = false;
         }
 
-        if(is_point_inside_rect(cursor, window.bounds)
-        && next_hover_window_id == Null_Gui_ID)
-            next_hover_window_id = window.id;
+        if(is_point_inside_rect(cursor, window.bounds) && !hover_window)
+            hover_window = window;
 
         // Search for the current hover widget
         auto work_area = get_work_area(window);
         foreach(ref widget; iterate_widgets(window)){
             auto bounds = get_widget_bounds(work_area, widget);
-            if(next_hover_window_id == window.id
+            if(hover_window == window
             && is_point_inside_rect(cursor, work_area)
             && is_point_inside_rect(cursor, bounds)){
                 hover_widget = widget;
@@ -670,6 +676,29 @@ void update_gui(Gui_State* gui, float dt){
     if(gui.action == Gui_Action.None){
         if(gui.mouse_left_pressed){
             gui.active_id = Null_Gui_ID;
+            if(hover_widget){
+                gui.active_id = hover_widget.id;
+
+                switch(hover_widget.type){
+                    default: break;
+
+                    case Widget_Type.Spin_Button:{
+                        auto btn = cast(Spin_Button*)hover_widget;
+                        auto work_area = get_work_area(hover_window);
+                        auto bounds = get_widget_bounds(work_area, hover_widget);
+
+                        Rect input_bounds, sub_bounds, add_bounds = void;
+                        get_spin_button_bounds(bounds, btn.button_width, &input_bounds, &sub_bounds, &add_bounds);
+                        if(is_point_inside_rect(gui.cursor_pos, sub_bounds)){
+                            (*btn.data) = (*btn.data) - 1;
+                        }
+                        else if(is_point_inside_rect(gui.cursor_pos, add_bounds)){
+                            (*btn.data) = (*btn.data) + 1;
+                        }
+                    } break;
+                }
+            }
+
             /+
             if(hover_widget){
                 // TODO: Deactivate text input mode if we already activated it. This is important if
@@ -685,7 +714,7 @@ void update_gui(Gui_State* gui, float dt){
                     set_text_input_status(false);
                 }
 
-                gui.active_id = hover_widget.id;
+
             }
             else{
                 set_text_input_status(false);
@@ -719,6 +748,23 @@ void update_gui(Gui_State* gui, float dt){
     // Clear event flags
     gui.mouse_left_pressed  = false;
     gui.mouse_left_released = false;
+}
+
+void render_text_button(Render_Pass* rp_rects, Render_Pass* rp_text, Font* font,
+bool is_active, bool is_hover, Rect bounds, String text){
+    auto bg_color = Button_BG_Color;
+    if(is_active){
+        bg_color *= 0.75f;
+        bg_color.a = 1;
+    }
+    else if(is_hover){
+        bg_color = Hover_Button_Color;
+    }
+
+    render_rect(rp_rects, bounds, bg_color);
+    render_button_bounds(rp_rects, bounds, is_active);
+    auto baseline = center_text(font, text, bounds);
+    render_text(rp_text, font, baseline, text, Vec4(0, 0, 0, 1));
 }
 
 void render_gui(Gui_State* gui, Camera* camera_data, Shader* shader_rects, Shader* shader_text, Allocator* allocator){
@@ -762,24 +808,18 @@ void render_gui(Gui_State* gui, Camera* camera_data, Shader* shader_rects, Shade
 
         foreach(ref widget; iterate_widgets(window)){
             auto bounds = get_widget_bounds(work_area, widget);
+            auto is_widget_active = gui.active_id == widget.id;
+            auto is_widget_hover =  gui.hover_widget == widget.id;
+
             switch(widget.type){
                 default: assert(0);
 
                 case Widget_Type.Button:{
                     auto btn = cast(Button*)widget;
-                    auto bg_color = Button_BG_Color;
-                    if(gui.active_id == widget.id){
-                        bg_color *= 0.75f;
-                        bg_color.a = 1;
-                    }
-                    else if(gui.hover_widget == widget.id){
-                        bg_color = Hover_Button_Color;
-                    }
-
-                    render_rect(rp_rects, bounds, bg_color);
-                    render_button_bounds(rp_rects, bounds, gui.active_id == widget.id);
-                    auto baseline = center_text(font, btn.label, bounds);
-                    render_text(rp_text, font, baseline, btn.label, Vec4(0, 0, 0, 1));
+                    render_text_button(
+                        rp_rects, rp_text, font,
+                        is_widget_active, is_widget_hover, bounds, btn.label
+                    );
                 } break;
 
                 case Widget_Type.Text_Field:{
@@ -809,12 +849,8 @@ void render_gui(Gui_State* gui, Camera* camera_data, Shader* shader_rects, Shade
 
                 case Widget_Type.Spin_Button:{
                     auto btn = cast(Spin_Button*)widget;
-                    auto h = height(bounds);
-                    auto input_bounds = rect_from_min_wh(min(bounds), Spin_Button_Text_Entry_Width, h);
-                    auto bounds_pen = Vec2(right(input_bounds), bottom(input_bounds));
-                    auto sub_bounds = rect_from_min_wh(bounds_pen, btn.sub_width, h);
-                    bounds_pen.x += btn.sub_width;
-                    auto add_bounds = rect_from_min_wh(bounds_pen, btn.add_width, h);
+                    Rect input_bounds, sub_bounds, add_bounds = void;
+                    get_spin_button_bounds(bounds, btn.button_width, &input_bounds, &sub_bounds, &add_bounds);
 
                     render_rect(rp_rects, input_bounds, Vec4(1, 1, 1, 1));
                     render_rect_outline(rp_rects, input_bounds, Vec4(0, 0, 0, 1), 1.0f);
@@ -823,19 +859,19 @@ void render_gui(Gui_State* gui, Camera* camera_data, Shader* shader_rects, Shade
                     auto text_p = center_text_left(font, text_msg, input_bounds) + Vec2(Button_Padding, 0);
                     render_text(rp_text, font, text_p, text_msg, Vec4(0, 0, 0, 1));
 
-                    render_text(rp_text, font, sub_bounds, "-", Vec4(0, 0, 0, 1));
-                    if(is_point_inside_rect(gui.cursor_pos, sub_bounds))
-                        render_rect(rp_rects, sub_bounds, Hover_Button_Color);
-                    else
-                        render_rect(rp_rects, sub_bounds, Button_BG_Color);
-                    render_button_bounds(rp_rects, sub_bounds, 0);
+                    auto sub_hover = is_point_inside_rect(gui.cursor_pos, sub_bounds);
+                    render_text_button(
+                        rp_rects, rp_text, font,
+                        is_widget_active && sub_hover, is_widget_hover && sub_hover,
+                        sub_bounds, "-"
+                    );
 
-                    render_text(rp_text, font, add_bounds, "+", Vec4(0, 0, 0, 1));
-                    if(is_point_inside_rect(gui.cursor_pos, add_bounds))
-                        render_rect(rp_rects, add_bounds, Hover_Button_Color);
-                    else
-                        render_rect(rp_rects, add_bounds, Button_BG_Color);
-                    render_button_bounds(rp_rects, add_bounds, 0);
+                    auto add_hover = is_point_inside_rect(gui.cursor_pos, add_bounds);
+                    render_text_button(
+                        rp_rects, rp_text, font,
+                        is_widget_active && add_hover, is_widget_hover && add_hover,
+                        add_bounds, "+"
+                    );
                 } break;
             }
         }

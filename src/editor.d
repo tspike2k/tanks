@@ -774,7 +774,7 @@ public void editor_toggle(App_State* s){
         enum Spin_Button_ID_Map_Height = gui_id(Window_ID_Main);
 
         auto memory = (malloc(4086)[0 .. 4086]);
-        begin_window(gui, Window_ID_Main, "Test Window", rect_from_min_wh(Vec2(20, 20), 200, 80), memory);
+        begin_window(gui, Window_ID_Main, "Campaign Editor", rect_from_min_wh(Vec2(20, 400), 400, 200), memory);
             button(gui, Button_Prev_Map, "<");
             label(gui, gui_id(Window_ID_Main), "map_id");
             button(gui, Button_Next_Map, ">");
