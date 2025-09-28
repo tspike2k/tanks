@@ -30,6 +30,7 @@ enum Window_Min_Height   = 140;
 enum Window_Resize_Slack = 4; // Additional space for grabbing window border for resize operation
 
 enum Button_BG_Color = Vec4(0.75f, 0.75f, 0.75f, 1);
+enum Hover_Button_Color = Vec4(0.9f, 0.9f, 0.9f, 1);
 
 struct Gui_State{
     List!Window windows;
@@ -720,7 +721,7 @@ void update_gui(Gui_State* gui, float dt){
     gui.mouse_left_released = false;
 }
 
-void render_gui(Gui_State* gui, Camera* camera_data, Shader* shader_rects, Shader* shader_text){
+void render_gui(Gui_State* gui, Camera* camera_data, Shader* shader_rects, Shader* shader_text, Allocator* allocator){
     foreach(window; gui.windows.iterate()){
         auto rp_rects = add_render_pass(camera_data);
         set_shader(rp_rects, shader_rects);
@@ -772,7 +773,7 @@ void render_gui(Gui_State* gui, Camera* camera_data, Shader* shader_rects, Shade
                         bg_color.a = 1;
                     }
                     else if(gui.hover_widget == widget.id){
-                        bg_color = Vec4(0.9f, 0.9f, 0.9f, 1);
+                        bg_color = Hover_Button_Color;
                     }
 
                     render_rect(rp_rects, bounds, bg_color);
@@ -789,7 +790,7 @@ void render_gui(Gui_State* gui, Camera* camera_data, Shader* shader_rects, Shade
                         bg_color.a = 1;
                     }
                     else if(gui.hover_widget == widget.id){
-                        bg_color = Vec4(0.9f, 0.9f, 0.9f, 1);
+                        bg_color = Hover_Button_Color;
                     }
 
                     auto text = field.buffer[0 .. (*field.used)];
@@ -814,15 +815,26 @@ void render_gui(Gui_State* gui, Camera* camera_data, Shader* shader_rects, Shade
                     auto sub_bounds = rect_from_min_wh(bounds_pen, btn.sub_width, h);
                     bounds_pen.x += btn.sub_width;
                     auto add_bounds = rect_from_min_wh(bounds_pen, btn.add_width, h);
+
                     render_rect(rp_rects, input_bounds, Vec4(1, 1, 1, 1));
                     render_rect_outline(rp_rects, input_bounds, Vec4(0, 0, 0, 1), 1.0f);
 
+                    auto text_msg = gen_string("{0}", (*btn.data), allocator);
+                    auto text_p = center_text_left(font, text_msg, input_bounds) + Vec2(Button_Padding, 0);
+                    render_text(rp_text, font, text_p, text_msg, Vec4(0, 0, 0, 1));
+
                     render_text(rp_text, font, sub_bounds, "-", Vec4(0, 0, 0, 1));
-                    render_rect(rp_rects, sub_bounds, Button_BG_Color);
+                    if(is_point_inside_rect(gui.cursor_pos, sub_bounds))
+                        render_rect(rp_rects, sub_bounds, Hover_Button_Color);
+                    else
+                        render_rect(rp_rects, sub_bounds, Button_BG_Color);
                     render_button_bounds(rp_rects, sub_bounds, 0);
 
                     render_text(rp_text, font, add_bounds, "+", Vec4(0, 0, 0, 1));
-                    render_rect(rp_rects, add_bounds, Button_BG_Color);
+                    if(is_point_inside_rect(gui.cursor_pos, add_bounds))
+                        render_rect(rp_rects, add_bounds, Hover_Button_Color);
+                    else
+                        render_rect(rp_rects, add_bounds, Button_BG_Color);
                     render_button_bounds(rp_rects, add_bounds, 0);
                 } break;
             }

@@ -3749,7 +3749,7 @@ extern(C) int main(int args_count, char** args){
             } break;
         }
 
-        render_gui(&s.gui, &hud_camera, &s.rect_shader, &s.text_shader);
+        render_gui(&s.gui, &hud_camera, &s.rect_shader, &s.text_shader, &s.frame_memory);
         menu_render(&render_passes, &s.menu, s.time, &s.frame_memory);
 
         if(g_debug_mode){
