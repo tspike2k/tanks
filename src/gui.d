@@ -102,6 +102,14 @@ void init_gui(Gui_State* gs){
     gs.hover_widget = Null_Gui_ID;
 }
 
+void begin_gui_def(Gui_State* gui){
+    gui.windows.make();
+}
+
+void end_gui_def(Gui_State* gui){
+
+}
+
 void begin_window(Gui_State* gui, Gui_ID id, String window_name, Rect bounds, void[] buffer){
     auto width  = max(width(bounds), Window_Min_Width);
     auto height = max(height(bounds), Window_Min_Height);
@@ -334,11 +342,12 @@ struct Spin_Button{
 
     float button_width;
     uint* data;
+    uint  data_min;
 }
 
 enum Spin_Button_Text_Entry_Width = 96.0f;
 
-void spin_button(Gui_State* gui, Gui_ID id, uint* data){
+void spin_button(Gui_State* gui, Gui_ID id, uint* data, uint data_min = uint.max){
     auto font = gui.font;
     auto button_width = get_text_width(font, "+") + Button_Padding*2.0f;
     float w = Spin_Button_Text_Entry_Width + button_width*2.0f;
@@ -347,6 +356,7 @@ void spin_button(Gui_State* gui, Gui_ID id, uint* data){
     auto btn = cast(Spin_Button*)add_widget(gui, id, w, h, Widget_Type.Spin_Button, Spin_Button.sizeof);
     btn.data = data;
     btn.button_width = button_width;
+    btn.data_min = data_min;
 }
 
 private void get_spin_button_bounds(Rect bounds, float button_width, Rect* input_bounds, Rect* sub_bounds, Rect* add_bounds){
@@ -670,10 +680,10 @@ void update_gui(Gui_State* gui, float dt){
                         Rect input_bounds, sub_bounds, add_bounds = void;
                         get_spin_button_bounds(bounds, btn.button_width, &input_bounds, &sub_bounds, &add_bounds);
                         if(is_point_inside_rect(gui.cursor_pos, sub_bounds)){
-                            (*btn.data) = (*btn.data) - 1;
+                            (*btn.data) = min((*btn.data) - 1, btn.data_min);
                         }
                         else if(is_point_inside_rect(gui.cursor_pos, add_bounds)){
-                            (*btn.data) = (*btn.data) + 1;
+                            (*btn.data) = min((*btn.data) + 1, btn.data_min);
                         }
                     } break;
 

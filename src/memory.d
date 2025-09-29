@@ -129,6 +129,7 @@ if(isListNode!T){
     alias bottom = next;
 
     void make(){
+        count = 0;
         next = cast(T*)&this;
         prev = cast(T*)&this;
     }

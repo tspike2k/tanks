@@ -9,10 +9,10 @@ TODO:
     - Fix memory leak with calls to load_campaign_from_file. This should load the campaign into
     an allocator specially reserved for campaign memory. When we load, we should reset the
     allocator each time.
-    - Our use of Edit_Layers complicates things more than it needs to. We should figure
-    out a better way of doing this.
 
-    There are two reasons we're breaking entities between maps and levels.
+    - Memory management. How should we handle removing maps? We could simplify memory mangement
+    greatly if we used a fixed maximum width/height for maps. Then we could allocate and free that
+    all at once.
 +/
 
 import app;
@@ -40,15 +40,8 @@ enum Cursor_Mode : uint{
     Erase,
 }
 
-struct Map_Cell{
-    Map_Cell* next;
-    Map_Cell* prev;
-
-    int x;
-    int y;
-    bool block_is_breakable;
-    uint block_height;
-}
+enum Map_Width_Max  = 32;
+enum Map_Height_Max = 32;
 
 struct Map_Entry{
     Map_Entry* next;
@@ -56,8 +49,7 @@ struct Map_Entry{
 
     uint width;
     uint height;
-
-    List!Map_Cell cells;
+    Map_Cell[Map_Width_Max*Map_Height_Max] cells;
 }
 
 struct Mission_Entry{
@@ -85,6 +77,12 @@ struct Variant{
     List!Tank_Entry     tank_params;
 }
 
+enum Window_ID_Main            = 1;
+enum Button_Prev_Map           = gui_id(Window_ID_Main);
+enum Button_Next_Map           = gui_id(Window_ID_Main);
+enum Button_New_Map            = gui_id(Window_ID_Main);
+enum Button_Delete_Map         = gui_id(Window_ID_Main);
+
 __gshared bool           g_editor_is_open;
 __gshared Allocator*     g_allocator;
 __gshared Allocator*     g_frame_allocator;
@@ -103,6 +101,9 @@ __gshared List!Variant   g_variants;
 __gshared Map_Entry*     g_current_map;
 __gshared Variant*       g_current_variant;
 __gshared Map_Cell*      g_map_cell_first_free;
+
+__gshared bool           g_change_window;
+__gshared void[]         g_window_memory;
 
 void save_campaign_file(App_State* s, String file_name){
     auto scratch = s.frame_memory.scratch;
@@ -164,7 +165,8 @@ bool editor_load_campaign(App_State* s, String name){
         }
 
         foreach(ref source_map; campaign.maps){
-            auto entry   = editor_add_map();
+            auto entry   = editor_add_map(22, 17);
+            // TODO: Set map width/height
             // TODO: Populate map cells.
             //entry.map = source_map;
             //entry.map.cells = dup_array(source_map.cells, g_allocator);
@@ -186,10 +188,21 @@ bool inside_grid(Map_Entry* map, Vec2 p){
 
 bool is_cell_occupied(Map_Entry* map, Vec2 pos){
     assert(inside_grid(map, pos));
-    bool result = null != get_cell(map, pos);
+    auto x = cast(int)pos.x;
+    auto y = cast(int)pos.y;
+    auto cell = map.cells[x + y * Map_Width_Max];
+    bool result = cell != 0;
     return result;
 }
 
+void set_cell(Map_Entry* map, Vec2 pos, Map_Cell cell){
+    assert(inside_grid(map, pos));
+    auto x = cast(int)pos.x;
+    auto y = cast(int)pos.y;
+    map.cells[x + y * Map_Width_Max] = cell;
+}
+
+/+
 Map_Cell* add_cell(Map_Entry* map, Vec2 pos){
     assert(inside_grid(map, pos));
     auto x = cast(int)pos.x;
@@ -237,6 +250,22 @@ Map_Cell* get_cell(Map_Entry* map, Vec2 pos){
     }
 
     return result;
+}+/
+
+uint get_map_index(Map_Entry* map){
+    auto variant = g_current_variant;
+    uint index = 0;
+    bool found_entry = false;
+    foreach(entry; variant.maps.iterate()){
+        if(entry == map){
+            found_entry = true;
+            break;
+        }
+        index++;
+    }
+
+    assert(found_entry);
+    return index;
 }
 
 public bool editor_simulate(App_State* s, float dt){
@@ -250,9 +279,9 @@ public bool editor_simulate(App_State* s, float dt){
     bool mouse_right_pressed = false;
 
     auto map = g_current_map;
-    //auto grid_extents = Vec2(map.width, map.height)*0.5f;
-    //auto grid_center  = world_to_render_pos(grid_extents);
-    //s.world_camera_target_pos = world_to_render_pos(Vec2(map.width, map.height)*0.5f);
+    auto grid_extents = Vec2(map.width, map.height)*0.5f;
+    auto grid_center  = world_to_render_pos(grid_extents);
+    s.world_camera_target_pos = world_to_render_pos(Vec2(map.width, map.height)*0.5f);
 
     if(g_overhead_view){
         auto window = get_window_info();
@@ -262,6 +291,32 @@ public bool editor_simulate(App_State* s, float dt){
 
         auto mouse_world_3d = camera_ray_vs_plane(&s.world_camera, s.mouse_pixel, window.width, window.height);
         s.mouse_world = Vec2(mouse_world_3d.x, -mouse_world_3d.z);
+    }
+
+    //if(g_change_window){
+    if(true){
+        g_change_window = false;
+        auto gui = &s.gui;
+        begin_gui_def(gui);
+        begin_window(gui, Window_ID_Main, "Editor", rect_from_min_wh(Vec2(20, 400), 400, 200), g_window_memory);
+            button(gui, Button_Prev_Map, "<");
+            auto map_index = get_map_index(map);
+            auto map_msg = gen_string("Map index: {0}", map_index, &s.frame_memory);
+            label(gui, gui_id(Window_ID_Main), map_msg);
+            button(gui, Button_Next_Map, ">");
+            button(gui, Button_Delete_Map, "-");
+            button(gui, Button_New_Map, "+");
+            next_row(gui);
+            label(gui, gui_id(Window_ID_Main), "Map width:");
+            spin_button(gui, gui_id(Window_ID_Main), &map.width, Map_Width_Max);
+            next_row(gui);
+            label(gui, gui_id(Window_ID_Main), "Map height:");
+            spin_button(gui, gui_id(Window_ID_Main), &map.height, Map_Height_Max);
+            next_row(gui);
+            label(gui, gui_id(Window_ID_Main), "Overhead:");
+            checkbox(gui, gui_id(Window_ID_Main), &g_overhead_view);
+        end_window(gui);
+        end_gui_def(gui);
     }
 
     Event evt;
@@ -387,16 +442,13 @@ public bool editor_simulate(App_State* s, float dt){
         }
     }
 
-    //label(&s.gui, Label_Map_ID, gen_string("map_id: {0}", g_current_map.map.id, &s.frame_memory));
     update_gui(&s.gui, dt);
-    /+
-
     if(s.gui.message_id != Null_Gui_ID){
         switch(s.gui.message_id){
             default: break;
 
             case Button_New_Map:{
-                editor_add_map();
+                editor_add_map(map.width, map.height);
             } break;
 
             case Button_Next_Map:{
@@ -417,7 +469,7 @@ public bool editor_simulate(App_State* s, float dt){
                 g_current_map = next_map;
             } break;
         }
-    }+/
+    }
 
     switch(g_cursor_mode){
         default: break;
@@ -425,18 +477,21 @@ public bool editor_simulate(App_State* s, float dt){
         case Cursor_Mode.Place:{
             if(g_mouse_left_is_down){
                 if(inside_grid(map, s.mouse_world) && !is_cell_occupied(map, s.mouse_world)){
-                    bool is_tank = g_place_type == Place_Type.Tank;
-                    auto cell = add_cell(map, s.mouse_world);
-                    cell.block_height = 1;
+                    Map_Cell cell;
+                    if(g_place_type == Place_Type.Tank){
+                        cell = encode_map_cell(true, false, cast(ubyte)0);
+                    }
+                    else{
+                        cell = encode_map_cell(false, false, cast(ubyte)1);
+                    }
+                    set_cell(map, s.mouse_world, cell);
                 }
             }
         } break;
 
         case Cursor_Mode.Erase:{
             if(g_mouse_left_is_down){
-                auto cell = get_cell(map, s.mouse_world);
-                if(cell)
-                    remove_cell(map, cell);
+                set_cell(map, s.mouse_world, 0);
             }
         } break;
 
@@ -589,11 +644,25 @@ public void editor_render(App_State* s, Render_Passes rp){
     auto map = g_current_map;
     render_ground(s, rp.world, rect_from_min_max(Vec2(0, 0), Vec2(map.width, map.height)));
 
-    foreach(ref cell; map.cells.iterate()){
+    foreach(y; 0 .. map.height){
+        foreach(x; 0 .. map.width){
+            auto cell_info = map.cells[x + y * Map_Width_Max];
+            if(cell_info){
+                Entity e;
+                e.type = Entity_Type.Block;
+                e.pos = Vec2(x, y) + Vec2(0.5f, 0.5f);
+                e.cell_info = cell_info;
+                render_entity(s, &e, rp);
+            }
+
+        }
+    }
+
+    if(g_cursor_mode == Cursor_Mode.Place && inside_grid(map, s.mouse_world)){
         Entity e;
         e.type = Entity_Type.Block;
-        e.pos = Vec2(cell.x, cell.y) + Vec2(0.5f, 0.5f);
-        e.cell_info = encode_map_cell(false, false, cast(ubyte)cell.block_height);
+        e.pos = floor(s.mouse_world) + Vec2(0.5f, 0.5f);
+        e.cell_info = encode_map_cell(false, false, 1);
         render_entity(s, &e, rp);
     }
 
@@ -720,14 +789,15 @@ Variant* editor_add_variant(){
     return variant;
 }
 
-Map_Entry* editor_add_map(){
+Map_Entry* editor_add_map(uint width, uint height){
     auto variant = g_current_variant;
     auto map = alloc_type!Map_Entry(g_allocator);
 
     // Default values.
-    map.width  = 22;
-    map.height = 17;
-    map.cells.make();
+    assert(width <= Map_Width_Max);
+    assert(height <= Map_Height_Max);
+    map.width  = width;
+    map.height = height;
 
     variant.maps.insert(variant.maps.top, map);
     g_current_map = map;
@@ -742,7 +812,7 @@ void prepare_campaign(){
 void editor_new_campaign(){
     prepare_campaign();
     editor_add_variant();
-    editor_add_map();
+    editor_add_map(22, 17);
 }
 
 /+
@@ -796,29 +866,8 @@ public void editor_toggle(App_State* s){
 
         g_overhead_view = true;
 
-        enum Window_ID_Main            = 1;
-        enum Button_Prev_Map           = gui_id(Window_ID_Main);
-        enum Button_Next_Map           = gui_id(Window_ID_Main);
-        enum Button_New_Map            = gui_id(Window_ID_Main);
-        enum Spin_Button_ID_Map_Width  = gui_id(Window_ID_Main);
-        enum Spin_Button_ID_Map_Height = gui_id(Window_ID_Main);
-
-        auto memory = (malloc(4086)[0 .. 4086]);
-        begin_window(gui, Window_ID_Main, "Campaign Editor", rect_from_min_wh(Vec2(20, 400), 400, 200), memory);
-            button(gui, Button_Prev_Map, "<");
-            label(gui, gui_id(Window_ID_Main), "map_id");
-            button(gui, Button_Next_Map, ">");
-            button(gui, Button_New_Map, "+");
-            next_row(gui);
-            label(gui, gui_id(Window_ID_Main), "Map width:");
-            spin_button(gui, Spin_Button_ID_Map_Width, &map.width);
-            next_row(gui);
-            label(gui, gui_id(Window_ID_Main), "Map height:");
-            spin_button(gui, Spin_Button_ID_Map_Width, &map.height);
-            next_row(gui);
-            label(gui, gui_id(Window_ID_Main), "Overhead:");
-            checkbox(gui, gui_id(Window_ID_Main), &g_overhead_view);
-        end_window(gui);
+        g_window_memory = malloc(2048)[0 .. 2048];
+        g_change_window = true;
 
         /+
         memory = (malloc(4086)[0 .. 4086]);
