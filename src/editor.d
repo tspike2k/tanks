@@ -85,22 +85,24 @@ struct Variant{
     List!Tank_Entry     tank_params;
 }
 
-bool           g_editor_is_open;
-Allocator*     g_allocator;
-Allocator*     g_frame_allocator;
-char[256]      g_dest_file_name;
-uint           g_dest_file_name_used;
-bool           g_mouse_left_is_down;
-bool           g_mouse_right_is_down;
-Place_Type     g_place_type;
-Cursor_Mode    g_cursor_mode;
-Map_Cell*      g_selected_cell;
-bool           g_dragging_selected;
-Vec2           g_drag_offset;
+__gshared bool           g_editor_is_open;
+__gshared Allocator*     g_allocator;
+__gshared Allocator*     g_frame_allocator;
+__gshared char[256]      g_dest_file_name;
+__gshared uint           g_dest_file_name_used;
+__gshared bool           g_mouse_left_is_down;
+__gshared bool           g_mouse_right_is_down;
+__gshared Place_Type     g_place_type;
+__gshared Cursor_Mode    g_cursor_mode;
+__gshared Map_Cell*      g_selected_cell;
+__gshared bool           g_dragging_selected;
+__gshared Vec2           g_drag_offset;
+__gshared bool           g_overhead_view;
 
-List!Variant   g_variants;
-Map_Entry*     g_current_map;
-Variant*       g_current_variant;
+__gshared List!Variant   g_variants;
+__gshared Map_Entry*     g_current_map;
+__gshared Variant*       g_current_variant;
+__gshared Map_Cell*      g_map_cell_first_free;
 
 void save_campaign_file(App_State* s, String file_name){
     auto scratch = s.frame_memory.scratch;
@@ -193,13 +195,31 @@ Map_Cell* add_cell(Map_Entry* map, Vec2 pos){
     auto x = cast(int)pos.x;
     auto y = cast(int)pos.y;
 
-    // TODO: Alloc from a free list if we have a free node.
-    auto cell = alloc_type!Map_Cell(g_allocator);
+    Map_Cell* cell = void;
+    if(g_map_cell_first_free){
+        cell = g_map_cell_first_free;
+        g_map_cell_first_free = cell.next;
+    }
+    else{
+        cell = alloc_type!Map_Cell(g_allocator);
+    }
     cell.x = x;
     cell.y = y;
 
     map.cells.insert(map.cells.top, cell);
     return cell;
+}
+
+void remove_cell(Map_Entry* map, Map_Cell* cell){
+
+    map.cells.remove(cell);
+    if(g_map_cell_first_free){
+        cell.next = g_map_cell_first_free;
+    }
+    else{
+        cell.next = null;
+    }
+    g_map_cell_first_free = cell;
 }
 
 Map_Cell* get_cell(Map_Entry* map, Vec2 pos){
@@ -230,9 +250,19 @@ public bool editor_simulate(App_State* s, float dt){
     bool mouse_right_pressed = false;
 
     auto map = g_current_map;
-    auto grid_extents = Vec2(map.width, map.height)*0.5f;
-    auto grid_center  = world_to_render_pos(grid_extents);
-    s.world_camera_target_pos = world_to_render_pos(Vec2(map.width, map.height)*0.5f);
+    //auto grid_extents = Vec2(map.width, map.height)*0.5f;
+    //auto grid_center  = world_to_render_pos(grid_extents);
+    //s.world_camera_target_pos = world_to_render_pos(Vec2(map.width, map.height)*0.5f);
+
+    if(g_overhead_view){
+        auto window = get_window_info();
+        float window_aspect_ratio = (cast(float)window.width)/cast(float)window.height;
+        set_world_projection(&s.world_camera, map.width + 2, map.height + 2, window_aspect_ratio, 0);
+        set_world_view(&s.world_camera, world_to_render_pos(Vec2(map.width, map.height)*0.5f), 90);
+
+        auto mouse_world_3d = camera_ray_vs_plane(&s.world_camera, s.mouse_pixel, window.width, window.height);
+        s.mouse_world = Vec2(mouse_world_3d.x, -mouse_world_3d.z);
+    }
 
     Event evt;
     bool text_buffer_updated = false;
@@ -405,10 +435,8 @@ public bool editor_simulate(App_State* s, float dt){
         case Cursor_Mode.Erase:{
             if(g_mouse_left_is_down){
                 auto cell = get_cell(map, s.mouse_world);
-                if(cell){
-                    map.cells.remove(cell);
-                    // TODO: MEMORY LEAK! Add cell to free list!
-                }
+                if(cell)
+                    remove_cell(map, cell);
             }
         } break;
 
@@ -766,6 +794,8 @@ public void editor_toggle(App_State* s){
         auto map_center = 0.5f*Vec2(map.width, map.height);
         s.world_camera_target_pos = world_to_render_pos(map_center);
 
+        g_overhead_view = true;
+
         enum Window_ID_Main            = 1;
         enum Button_Prev_Map           = gui_id(Window_ID_Main);
         enum Button_Next_Map           = gui_id(Window_ID_Main);
@@ -786,6 +816,8 @@ public void editor_toggle(App_State* s){
             label(gui, gui_id(Window_ID_Main), "Map height:");
             spin_button(gui, Spin_Button_ID_Map_Width, &map.height);
             next_row(gui);
+            label(gui, gui_id(Window_ID_Main), "Overhead:");
+            checkbox(gui, gui_id(Window_ID_Main), &g_overhead_view);
         end_window(gui);
 
         /+

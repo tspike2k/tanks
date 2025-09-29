@@ -227,6 +227,7 @@ enum Widget_Type : uint{
     Label,
     Text_Field,
     Spin_Button,
+    Checkbox,
 
     Custom,
 }
@@ -286,62 +287,30 @@ Gui_ID window_id_from_widget_id(Gui_ID widget_id){
     return result;
 }
 
-void[] begin_widget(Gui_State* gui, Gui_ID id, Widget_Type type, uint size){
-    void[] result;
+void[] add_widget(Gui_State* gui, Gui_ID id, float w, float h, Widget_Type type, uint size){
+    auto window = gui.edit_window;
 
-    auto window_id = window_id_from_widget_id(id);
-    if(gui.edit_window){
-        auto window = gui.edit_window;
-        assert(window.id == window_id);
+    auto cmd = cast(Window_Cmd*)push_to_command_buffer(window, Window_Cmd.sizeof);
+    cmd.type = Window_Cmd_Type.Widget;
+    cmd.size = size;
 
-        auto cmd = cast(Window_Cmd*)push_to_command_buffer(window, Window_Cmd.sizeof);
-        cmd.type = Window_Cmd_Type.Widget;
-        cmd.size = size;
-
-        result = push_to_command_buffer(window, size);
-        clear_to_zero(result);
-        auto widget = cast(Widget*)result;
-        widget.id   = id;
-        widget.type = type;
-    }
-    else{
-        auto window = get_window_by_id(gui, window_id);
-        // TODO: Lookup acceleration structure
-        foreach(ref widget; iterate_widgets(window)){
-            if(widget.id == id){
-                auto raw = cast(void*)widget;
-                result = raw[0 .. size];
-            }
-        }
-    }
-
-    return result;
-}
-
-void end_widget(Gui_State* gui, Widget* widget, float w, float h){
-    auto old_w = width(widget.rel_bounds);
-    auto old_h = height(widget.rel_bounds);
+    auto result = push_to_command_buffer(window, size);
+    clear_to_zero(result);
+    auto widget = cast(Widget*)result;
+    widget.id   = id;
+    widget.type = type;
     widget.rel_bounds.extents = Vec2(w, h)*0.5f;
-
-    if(old_w != w || old_h != h){
-        // TODO: We already looked up the window in begin_widget. Pass that down here somehow.
-        auto window_id = window_id_from_widget_id(widget.id);
-        auto window = get_window_by_id(gui, window_id);
-        window.dirty = true;
-    }
+    return result;
 }
 
 void button(Gui_State* gui, Gui_ID id, String label, bool disabled = false){
     auto font = gui.font;
-
-    auto btn = cast(Button*)begin_widget(gui, id, Widget_Type.Button, Button.sizeof);
-
-    btn.label    = label;
-    btn.disabled = disabled;
     float w = get_text_width(font, label) + Button_Padding*2.0f;
     float h = font.metrics.height + Button_Padding*2.0f;
 
-    end_widget(gui, &btn.widget, w, h);
+    auto btn = cast(Button*)add_widget(gui, id, w, h, Widget_Type.Button, Button.sizeof);
+    btn.label    = label;
+    btn.disabled = disabled;
 }
 
 void text_field(Gui_State* gui, Gui_ID id, char[] buffer, uint* buffer_used){
@@ -370,16 +339,14 @@ struct Spin_Button{
 enum Spin_Button_Text_Entry_Width = 96.0f;
 
 void spin_button(Gui_State* gui, Gui_ID id, uint* data){
-    auto btn = cast(Spin_Button*)begin_widget(gui, id, Widget_Type.Spin_Button, Spin_Button.sizeof);
-
     auto font = gui.font;
-    btn.data = data;
-    btn.button_width = get_text_width(font, "+") + Button_Padding*2.0f;
-
-    float w = Spin_Button_Text_Entry_Width + btn.button_width*2.0f;
+    auto button_width = get_text_width(font, "+") + Button_Padding*2.0f;
+    float w = Spin_Button_Text_Entry_Width + button_width*2.0f;
     float h = font.metrics.height + Button_Padding*2.0f;
 
-    end_widget(gui, &btn.widget, w, h);
+    auto btn = cast(Spin_Button*)add_widget(gui, id, w, h, Widget_Type.Spin_Button, Spin_Button.sizeof);
+    btn.data = data;
+    btn.button_width = button_width;
 }
 
 private void get_spin_button_bounds(Rect bounds, float button_width, Rect* input_bounds, Rect* sub_bounds, Rect* add_bounds){
@@ -393,14 +360,27 @@ private void get_spin_button_bounds(Rect bounds, float button_width, Rect* input
 
 void label(Gui_State* gui, Gui_ID id, String text){
     auto font = gui.font;
-
-    auto label = cast(Label*)begin_widget(gui, id, Widget_Type.Label, Label.sizeof);
-
     float w = get_text_width(font, text) + Button_Padding*2.0f;
     float h = font.metrics.height + Button_Padding*2.0f;
-    label.text = text;
 
-    end_widget(gui, &label.widget, w, h);
+    auto label = cast(Label*)add_widget(gui, id, w, h, Widget_Type.Label, Label.sizeof);
+    label.text = text;
+}
+
+struct Checkbox{
+    enum Type = Widget_Type.Spin_Button;
+    Widget widget;
+    alias widget this;
+
+    bool* value;
+}
+
+void checkbox(Gui_State* gui, Gui_ID id, bool* value){
+    auto font = gui.font;
+    float h = font.metrics.height + Button_Padding*2.0f;
+
+    auto cbx = cast(Checkbox*)add_widget(gui, id, h, h, Widget_Type.Checkbox, Checkbox.sizeof);
+    cbx.value = value;
 }
 
 void next_row(Gui_State* gui){
@@ -696,6 +676,11 @@ void update_gui(Gui_State* gui, float dt){
                             (*btn.data) = (*btn.data) + 1;
                         }
                     } break;
+
+                    case Widget_Type.Checkbox:{
+                        auto cbx = cast(Checkbox*)hover_widget;
+                        (*cbx.value) = !(*cbx.value);
+                    } break;
                 }
             }
 
@@ -872,6 +857,23 @@ void render_gui(Gui_State* gui, Camera* camera_data, Shader* shader_rects, Shade
                         is_widget_active && add_hover, is_widget_hover && add_hover,
                         add_bounds, "+"
                     );
+                } break;
+
+                case Widget_Type.Checkbox:{
+                    auto cbx = cast(Checkbox*)widget;
+                    render_rect(rp_rects, bounds, Vec4(1, 1, 1, 1));
+                    render_rect_outline(rp_rects, bounds, Vec4(0, 0, 0, 1), 1.0f);
+                    float padding = 3.0f;
+                    /+
+                    auto p0 = Vec2(left(bounds), top(bounds)) + Vec2(padding, -padding);
+                    auto p1 = Vec2(right(bounds), bottom(bounds)) + Vec2(padding, padding);
+                    render_line(rp_rects, p0, p1, Vec4(0, 0, 0, 1), 2.0f);
++/
+                    if(*cbx.value){
+                        // TODO: Render an X or a checkmark instead if we decide to add a
+                        // "render_line" function.
+                        render_rect(rp_rects, shrink(bounds, Vec2(4, 4)), Vec4(0, 0, 0, 1));
+                    }
                 } break;
             }
         }

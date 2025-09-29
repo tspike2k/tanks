@@ -206,14 +206,15 @@ struct App_State{
     String       campaign_file_name;
     High_Scores  high_scores;
     Session      session;
-    Vec3         world_camera_polar;
-    Vec3         world_camera_target_pos;
     Xorshift32   rng;
     Score_Entry* score_to_detail;
 
     Settings settings;
 
-    bool moving_camera;
+    bool         moving_camera;
+    Camera       world_camera;
+    Vec3         world_camera_polar;
+    Vec3         world_camera_target_pos;
 
     Menu      menu;
     Gui_State gui;
@@ -3368,13 +3369,10 @@ extern(C) int main(int args_count, char** args){
         set_shadow_map_camera(&shadow_map_camera, &s.light, s.world_camera_target_pos, world_up_vector);
 
         float window_aspect_ratio = (cast(float)window.width)/(cast(float)window.height);
-        Camera world_camera = void;
-        set_world_view(&world_camera, s.world_camera_polar, s.world_camera_target_pos, world_up_vector);
-        set_world_projection(&world_camera, map.width, map.height, window_aspect_ratio, 45.0f);
-        //set_world_projection(&world_camera, map.width, map.height, window_aspect_ratio, 0);
-        //set_world_view(&world_camera, world_to_render_pos(Vec2(map.width, map.height)*0.5f), 90);
+        set_world_view(&s.world_camera, s.world_camera_polar, s.world_camera_target_pos, world_up_vector);
+        set_world_projection(&s.world_camera, map.width, map.height, window_aspect_ratio, 45.0f);
 
-        auto mouse_world_3d = camera_ray_vs_plane(&world_camera, s.mouse_pixel, window.width, window.height);
+        auto mouse_world_3d = camera_ray_vs_plane(&s.world_camera, s.mouse_pixel, window.width, window.height);
         s.mouse_world = Vec2(mouse_world_3d.x, -mouse_world_3d.z);
 
         render_begin_frame(
@@ -3391,41 +3389,41 @@ extern(C) int main(int args_count, char** args){
         pass.flags = Render_Flag_Disable_Color;
         pass.render_target = Render_Target.Shadow_Map;
 
-        pass = add_render_pass(&world_camera);
+        pass = add_render_pass(&s.world_camera);
         render_passes.holes = pass;
         set_shader(pass, &s.default_shader);
 
-        pass = add_render_pass(&world_camera);
+        pass = add_render_pass(&s.world_camera);
         render_passes.hole_cutouts = pass;
         set_shader(pass, &s.default_shader);
         pass.flags = Render_Flag_Disable_Culling|Render_Flag_Disable_Color;
 
-        pass = add_render_pass(&world_camera);
+        pass = add_render_pass(&s.world_camera);
         render_passes.ground = pass;
         set_shader(pass, &s.default_shader);
 
-        pass = add_render_pass(&world_camera);
+        pass = add_render_pass(&s.world_camera);
         render_passes.ground_decals = pass;
         set_shader(pass, &s.default_shader);
         set_light(pass, &s.light);
 
-        pass = add_render_pass(&world_camera);
+        pass = add_render_pass(&s.world_camera);
         render_passes.ground_decals = pass;
         set_shader(pass, &s.text_shader);
         pass.flags = Render_Flag_Disable_Depth_Writes;
         pass.blend_mode = Blend_Mode.One_Minus_Source_Alpha;
 
-        pass = add_render_pass(&world_camera);
+        pass = add_render_pass(&s.world_camera);
         render_passes.world = pass;
         set_shader(pass, &s.default_shader);
         set_light(pass, &s.light);
 
-        pass = add_render_pass(&world_camera);
+        pass = add_render_pass(&s.world_camera);
         g_debug_render_pass = pass;
         set_shader(pass, &s.text_shader);
         set_texture(pass, s.img_blank_rect);
 
-        pass = add_render_pass(&world_camera);
+        pass = add_render_pass(&s.world_camera);
         render_passes.particles = pass;
         set_shader(pass, &s.text_shader); // TODO: Particles shader?
         pass.flags = Render_Flag_Disable_Depth_Writes;
@@ -3620,7 +3618,7 @@ extern(C) int main(int args_count, char** args){
                             auto player = get_entity_by_id(&s.world, entity_id);
 
                             float offset_y = 1.2f; // TODO: Offset value should be resolution independent.
-                            auto screen_p = project(&world_camera, Vec3(player.pos.x, 0, -player.pos.y - offset_y), window.width, window.height);
+                            auto screen_p = project(&s.world_camera, Vec3(player.pos.x, 0, -player.pos.y - offset_y), window.width, window.height);
                             auto player_text = Player_Index_Strings[player_index];
                             render_text(
                                 render_passes.hud_text, &s.font_editor_small, screen_p, player_text,
