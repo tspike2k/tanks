@@ -25,6 +25,7 @@ alias Gui_ID = uint;
 
 enum Button_Padding      = 4;
 enum Window_Border_Size  = 4;
+enum Default_Margin      = 4;
 enum Window_Min_Width    = 200;
 enum Window_Min_Height   = 140;
 enum Window_Resize_Slack = 4; // Additional space for grabbing window border for resize operation
@@ -239,6 +240,7 @@ enum Widget_Type : uint{
     Text_Field,
     Spin_Button,
     Checkbox,
+    Tab,
 
     Custom,
 }
@@ -369,6 +371,29 @@ private void get_spin_button_bounds(Rect bounds, float button_width, Rect* input
     *sub_bounds = rect_from_min_wh(bounds_pen, button_width, h);
     bounds_pen.x += button_width;
     *add_bounds = rect_from_min_wh(bounds_pen, button_width, h);
+}
+
+struct Tab{
+    enum Type = Widget_Type.Spin_Button;
+    Widget widget;
+    alias widget this;
+
+    String text;
+    uint*  current_value;
+    uint   target_value;
+}
+
+enum Tab_Overhang = 4.0f;
+
+void tab(Gui_State* gui, Gui_ID id, String text, uint* current_value, uint target_value){
+    auto font = gui.font;
+    float w = get_text_width(font, text) + Button_Padding*2.0f;
+    float h = font.metrics.height + Button_Padding*2.0f + Tab_Overhang;
+
+    auto t = cast(Tab*)add_widget(gui, id, w, h, Widget_Type.Tab, Tab.sizeof);
+    t.text = text;
+    t.current_value = current_value;
+    t.target_value  = target_value;
 }
 
 void label(Gui_State* gui, Gui_ID id, String text){
@@ -590,8 +615,8 @@ void do_layout(Window* window){
     auto gui = window.gui;
 
     auto work_area = get_work_area(window);
-    auto padding = Vec2(Window_Border_Size, Window_Border_Size); // TODO: Should this be called "margin?"
-    auto pen = padding; // Pen is from the top-left
+    auto margins = Vec2(Default_Margin, Default_Margin); // TODO: Should this be called "margin?"
+    auto pen = margins; // Pen is from the top-left
 
     float max_row_height = 0;
     auto buffer = Serializer(window.buffer[0 .. window.buffer_used]);
@@ -601,20 +626,33 @@ void do_layout(Window* window){
                 eat_bytes(&buffer, cmd.size); break;
 
             case Window_Cmd_Type.Next_Row:{
-                pen.y += max_row_height + padding.y;
+                pen.y += max_row_height + margins.y;
                 max_row_height = 0;
-                pen.x = padding.x;
+                pen.x = margins.x;
             } break;
 
             case Window_Cmd_Type.Widget:{
                 auto widget = cast(Widget*)eat_bytes(&buffer, cmd.size);
 
                 widget.rel_bounds.center = pen + widget.rel_bounds.extents;
-                pen.x += width(widget.rel_bounds) + padding.x;
+                pen.x += width(widget.rel_bounds) + get_widget_advance_x(widget.type);
                 max_row_height = max(max_row_height, height(widget.rel_bounds));
             } break;
         }
     }
+}
+
+float get_widget_advance_x(Widget_Type type){
+    float result = Window_Border_Size;
+    switch(type){
+        default: break;
+
+        case Widget_Type.Tab:{
+            result = 0;
+        } break;
+    }
+
+    return result;
 }
 
 Rect get_widget_bounds(Rect window_work_area, Widget* widget){
@@ -693,6 +731,11 @@ void update_gui(Gui_State* gui, float dt){
                     case Widget_Type.Checkbox:{
                         auto cbx = cast(Checkbox*)hover_widget;
                         (*cbx.value) = !(*cbx.value);
+                    } break;
+
+                    case Widget_Type.Tab:{
+                        auto tb = cast(Tab*)hover_widget;
+                        (*tb.current_value) = tb.target_value;
                     } break;
                 }
             }
@@ -809,8 +852,10 @@ void render_gui(Gui_State* gui, Camera* camera_data, Shader* shader_rects, Shade
             auto is_widget_active = gui.active_id == widget.id;
             auto is_widget_hover =  gui.hover_widget == widget.id;
 
-            switch(widget.type){
-                default: assert(0);
+            final switch(widget.type){
+                case Widget_Type.None:
+                case Widget_Type.Custom:
+                    assert(0);
 
                 case Widget_Type.Button:{
                     auto btn = cast(Button*)widget;
@@ -887,6 +932,31 @@ void render_gui(Gui_State* gui, Camera* camera_data, Shader* shader_rects, Shade
                         // "render_line" function.
                         render_rect(rp_rects, shrink(bounds, Vec2(4, 4)), Vec4(0, 0, 0, 1));
                     }
+                } break;
+
+                case Widget_Type.Tab:{
+                    auto tb = cast(Tab*)widget;
+
+                    auto bg_color = Hover_Button_Color;
+                    if(*tb.current_value == tb.target_value){
+                        if(tb.id != gui.hover_widget){
+                            bg_color *= 0.75f;
+                            bg_color.a = 1.0f;
+                        }
+                    }
+                    else{
+                        if(tb.id != gui.hover_widget){
+                            bg_color *= 0.5f;
+                            bg_color.a = 1.0f;
+                        }
+
+                        cut_top(&bounds, Tab_Overhang);
+                    }
+
+                    render_rect(rp_rects, bounds, bg_color);
+                    render_rect_outline(rp_rects, bounds, Button_BG_Color, 1);
+                    auto baseline = center_text_left(font, tb.text, bounds) + Vec2(Button_Padding, 0);
+                    render_text(rp_text, font, baseline, tb.text, Vec4(0, 0, 0, 1));
                 } break;
             }
         }

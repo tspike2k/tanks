@@ -17,8 +17,6 @@ TODO:
 
     - Input verification. Make sure the user can't add more thanks than a level can contain. Make
     sure multiple tanks cannot exist for a single spawn point, etc.
-
-
 +/
 
 import app;
@@ -40,6 +38,13 @@ enum Place_Type : uint{
     Tank,
 }
 
+enum Editor_Tab : uint{
+    Map,
+    Tile,
+    Missions,
+    Tanks,
+}
+
 enum Cursor_Mode : uint{
     Select,
     Place,
@@ -49,13 +54,20 @@ enum Cursor_Mode : uint{
 enum Map_Width_Max  = 32;
 enum Map_Height_Max = 32;
 
+struct Tile{
+    bool occupied;
+    bool is_tank;
+    bool is_special;
+    uint index; // This is the spawn index for an enemy tank, the player index for a player tank, and the height for a block.
+}
+
 struct Map_Entry{
     Map_Entry* next;
     Map_Entry* prev;
 
     uint width;
     uint height;
-    Map_Cell[Map_Width_Max*Map_Height_Max] cells;
+    Tile[Map_Width_Max*Map_Height_Max] cells;
 }
 
 struct Mission_Entry{
@@ -97,7 +109,7 @@ __gshared bool           g_mouse_left_is_down;
 __gshared bool           g_mouse_right_is_down;
 __gshared Place_Type     g_place_type;
 __gshared Cursor_Mode    g_cursor_mode;
-__gshared Map_Cell*      g_selected_cell;
+__gshared Tile*          g_selected_tile;
 __gshared bool           g_dragging_selected;
 __gshared Vec2           g_drag_offset;
 __gshared bool           g_overhead_view;
@@ -105,6 +117,7 @@ __gshared bool           g_overhead_view;
 __gshared List!Variant   g_variants;
 __gshared Map_Entry*     g_current_map;
 __gshared Variant*       g_current_variant;
+__gshared uint           g_editor_tab;
 
 __gshared void[]         g_window_memory;
 
@@ -193,16 +206,26 @@ bool is_cell_occupied(Map_Entry* map, Vec2 pos){
     assert(inside_grid(map, pos));
     auto x = cast(int)pos.x;
     auto y = cast(int)pos.y;
-    auto cell = map.cells[x + y * Map_Width_Max];
-    bool result = cell != 0;
+    auto result = map.cells[x + y * Map_Width_Max].occupied;
     return result;
 }
 
-void set_cell(Map_Entry* map, Vec2 pos, Map_Cell cell){
+void clear_cell(Map_Entry* map, Vec2 pos){
     assert(inside_grid(map, pos));
     auto x = cast(int)pos.x;
     auto y = cast(int)pos.y;
-    map.cells[x + y * Map_Width_Max] = cell;
+    map.cells[x + y * Map_Width_Max].occupied = false;
+}
+
+void set_cell(Map_Entry* map, Vec2 pos, bool is_tank, bool is_special, uint index){
+    assert(inside_grid(map, pos));
+    auto x = cast(int)pos.x;
+    auto y = cast(int)pos.y;
+    auto tile = &map.cells[x + y * Map_Width_Max];
+    tile.occupied   = true;
+    tile.is_tank    = is_tank;
+    tile.is_special = is_special;
+    tile.index      = index;
 }
 
 uint get_map_index(Map_Entry* map){
@@ -272,22 +295,59 @@ public bool editor_simulate(App_State* s, float dt){
     // http://number-none.com/blow/blog/programming/2014/09/26/carmack-on-inlined-code.html
     auto gui = &s.gui;
     begin_window(gui, Window_ID_Main, "Editor", rect_from_min_wh(Vec2(20, 400), 400, 200), g_window_memory);
-        button(gui, Button_Prev_Map, "<");
-        auto map_index = get_map_index(map);
-        auto map_msg = gen_string("Map index: {0}", map_index, &s.frame_memory);
-        label(gui, gui_id(Window_ID_Main), map_msg);
-        button(gui, Button_Next_Map, ">");
-        button(gui, Button_Delete_Map, "-");
-        button(gui, Button_New_Map, "+");
-        next_row(gui);
-        label(gui, gui_id(Window_ID_Main), "Map width:");
-        spin_button(gui, gui_id(Window_ID_Main), &map.width, Map_Width_Max);
-        next_row(gui);
-        label(gui, gui_id(Window_ID_Main), "Map height:");
-        spin_button(gui, gui_id(Window_ID_Main), &map.height, Map_Height_Max);
-        next_row(gui);
-        label(gui, gui_id(Window_ID_Main), "Overhead:");
-        checkbox(gui, gui_id(Window_ID_Main), &g_overhead_view);
+
+    tab(gui, gui_id(Window_ID_Main), "Map", &g_editor_tab, Editor_Tab.Map);
+    tab(gui, gui_id(Window_ID_Main), "Tile", &g_editor_tab, Editor_Tab.Tile);
+    tab(gui, gui_id(Window_ID_Main), "Mission", &g_editor_tab, Editor_Tab.Missions);
+    tab(gui, gui_id(Window_ID_Main), "Tanks", &g_editor_tab, Editor_Tab.Tanks);
+    next_row(gui);
+    switch(g_editor_tab){
+        default: break;
+
+        case Editor_Tab.Map:{
+            button(gui, Button_Prev_Map, "<");
+            auto map_index = get_map_index(map);
+            auto map_msg = gen_string("Map index: {0}", map_index, &s.frame_memory);
+            label(gui, gui_id(Window_ID_Main), map_msg);
+            button(gui, Button_Next_Map, ">");
+            button(gui, Button_Delete_Map, "-");
+            button(gui, Button_New_Map, "+");
+            next_row(gui);
+            label(gui, gui_id(Window_ID_Main), "Map width:");
+            spin_button(gui, gui_id(Window_ID_Main), &map.width, Map_Width_Max);
+            next_row(gui);
+            label(gui, gui_id(Window_ID_Main), "Map height:");
+            spin_button(gui, gui_id(Window_ID_Main), &map.height, Map_Height_Max);
+            next_row(gui);
+            label(gui, gui_id(Window_ID_Main), "Overhead:");
+            checkbox(gui, gui_id(Window_ID_Main), &g_overhead_view);
+        } break;
+
+        case Editor_Tab.Tile:{
+            // TODO: Allow bulk selecting tiles?
+            if(g_selected_tile){
+                auto tile = g_selected_tile;
+                uint max_index = uint.max;
+                if(!tile.is_tank){
+                    max_index = 7;
+                }
+
+                label(gui, gui_id(Window_ID_Main), "Special:");
+                checkbox(gui, gui_id(Window_ID_Main), &tile.is_special);
+                next_row(gui);
+                label(gui, gui_id(Window_ID_Main), "Index:");
+                spin_button(gui, gui_id(Window_ID_Main), &tile.index, max_index);
+                next_row(gui);
+            }
+            else{
+                label(gui, gui_id(Window_ID_Main), "Press 'S' to enter Select mode and choose a tile to edit.");;
+            }
+        } break;
+
+        case Editor_Tab.Missions:{
+            label(gui, gui_id(Window_ID_Main), "TODO: Add things!");
+        } break;
+    }
     end_window(gui);
 
     Event evt;
@@ -452,37 +512,30 @@ public bool editor_simulate(App_State* s, float dt){
         case Cursor_Mode.Place:{
             if(g_mouse_left_is_down){
                 if(inside_grid(map, s.mouse_world) && !is_cell_occupied(map, s.mouse_world)){
-                    Map_Cell cell;
-                    if(g_place_type == Place_Type.Tank){
-                        cell = encode_map_cell(true, false, cast(ubyte)0);
-                    }
-                    else{
-                        cell = encode_map_cell(false, false, cast(ubyte)1);
-                    }
-                    set_cell(map, s.mouse_world, cell);
+                    bool is_tank = g_place_type == Place_Type.Tank;
+                    set_cell(map, s.mouse_world, is_tank, false, 1);
                 }
             }
         } break;
 
         case Cursor_Mode.Erase:{
-            if(g_mouse_left_is_down){
-                set_cell(map, s.mouse_world, 0);
+            if(g_mouse_left_is_down && inside_grid(map, s.mouse_world)){
+                clear_cell(map, s.mouse_world);
             }
         } break;
 
-        /+
         case Cursor_Mode.Select:{
             if(mouse_left_pressed){
                 if(inside_grid(map, s.mouse_world) && is_cell_occupied(map, s.mouse_world)){
                     auto x = cast(int)s.mouse_world.x;
                     auto y = cast(int)s.mouse_world.y;
-                    g_selected_cell = &map.cells[x + y * map.width];
+                    g_selected_tile = &map.cells[x + y * Map_Width_Max];
                 }
                 else{
-                    g_selected_cell = null;
+                    g_selected_tile = null;
                 }
             }
-        } break;+/
+        } break;
     }
 
     /+
@@ -586,16 +639,18 @@ public bool editor_simulate(App_State* s, float dt){
     return should_close;
 }
 
-Entity make_synthetic_entity(Vec2 pos, Entity_Type type){
+Entity make_synthetic_entity(Vec2 pos, Tile* tile, Vec2 map_center){
+    auto type = Entity_Type.Block;
+    if(tile.is_tank)
+        type = Entity_Type.Tank;
+
     Entity result;
     make_entity(&result, 1, pos, type);
 
-    if(type == Entity_Type.Block)
-        result.cell_info = encode_map_cell(false, false, 1);
-    else{
-        result.tank_type_index = 1;
-        result.cell_info = encode_map_cell(true, false, cast(ubyte)result.tank_type_index);
-    }
+    result.cell_info = encode_map_cell(tile.is_tank, tile.is_special, cast(ubyte)tile.index);
+
+    if(tile.is_tank)
+       set_default_tank_facing(&result, map_center);
 
     return result;
 }
@@ -620,29 +675,27 @@ public void editor_render(App_State* s, Render_Passes rp){
     }
 
     auto map = g_current_map;
+    auto map_center = Vec2(map.width, map.height)*0.5f;
     render_ground(s, rp.world, rect_from_min_max(Vec2(0, 0), Vec2(map.width, map.height)));
 
     foreach(y; 0 .. map.height){
         foreach(x; 0 .. map.width){
-            auto cell_info = map.cells[x + y * Map_Width_Max];
-            if(cell_info){
-                auto type = Entity_Type.Block;
-                if(cell_info & Map_Cell_Is_Tank)
-                    type = Entity_Type.Tank;
-
-                auto e = make_synthetic_entity(Vec2(x, y) + Vec2(0.5f, 0.5f), type);
-                e.cell_info = cell_info;
+            auto tile = &map.cells[x + y * Map_Width_Max];
+            if(tile.occupied){
+                auto e = make_synthetic_entity(Vec2(x, y) + Vec2(0.5f, 0.5f), tile, map_center);
                 render_entity(s, &e, rp);
             }
         }
     }
 
     if(g_cursor_mode == Cursor_Mode.Place && inside_grid(map, s.mouse_world)){
-        auto type = Entity_Type.Block;
-        if(g_place_type == Place_Type.Tank)
-            type = Entity_Type.Tank;
+        Tile cursor_tile;
+        cursor_tile.is_tank = g_place_type == Place_Type.Tank;
+        cursor_tile.is_special = false;
+        cursor_tile.index = 1;
 
-        auto e = make_synthetic_entity(floor(s.mouse_world) + Vec2(0.5f, 0.5f), type);
+        auto p = floor(s.mouse_world) + Vec2(0.5f, 0.5f);
+        auto e = make_synthetic_entity(p, &cursor_tile, map_center);
         render_entity(s, &e, rp);
     }
 

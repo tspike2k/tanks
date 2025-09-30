@@ -717,18 +717,7 @@ bool ray_vs_obstacles(World* world, Vec2 ray_start, Vec2 ray_delta){
     return result;
 }
 
-void setup_tank_by_type(App_State* s, Entity* e, uint tank_type, ubyte cell_info, Vec2 map_center){
-    e.cell_info       = cell_info;
-    e.tank_type_index = tank_type;
-
-    auto is_player = (cell_info & Map_Cell_Is_Player);
-    if(!is_player){
-        auto tank_info = get_tank_info(&s.campaign, e);
-
-        e.fire_timer = AI_Timer(0, tank_info.fire_timer_min, tank_info.fire_timer_max);
-        e.place_mine_timer = AI_Timer(0, tank_info.mine_timer_min, tank_info.mine_timer_max);
-    }
-
+void set_default_tank_facing(Entity* e, Vec2 map_center){
     // All tanks face towards the center of the map when level begins.
     auto dir = normalize(map_center - e.pos);
     Vec2 facing = void;
@@ -741,6 +730,20 @@ void setup_tank_by_type(App_State* s, Entity* e, uint tank_type, ubyte cell_info
     e.turret_angle     = facing_angle;
     e.angle            = facing_angle;
     e.target_aim_angle = facing_angle;
+}
+
+void setup_tank_by_type(App_State* s, Entity* e, uint tank_type, ubyte cell_info, Vec2 map_center){
+    e.cell_info       = cell_info;
+    e.tank_type_index = tank_type;
+
+    auto is_player = (cell_info & Map_Cell_Is_Player);
+    if(!is_player){
+        auto tank_info = get_tank_info(&s.campaign, e);
+
+        e.fire_timer = AI_Timer(0, tank_info.fire_timer_min, tank_info.fire_timer_max);
+        e.place_mine_timer = AI_Timer(0, tank_info.mine_timer_min, tank_info.mine_timer_max);
+    }
+    set_default_tank_facing(e, map_center);
 }
 
 Entity* spawn_tank(App_State* s, Vec2 pos, Vec2 map_center, ubyte cell_info, uint tank_type_min, uint tank_type_max){
