@@ -10,9 +10,13 @@ TODO:
     an allocator specially reserved for campaign memory. When we load, we should reset the
     allocator each time.
 
-    - Memory management. How should we handle removing maps? We could simplify memory mangement
-    greatly if we used a fixed maximum width/height for maps. Then we could allocate and free that
-    all at once.
+    - Undo buffer. This should be an expanding array (so use malloc/realloc?). We should directly
+    push the state of removed maps/missions into this buffer so they can be restored easily.
+    This way we don't have to ask the user if they're really sure they want to delete a map/mission.
+    This means everything in the editor would have to be a command.
+
+
+
 +/
 
 import app;
@@ -64,7 +68,6 @@ struct Tank_Entry{
     Tank_Type params;
 }
 
-
 struct Variant{
     Variant* next;
     Variant* prev;
@@ -100,9 +103,7 @@ __gshared bool           g_overhead_view;
 __gshared List!Variant   g_variants;
 __gshared Map_Entry*     g_current_map;
 __gshared Variant*       g_current_variant;
-__gshared Map_Cell*      g_map_cell_first_free;
 
-__gshared bool           g_change_window;
 __gshared void[]         g_window_memory;
 
 void save_campaign_file(App_State* s, String file_name){
@@ -202,56 +203,6 @@ void set_cell(Map_Entry* map, Vec2 pos, Map_Cell cell){
     map.cells[x + y * Map_Width_Max] = cell;
 }
 
-/+
-Map_Cell* add_cell(Map_Entry* map, Vec2 pos){
-    assert(inside_grid(map, pos));
-    auto x = cast(int)pos.x;
-    auto y = cast(int)pos.y;
-
-    Map_Cell* cell = void;
-    if(g_map_cell_first_free){
-        cell = g_map_cell_first_free;
-        g_map_cell_first_free = cell.next;
-    }
-    else{
-        cell = alloc_type!Map_Cell(g_allocator);
-    }
-    cell.x = x;
-    cell.y = y;
-
-    map.cells.insert(map.cells.top, cell);
-    return cell;
-}
-
-void remove_cell(Map_Entry* map, Map_Cell* cell){
-
-    map.cells.remove(cell);
-    if(g_map_cell_first_free){
-        cell.next = g_map_cell_first_free;
-    }
-    else{
-        cell.next = null;
-    }
-    g_map_cell_first_free = cell;
-}
-
-Map_Cell* get_cell(Map_Entry* map, Vec2 pos){
-    Map_Cell* result;
-
-    auto x = cast(int)pos.x;
-    auto y = cast(int)pos.y;
-    if(inside_grid(map, pos)){
-        foreach(ref cell; map.cells.iterate()){
-            if(cell.x == x && cell.y == y){
-                result = cell;
-                break;
-            }
-        }
-    }
-
-    return result;
-}+/
-
 uint get_map_index(Map_Entry* map){
     auto variant = g_current_variant;
     uint index = 0;
@@ -266,6 +217,21 @@ uint get_map_index(Map_Entry* map){
 
     assert(found_entry);
     return index;
+}
+
+void editor_remove_current_map(){
+    auto variant = g_current_variant;
+    auto maps = &variant.maps;
+    if(maps.count > 1){
+        auto to_remove = g_current_map;
+        auto next = g_current_map.next;
+        if(maps.is_sentinel(next)){
+            next = g_current_map.prev;
+        }
+        assert(!maps.is_sentinel(next));
+        maps.remove(to_remove);
+        g_current_map = next;
+    }
 }
 
 public bool editor_simulate(App_State* s, float dt){
@@ -293,31 +259,34 @@ public bool editor_simulate(App_State* s, float dt){
         s.mouse_world = Vec2(mouse_world_3d.x, -mouse_world_3d.z);
     }
 
-    //if(g_change_window){
-    if(true){
-        g_change_window = false;
-        auto gui = &s.gui;
-        begin_gui_def(gui);
-        begin_window(gui, Window_ID_Main, "Editor", rect_from_min_wh(Vec2(20, 400), 400, 200), g_window_memory);
-            button(gui, Button_Prev_Map, "<");
-            auto map_index = get_map_index(map);
-            auto map_msg = gen_string("Map index: {0}", map_index, &s.frame_memory);
-            label(gui, gui_id(Window_ID_Main), map_msg);
-            button(gui, Button_Next_Map, ">");
-            button(gui, Button_Delete_Map, "-");
-            button(gui, Button_New_Map, "+");
-            next_row(gui);
-            label(gui, gui_id(Window_ID_Main), "Map width:");
-            spin_button(gui, gui_id(Window_ID_Main), &map.width, Map_Width_Max);
-            next_row(gui);
-            label(gui, gui_id(Window_ID_Main), "Map height:");
-            spin_button(gui, gui_id(Window_ID_Main), &map.height, Map_Height_Max);
-            next_row(gui);
-            label(gui, gui_id(Window_ID_Main), "Overhead:");
-            checkbox(gui, gui_id(Window_ID_Main), &g_overhead_view);
-        end_window(gui);
-        end_gui_def(gui);
-    }
+    // NOTE: We need to regenerate the GUI every frame because we generate strings and wire up
+    // pointers for value editors. One solution for this is to only redefine the GUI when a
+    // a major event happens (such as changing tabs). Then for every frame we loop over all the
+    // widgets and regenerate labels/wire up pointers based on widget IDs. That's how we handle
+    // the menu system. There is probably a better way that I'm not thinking of. However, if some
+    // frames require a full GUI rebuild, the slow path will need to be executed at some point.
+    // Doing it every frame ensures the performance cost is fairly consistent. See this internal
+    // email by John Carmack:
+    // http://number-none.com/blow/blog/programming/2014/09/26/carmack-on-inlined-code.html
+    auto gui = &s.gui;
+    begin_window(gui, Window_ID_Main, "Editor", rect_from_min_wh(Vec2(20, 400), 400, 200), g_window_memory);
+        button(gui, Button_Prev_Map, "<");
+        auto map_index = get_map_index(map);
+        auto map_msg = gen_string("Map index: {0}", map_index, &s.frame_memory);
+        label(gui, gui_id(Window_ID_Main), map_msg);
+        button(gui, Button_Next_Map, ">");
+        button(gui, Button_Delete_Map, "-");
+        button(gui, Button_New_Map, "+");
+        next_row(gui);
+        label(gui, gui_id(Window_ID_Main), "Map width:");
+        spin_button(gui, gui_id(Window_ID_Main), &map.width, Map_Width_Max);
+        next_row(gui);
+        label(gui, gui_id(Window_ID_Main), "Map height:");
+        spin_button(gui, gui_id(Window_ID_Main), &map.height, Map_Height_Max);
+        next_row(gui);
+        label(gui, gui_id(Window_ID_Main), "Overhead:");
+        checkbox(gui, gui_id(Window_ID_Main), &g_overhead_view);
+    end_window(gui);
 
     Event evt;
     bool text_buffer_updated = false;
@@ -449,6 +418,10 @@ public bool editor_simulate(App_State* s, float dt){
 
             case Button_New_Map:{
                 editor_add_map(map.width, map.height);
+            } break;
+
+            case Button_Delete_Map:{
+                editor_remove_current_map();
             } break;
 
             case Button_Next_Map:{
@@ -867,7 +840,6 @@ public void editor_toggle(App_State* s){
         g_overhead_view = true;
 
         g_window_memory = malloc(2048)[0 .. 2048];
-        g_change_window = true;
 
         /+
         memory = (malloc(4086)[0 .. 4086]);

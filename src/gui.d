@@ -102,30 +102,33 @@ void init_gui(Gui_State* gs){
     gs.hover_widget = Null_Gui_ID;
 }
 
-void begin_gui_def(Gui_State* gui){
-    gui.windows.make();
-}
-
-void end_gui_def(Gui_State* gui){
-
-}
-
 void begin_window(Gui_State* gui, Gui_ID id, String window_name, Rect bounds, void[] buffer){
-    auto width  = max(width(bounds), Window_Min_Width);
-    auto height = max(height(bounds), Window_Min_Height);
-    auto bbox   = rect_from_min_wh(Vec2(left(bounds), top(bounds) - height), width, height);
+    Window* window = null;
+    foreach(entry; gui.windows.iterate()){
+        if(entry == cast(Window*)buffer){
+            window = entry;
+            break;
+        }
+    }
 
-    auto result = cast(Window*)buffer;
-    clear_to_zero(*result);
-    result.name   = window_name;
-    result.id     = id;
-    result.bounds = bbox;
-    result.gui    = gui;
-    result.buffer = buffer[Window.sizeof .. $];
-    result.dirty  = true;
+    if(!window){
+        auto width  = max(width(bounds), Window_Min_Width);
+        auto height = max(height(bounds), Window_Min_Height);
+        auto bbox   = rect_from_min_wh(Vec2(left(bounds), top(bounds) - height), width, height);
 
-    gui.windows.insert(gui.windows.top, result);
-    gui.edit_window = result;
+        window = cast(Window*)buffer;
+        clear_to_zero(*window);
+        window.name   = window_name;
+        window.id     = id;
+        window.bounds = bbox;
+        window.gui    = gui;
+        window.buffer = buffer[Window.sizeof .. $];
+        gui.windows.insert(gui.windows.top, window);
+    }
+
+    window.dirty  = true;
+    window.buffer_used = 0;
+    gui.edit_window = cast(Window*)buffer;
 }
 
 void end_window(Gui_State* gui){
