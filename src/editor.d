@@ -331,6 +331,12 @@ public bool editor_simulate(App_State* s, float dt){
                 if(!tile.is_tank){
                     max_index = 7;
                 }
+                else{
+                    if(tile.is_special){
+                        max_index = Max_Players-1;
+                        tile.index = min(tile.index, max_index);
+                    }
+                }
 
                 label(gui, gui_id(Window_ID_Main), "Special:");
                 checkbox(gui, gui_id(Window_ID_Main), &tile.is_special);
@@ -648,9 +654,12 @@ Entity make_synthetic_entity(Vec2 pos, Tile* tile, Vec2 map_center){
     make_entity(&result, 1, pos, type);
 
     result.cell_info = encode_map_cell(tile.is_tank, tile.is_special, cast(ubyte)tile.index);
-
-    if(tile.is_tank)
-       set_default_tank_facing(&result, map_center);
+    if(tile.is_tank){
+        // TODO: The tank type determines the materials to use. But this is based off the loaded
+        // campaign, not the campaign we're editing. How should we rectify this?
+        result.tank_type_index = 1;
+        set_default_tank_facing(&result, map_center);
+    }
 
     return result;
 }
@@ -683,7 +692,7 @@ public void editor_render(App_State* s, Render_Passes rp){
             auto tile = &map.cells[x + y * Map_Width_Max];
             if(tile.occupied){
                 auto e = make_synthetic_entity(Vec2(x, y) + Vec2(0.5f, 0.5f), tile, map_center);
-                render_entity(s, &e, rp);
+                render_entity(s, &e, rp, tile == g_selected_tile);
             }
         }
     }

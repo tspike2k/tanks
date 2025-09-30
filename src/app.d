@@ -265,7 +265,7 @@ struct App_State{
     Material[2] material_player_tank;
     Material material_block;
     Material material_ground;
-    Material material_eraser;
+    Material[2] material_eraser;
     Material material_mine;
     Material material_breakable_block;
     Material material_bullet;
@@ -1495,14 +1495,14 @@ Material[] choose_materials(App_State* s, Entity* e, bool highlighted){
 
             case Entity_Type.Mine:{
                 if(is_exploding(e)){
-                    result = (&s.material_eraser)[0..1]; // TODO: Have a dedicated explosion material
+                    result = s.material_eraser[0 .. 1]; // TODO: Have a dedicated explosion material
                 }
                 else{
                     result = (&s.material_bullet)[0..1];
                     if(is_about_to_explode(e)){
                         auto t = sin((e.mine_timer)*18.0f);
                         if(t > 0){
-                            result = (&s.material_eraser)[0..1]; // TODO: Have a dedicated explosion material
+                            result = s.material_eraser[0..1]; // TODO: Have a dedicated explosion material
                         }
                     }
                 }
@@ -1532,7 +1532,7 @@ Material[] choose_materials(App_State* s, Entity* e, bool highlighted){
         }
     }
     else{
-        result = (&s.material_eraser)[0..1];
+        result = s.material_eraser[0..2];
     }
     return result;
 }
@@ -3272,7 +3272,8 @@ extern(C) int main(int args_count, char** args){
     setup_basic_material(&s.material_player_tank[1], s.img_blank_mesh, Vec3(0.2f, 0.2f, 0.8f), 256);
     setup_basic_material(&s.material_block, s.img_block, Vec3(0.5f, 0.42f, 0.20f), 128);
     setup_basic_material(&s.material_bullet, s.img_blank_mesh, Vec3(0.6f, 0.6f, 0.65f), 256);
-    setup_basic_material(&s.material_eraser, s.img_blank_mesh, Vec3(0.8f, 0.2f, 0.2f));
+    setup_basic_material(&s.material_eraser[0], s.img_blank_mesh, Vec3(0.8f, 0.2f, 0.2f));
+    setup_basic_material(&s.material_eraser[1], s.img_blank_mesh, Vec3(0.8f, 0.2f, 0.2f));
     setup_basic_material(&s.material_breakable_block, s.img_block);
     s.running = true;
 
