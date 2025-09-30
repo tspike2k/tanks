@@ -1511,7 +1511,6 @@ Material[] choose_materials(App_State* s, Entity* e, bool highlighted){
                     auto entry = &s.materials_enemy_tank[e.tank_type_index];
                     result = entry.materials[];
                 }
-
             } break;
 
             case Entity_Type.Block: {

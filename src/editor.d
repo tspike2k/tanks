@@ -15,6 +15,8 @@ TODO:
     This way we don't have to ask the user if they're really sure they want to delete a map/mission.
     This means everything in the editor would have to be a command.
 
+    - Input verification. Make sure the user can't add more thanks than a level can contain. Make
+    sure multiple tanks cannot exist for a single spawn point, etc.
 
 
 +/
@@ -584,24 +586,18 @@ public bool editor_simulate(App_State* s, float dt){
     return should_close;
 }
 
-/+
-Entity make_entity_from_cell(Map_Cell cell, Vec2 pos){
-    assert(cell != 0);
-    auto result = zero_type!Entity;
-    result.id = 1;
-    result.pos = pos;
+Entity make_synthetic_entity(Vec2 pos, Entity_Type type){
+    Entity result;
+    make_entity(&result, 1, pos, type);
 
-    auto cell_index = cell & Map_Cell_Index_Mask;
-    if(cell & Map_Cell_Is_Tank){
-        result.type = Entity_Type.Tank;
-    }
-    else{
-        result.type = Entity_Type.Block;
-    }
-    result.cell_info = cell;
+    if(type == Entity_Type.Block)
+        result.cell_info = encode_map_cell(false, false, 1);
+    else
+        result.cell_info = encode_map_cell(true, false, 2);
+
     return result;
 }
-+/
+
 public void editor_render(App_State* s, Render_Passes rp){
     auto window = get_window_info();
 
@@ -613,6 +609,13 @@ public void editor_render(App_State* s, Render_Passes rp){
         rp.hud_text, font_small, pen,
         gen_string("Mode: {0}", enum_string(g_cursor_mode), &s.frame_memory)
     );
+    pen.y -= font_small.metrics.line_gap;
+    if(g_cursor_mode == Cursor_Mode.Place){
+        render_text(
+            rp.hud_text, font_small, pen,
+            gen_string("Place Mode: {0}", enum_string(g_place_type), &s.frame_memory)
+        );
+    }
 
     auto map = g_current_map;
     render_ground(s, rp.world, rect_from_min_max(Vec2(0, 0), Vec2(map.width, map.height)));
@@ -621,44 +624,25 @@ public void editor_render(App_State* s, Render_Passes rp){
         foreach(x; 0 .. map.width){
             auto cell_info = map.cells[x + y * Map_Width_Max];
             if(cell_info){
-                Entity e;
-                e.type = Entity_Type.Block;
-                e.pos = Vec2(x, y) + Vec2(0.5f, 0.5f);
+                auto type = Entity_Type.Block;
+                if(cell_info & Map_Cell_Is_Tank)
+                    type = Entity_Type.Tank;
+
+                auto e = make_synthetic_entity(Vec2(x, y) + Vec2(0.5f, 0.5f), type);
                 e.cell_info = cell_info;
                 render_entity(s, &e, rp);
             }
-
         }
     }
 
     if(g_cursor_mode == Cursor_Mode.Place && inside_grid(map, s.mouse_world)){
-        Entity e;
-        e.type = Entity_Type.Block;
-        e.pos = floor(s.mouse_world) + Vec2(0.5f, 0.5f);
-        e.cell_info = encode_map_cell(false, false, 1);
+        auto type = Entity_Type.Block;
+        if(g_place_type == Place_Type.Tank)
+            type = Entity_Type.Tank;
+
+        auto e = make_synthetic_entity(floor(s.mouse_world) + Vec2(0.5f, 0.5f), type);
         render_entity(s, &e, rp);
     }
-
-    /+
-    foreach(y; 0 .. map.height){
-        foreach(x; 0 .. map.width){
-            auto cell = &map.cells[x + y * map.width];
-            auto entity_type = *cell;
-            if(entity_type){
-                auto p = Vec2(x, y) + Vec2(0.5f, 0.5f); // Center on the tile
-                auto e = make_entity_from_cell(entity_type, p);
-
-                render_entity(s, &e, rp, cell == g_selected_cell);
-            }
-        }
-    }
-
-    if(g_cursor_mode == Cursor_Mode.Place && inside_grid(map, s.mouse_world)){
-        auto entity_type = encode_map_cell(g_place_type == Place_Type.Tank, false, 1);
-        auto tile_center = floor(s.mouse_world) + Vec2(0.5f, 0.5f);
-        auto e = make_entity_from_cell(entity_type, tile_center);
-        render_entity(s, &e, rp);
-    }+/
 
     /+
     switch(g_cursor_mode){
@@ -729,14 +713,7 @@ public void editor_render(App_State* s, Render_Passes rp){
             }
         } break;
     }
-
-    foreach(ref entry; g_current_map.entities.iterate()){
-        render_entity(s, &entry.entity, rp);
-    }
-
-    foreach(ref entry; g_current_level.entities.iterate()){
-        render_entity(s, &entry.entity, rp);
-    }+/
++/
 
     // Draw cursor
     auto p = world_to_render_pos(s.mouse_world);
