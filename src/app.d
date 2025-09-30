@@ -839,6 +839,7 @@ void begin_mission(App_State* s, uint mission_index){
                 else{
                     foreach(ref spawner; mission.enemies){
                         if(spawner.spawn_index == tank_index){
+                            assert(spawner.type_min != 0);
                             spawn_tank(s, p, map_center, cell_info, spawner.type_min, spawner.type_max);
                             s.session.mission_enemy_tanks_count++;
                             break;
@@ -1508,6 +1509,7 @@ Material[] choose_materials(App_State* s, Entity* e, bool highlighted){
                 if(is_tank_player(e))
                     result = s.material_player_tank[];
                 else{
+                    assert(e.tank_type_index > 0); // NOTE: 0 is the tank type for the player. An enemy tank type should be non-zero.
                     auto entry = &s.materials_enemy_tank[e.tank_type_index];
                     result = entry.materials[];
                 }

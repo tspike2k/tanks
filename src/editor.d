@@ -592,8 +592,10 @@ Entity make_synthetic_entity(Vec2 pos, Entity_Type type){
 
     if(type == Entity_Type.Block)
         result.cell_info = encode_map_cell(false, false, 1);
-    else
-        result.cell_info = encode_map_cell(true, false, 2);
+    else{
+        result.tank_type_index = 1;
+        result.cell_info = encode_map_cell(true, false, cast(ubyte)result.tank_type_index);
+    }
 
     return result;
 }
