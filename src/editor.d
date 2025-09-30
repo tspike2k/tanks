@@ -440,15 +440,19 @@ public bool editor_simulate(App_State* s, float dt){
                                 g_cursor_mode = Cursor_Mode.Erase;
                             } break;
 
-                            /+
                             case Key_ID_Delete:{
-                                if(g_cursor_mode == Cursor_Mode.Select){
-                                    if(g_selected_cell){
-                                        *g_selected_cell = 0;
-                                        g_selected_cell = null;
-                                    }
+                                if(g_cursor_mode == Cursor_Mode.Select && g_selected_tile){
+                                        foreach(y; 0 .. map.height){
+                                            foreach(x; 0 .. map.width){
+                                                auto test_tile = &map.cells[x + y * Map_Width_Max];
+                                                if(test_tile == g_selected_tile){
+                                                    clear_cell(map, Vec2(x, y));
+                                                }
+                                            }
+                                        }
+                                        g_selected_tile = null;
                                 }
-                            } break;+/
+                            } break;
 
                             case Key_ID_S:{
                                 if(!key.is_repeat){
