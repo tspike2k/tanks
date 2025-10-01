@@ -62,6 +62,7 @@ struct Gui_State{
     bool mouse_left_released;
 
     Gui_ID    text_input_widget;
+    Gui_ID    text_input_widget_next;
     char[256] text_buffer;
     uint      text_buffer_used;
 }
@@ -676,7 +677,8 @@ Rect get_widget_bounds(Rect window_work_area, Widget* widget){
 void set_text_input_widget(Gui_State* gui, Widget* widget, String default_text){
     // TODO: Base cursor position on mouse click offset (if clicked)
     uint cursor = 0;
-    gui.text_input_widget = widget.id;
+    gui.text_input_widget      = widget.id;
+    gui.text_input_widget_next = widget.id;
     copy(default_text, gui.text_buffer[0 .. default_text.length]);
     enable_text_input_mode(gui.text_buffer, cast(uint)default_text.length, 0);
     gui.text_buffer_used = cast(uint)default_text.length;
@@ -685,21 +687,19 @@ void set_text_input_widget(Gui_State* gui, Widget* widget, String default_text){
 // TODO: This is being called everywhere just in case. We should really have a better plan
 // on integrating text input with the rest of the GUI event handling, such as mouse clicks.
 void end_text_input(Gui_State* gui){
-    gui.text_input_widget = 0;
+    gui.text_input_widget_next = Null_Gui_ID;
     disable_text_input_mode();
 }
 
 void update_gui(Gui_State* gui, float dt, Allocator* allocator){
     gui.message_id        = Null_Gui_ID;
+    gui.hover_widget      = Null_Gui_ID;
+
     Widget* hover_widget  = null;
     Widget* active_widget = null;
     Window* hover_window  = null;
 
     Widget* text_widget;
-
-    if(!is_text_input_mode_enabled()){
-        end_text_input(gui);
-    }
 
     auto cursor = gui.cursor_pos;
     foreach(window; gui.windows.iterate!(-1)()){
@@ -719,6 +719,7 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
             && is_point_inside_rect(cursor, work_area)
             && is_point_inside_rect(cursor, bounds)){
                 hover_widget = widget;
+                gui.hover_widget = widget.id;
             }
 
             if(widget.id == gui.active_id){
@@ -736,9 +737,13 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
 
     if(gui.action == Gui_Action.None){
         if(gui.mouse_left_pressed){
-            gui.active_id = Null_Gui_ID;
             if(hover_widget){
-                gui.active_id = hover_widget.id;
+                gui.active_id    = hover_widget.id;
+
+                if(gui.text_input_widget != Null_Gui_ID
+                && hover_widget.id != gui.text_input_widget){
+                    end_text_input(gui);
+                }
 
                 switch(hover_widget.type){
                     default: break;
@@ -750,7 +755,8 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
 
                         Rect input_bounds, sub_bounds, add_bounds = void;
                         get_spin_button_bounds(bounds, btn.button_width, &input_bounds, &sub_bounds, &add_bounds);
-                        if(is_point_inside_rect(gui.cursor_pos, input_bounds)){
+                        if(is_point_inside_rect(gui.cursor_pos, input_bounds)
+                        && gui.text_input_widget != btn.id){
                             auto initial_text = gen_string("{0}", (*btn.data), allocator);
                             set_text_input_widget(gui, hover_widget, initial_text);
                         }
@@ -775,31 +781,9 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
                     } break;
                 }
             }
-
-            if(!hover_widget || hover_widget.id != gui.text_input_widget){
+            else{
                 end_text_input(gui);
             }
-
-            /+
-            if(hover_widget){
-                // TODO: Deactivate text input mode if we already activated it. This is important if
-                // the previously actvie widget it a text field and the next one is as well.
-                // TODO: Maybe we souldn't even have a text input mode. Perhaps we should just
-                // generate those events and ignore them if we don't care. That might be best.
-                if(hover_widget.type == Widget_Type.Text_Field && hover_widget.id != gui.active_id){
-                    auto field = cast(Text_Field*)hover_widget;
-                    set_text_input_status(true);
-                    set_buffer(&gui.text_buffer, field.buffer, (*field.used), 0); // TODO: Set cursor based on click position.
-                }
-                else{
-                    set_text_input_status(false);
-                }
-
-
-            }
-            else{
-                set_text_input_status(false);
-            }+/
         }
 
         if(gui.mouse_left_released && active_widget){
@@ -810,25 +794,14 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
                 }
             }
         }
-
-        gui.hover_widget = Null_Gui_ID;
-        if(hover_widget){
-            gui.hover_widget = hover_widget.id;
-        }
-
-        // Update the active widget.
-        if(active_widget){
-            /+
-            if(active_widget.type == Widget_Type.Text_Field){
-                auto field = cast(Text_Field*)active_widget;
-                (*field.used) = gui.text_buffer.used;
-            }+/
-        }
     }
 
     // Note: Allow the widget to handle losing the text input mode. Some widgets (like Spin Boxes)
     // will need to convert the text to something internal.
-    if(text_widget && text_widget.id != gui.text_input_widget){
+    if(gui.text_input_widget != Null_Gui_ID
+    && gui.text_input_widget != gui.text_input_widget_next){
+        assert(text_widget.id == gui.text_input_widget);
+
         switch(text_widget.type){
             default: break;
 
@@ -842,6 +815,7 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
             } break;
         }
     }
+    gui.text_input_widget = gui.text_input_widget_next;
 
     // Clear event flags
     gui.mouse_left_pressed  = false;
