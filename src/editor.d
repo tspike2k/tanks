@@ -331,11 +331,8 @@ public bool editor_simulate(App_State* s, float dt){
                 if(!tile.is_tank){
                     max_index = 7;
                 }
-                else{
-                    if(tile.is_special){
-                        max_index = Max_Players-1;
-                        tile.index = min(tile.index, max_index);
-                    }
+                else if(tile.is_special){
+                    max_index = Max_Players-1;
                 }
 
                 label(gui, gui_id(Window_ID_Main), "Special:");
@@ -483,7 +480,7 @@ public bool editor_simulate(App_State* s, float dt){
         }
     }
 
-    update_gui(&s.gui, dt);
+    update_gui(&s.gui, dt, &s.frame_memory);
     if(s.gui.message_id != Null_Gui_ID){
         switch(s.gui.message_id){
             default: break;

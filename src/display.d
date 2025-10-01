@@ -787,6 +787,7 @@ version(linux){
         while(!event_translated && XEventsQueued(g_x11_display, QueuedAlready)){
             XEvent xevt;
             XNextEvent(g_x11_display, &xevt);
+
             event_translated = process_event(&xevt, evt);
         }
 
@@ -955,22 +956,19 @@ version(linux){
                     break;
                 }
 
-                if(is_text_input_mode_enabled()){
-                    if(just_pressed){
-                        KeySym keysym_result;
-                        // TODO: Use Xutf8LookupString instead. This will require all sorts of crazy
-                        // stuff to do. See here:
-                        // https://gist.github.com/baines/5a49f1334281b2685af5dcae81a6fa8a
-                        auto text_count = XLookupString(
-                            &xevt.xkey, g_text_buffer.ptr, g_text_buffer.length, &keysym_result, null
-                        );
-                        if(text_count > 0 && g_text_buffer[0] >= ' ' && g_text_buffer[0] != 127){ // TODO: Use a better way to filter out ASCII control characters.
-                            evt.type = Event_Type.Text;
-                            evt.text.data = g_text_buffer[0 .. text_count]; // TODO: This isn't null terminated. Should it be?
-
-                            event_translated = true;
-                            break;
-                        }
+                if(is_text_input_mode_enabled() && just_pressed){
+                    KeySym keysym_result;
+                    // TODO: Use Xutf8LookupString instead. This will require all sorts of crazy
+                    // stuff to do. See here:
+                    // https://gist.github.com/baines/5a49f1334281b2685af5dcae81a6fa8a
+                    auto text_count = XLookupString(
+                        &xevt.xkey, g_text_buffer.ptr, g_text_buffer.length, &keysym_result, null
+                    );
+                    if(text_count > 0 && g_text_buffer[0] >= ' ' && g_text_buffer[0] != 127){ // TODO: Use a better way to filter out ASCII control characters.
+                        evt.type = Event_Type.Text;
+                        evt.text.data = g_text_buffer[0 .. text_count]; // TODO: This isn't null terminated. Should it be?
+                        event_translated = true;
+                        break;
                     }
                 }
 

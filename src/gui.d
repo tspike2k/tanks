@@ -60,6 +60,10 @@ struct Gui_State{
     // events into bit flags.
     bool mouse_left_pressed;
     bool mouse_left_released;
+
+    Gui_ID    text_input_widget;
+    char[256] text_buffer;
+    uint      text_buffer_used;
 }
 
 enum Gui_Action : uint{
@@ -347,12 +351,12 @@ struct Spin_Button{
 
     float button_width;
     uint* data;
-    uint  data_min;
+    uint  data_max;
 }
 
 enum Spin_Button_Text_Entry_Width = 96.0f;
 
-void spin_button(Gui_State* gui, Gui_ID id, uint* data, uint data_min = uint.max){
+void spin_button(Gui_State* gui, Gui_ID id, uint* data, uint data_max = uint.max){
     auto font = gui.font;
     auto button_width = get_text_width(font, "+") + Button_Padding*2.0f;
     float w = Spin_Button_Text_Entry_Width + button_width*2.0f;
@@ -360,8 +364,9 @@ void spin_button(Gui_State* gui, Gui_ID id, uint* data, uint data_min = uint.max
 
     auto btn = cast(Spin_Button*)add_widget(gui, id, w, h, Widget_Type.Spin_Button, Spin_Button.sizeof);
     btn.data = data;
+    *data = min(*data, data_max);
     btn.button_width = button_width;
-    btn.data_min = data_min;
+    btn.data_max = data_max;
 }
 
 private void get_spin_button_bounds(Rect bounds, float button_width, Rect* input_bounds, Rect* sub_bounds, Rect* add_bounds){
@@ -494,121 +499,121 @@ auto iterate_widgets(Window* window){
 void handle_event(Gui_State* gui, Event* evt){
     if(evt.consumed) return;
 
-    auto display_window = get_window_info();
+    if(is_text_input_mode_enabled()){
+        text_input_handle_event(evt);
 
-    bool consumed = false;/+
-    if(is_text_input_enabled()){
-        // Unfortunately, D can't deduce which handle_event function we mean without specifying
-        // the module name.
-        display.handle_event(&gui.text_buffer, evt);
-        consumed = evt.consumed;
+        auto buffer = get_text_input_state();
+        gui.text_buffer_used = buffer.used;
+
+        if(evt.consumed) return;
     }
-    else{+/
-        switch(evt.type){
-            default: break;
 
-            // TODO: Should we move most of the Window Action handling code into update_gui?
-            // We do need to be able to flag mouse clicks as consumed, but that's about all.
-            // We could sum all the mouse motion events, for instance.
+    auto display_window = get_window_info();
+    switch(evt.type){
+        default: break;
 
-            case Event_Type.Mouse_Motion:{
-                auto motion = &evt.mouse_motion;
-                // TODO: Invert motion.pixel_y in display.d. This way we don't have to flip the coord
-                // all the time.
-                gui.cursor_pos = Vec2(motion.pixel_x, display_window.height - motion.pixel_y);
-                auto cursor = gui.cursor_pos;
-                if(gui.action == Gui_Action.Dragging_Window){
-                    auto window = get_window_by_id(gui, gui.active_id);
-                    if(window){
-                        window.bounds.center = gui.cursor_pos + gui.grab_offset;
+        // TODO: Should we move most of the Window Action handling code into update_gui?
+        // We do need to be able to flag mouse clicks as consumed, but that's about all.
+        // We could sum all the mouse motion events, for instance.
+
+        case Event_Type.Mouse_Motion:{
+            auto motion = &evt.mouse_motion;
+            // TODO: Invert motion.pixel_y in display.d. This way we don't have to flip the coord
+            // all the time.
+            gui.cursor_pos = Vec2(motion.pixel_x, display_window.height - motion.pixel_y);
+            auto cursor = gui.cursor_pos;
+            if(gui.action == Gui_Action.Dragging_Window){
+                auto window = get_window_by_id(gui, gui.active_id);
+                if(window){
+                    window.bounds.center = gui.cursor_pos + gui.grab_offset;
+                }
+                else{
+                    gui.action = Gui_Action.None;
+                }
+            }
+            else if(gui.action == Gui_Action.Resizing_Window){
+                auto window = get_window_by_id(gui, gui.active_id);
+                if(window){
+                    if(gui.window_resize_flags & Window_Resize_Flag.Left){
+                        auto delta_x = left(window.bounds) - cursor.x;
+                        auto next_w  = max(width(window.bounds) + delta_x, Window_Min_Width);
+                        window.bounds = rect_from_min_wh(
+                            Vec2(right(window.bounds) - next_w, bottom(window.bounds)),
+                            next_w, height(window.bounds)
+                        );
                     }
-                    else{
-                        gui.action = Gui_Action.None;
+                    else if(gui.window_resize_flags & Window_Resize_Flag.Right){
+                        auto delta_x = cursor.x - right(window.bounds);
+                        auto next_w  = max(width(window.bounds) + delta_x, Window_Min_Width);
+                        window.bounds = rect_from_min_wh(min(window.bounds), next_w, height(window.bounds));
+                    }
+
+                    if(gui.window_resize_flags & Window_Resize_Flag.Bottom){
+                        auto delta_y = bottom(window.bounds) - cursor.y;
+                        auto next_h  = max(height(window.bounds) + delta_y, Window_Min_Height);
+                        auto min_p = min(window.bounds);
+                        window.bounds = rect_from_min_wh(
+                            Vec2(left(window.bounds), top(window.bounds) - next_h),
+                            width(window.bounds), next_h
+                        );
                     }
                 }
-                else if(gui.action == Gui_Action.Resizing_Window){
-                    auto window = get_window_by_id(gui, gui.active_id);
-                    if(window){
-                        if(gui.window_resize_flags & Window_Resize_Flag.Left){
-                            auto delta_x = left(window.bounds) - cursor.x;
-                            auto next_w  = max(width(window.bounds) + delta_x, Window_Min_Width);
-                            window.bounds = rect_from_min_wh(
-                                Vec2(right(window.bounds) - next_w, bottom(window.bounds)),
-                                next_w, height(window.bounds)
-                            );
-                        }
-                        else if(gui.window_resize_flags & Window_Resize_Flag.Right){
-                            auto delta_x = cursor.x - right(window.bounds);
-                            auto next_w  = max(width(window.bounds) + delta_x, Window_Min_Width);
-                            window.bounds = rect_from_min_wh(min(window.bounds), next_w, height(window.bounds));
-                        }
-
-                        if(gui.window_resize_flags & Window_Resize_Flag.Bottom){
-                            auto delta_y = bottom(window.bounds) - cursor.y;
-                            auto next_h  = max(height(window.bounds) + delta_y, Window_Min_Height);
-                            auto min_p = min(window.bounds);
-                            window.bounds = rect_from_min_wh(
-                                Vec2(left(window.bounds), top(window.bounds) - next_h),
-                                width(window.bounds), next_h
-                            );
-                        }
-                    }
-                    else{
-                        gui.action = Gui_Action.None;
-                    }
+                else{
+                    gui.action = Gui_Action.None;
                 }
-            } break;
+            }
+        } break;
 
-            case Event_Type.Button:{
-                auto btn = &evt.button;
-                switch(btn.id){
-                    default: break;
+        case Event_Type.Button:{
+            auto btn = &evt.button;
+            switch(btn.id){
+                default: break;
 
-                    case Button_ID.Mouse_Left:{
-                        if(btn.pressed){
-                            auto window = get_window_under_cursor(gui);
-                            auto cursor = gui.cursor_pos;
-                            gui.mouse_left_pressed = true;
+                case Button_ID.Mouse_Left:{
+                    if(btn.pressed){
+                        auto window = get_window_under_cursor(gui);
+                        auto cursor = gui.cursor_pos;
+                        gui.mouse_left_pressed = true;
 
-                            if(window){
-                                consumed = true;
-                                if(is_point_inside_rect(cursor, window.bounds)
-                                && !window_has_focus(window)){
-                                    raise_window(window);
-                                }
-
-                                auto titlebar_bounds = get_titlebar_bounds(window);
-                                auto resize_flags = get_window_resize_flags(gui.cursor_pos, window.bounds);
-                                if(resize_flags != Window_Resize_Flag.None){
-                                    gui.action      = Gui_Action.Resizing_Window; // TODO: Rename this Window_Action?
-                                    gui.active_id   = window.id;
-                                    gui.grab_offset = window.bounds.center - gui.cursor_pos;
-                                    gui.window_resize_flags = resize_flags;
-                                }
-                                else if(is_point_inside_rect(cursor, titlebar_bounds)){
-                                    gui.action      = Gui_Action.Dragging_Window;
-                                    gui.active_id   = window.id;
-                                    gui.grab_offset = window.bounds.center - gui.cursor_pos;
-                                }
+                        if(window){
+                            evt.consumed = true;
+                            if(is_point_inside_rect(cursor, window.bounds)
+                            && !window_has_focus(window)){
+                                raise_window(window);
                             }
-                            else{
-                                gui.action = Gui_Action.None;
+
+                            auto titlebar_bounds = get_titlebar_bounds(window);
+                            auto resize_flags = get_window_resize_flags(gui.cursor_pos, window.bounds);
+                            if(resize_flags != Window_Resize_Flag.None){
+                                gui.action      = Gui_Action.Resizing_Window; // TODO: Rename this Window_Action?
+                                gui.active_id   = window.id;
+                                gui.grab_offset = window.bounds.center - gui.cursor_pos;
+                                gui.window_resize_flags = resize_flags;
+                                end_text_input(gui);
+                            }
+                            else if(is_point_inside_rect(cursor, titlebar_bounds)){
+                                gui.action      = Gui_Action.Dragging_Window;
+                                gui.active_id   = window.id;
+                                gui.grab_offset = window.bounds.center - gui.cursor_pos;
+                                end_text_input(gui);
                             }
                         }
                         else{
-                            gui.mouse_left_released = true;
                             gui.action = Gui_Action.None;
+                            end_text_input(gui);
                         }
-                    } break;
+                    }
+                    else{
+                        gui.mouse_left_released = true;
+                        gui.action = Gui_Action.None;
+                    }
+                } break;
 
-                    case Button_ID.Mouse_Right:{
-                    } break;
-                }
-            } break;
-        }
-    //}
-
-    evt.consumed = consumed;
+                case Button_ID.Mouse_Right:{
+                } break;
+            }
+        } break;
+    }
 }
 
 void do_layout(Window* window){
@@ -668,11 +673,33 @@ Rect get_widget_bounds(Rect window_work_area, Widget* widget){
     return result;
 }
 
-void update_gui(Gui_State* gui, float dt){
+void set_text_input_widget(Gui_State* gui, Widget* widget, String default_text){
+    // TODO: Base cursor position on mouse click offset (if clicked)
+    uint cursor = 0;
+    gui.text_input_widget = widget.id;
+    copy(default_text, gui.text_buffer[0 .. default_text.length]);
+    enable_text_input_mode(gui.text_buffer, cast(uint)default_text.length, 0);
+    gui.text_buffer_used = cast(uint)default_text.length;
+}
+
+// TODO: This is being called everywhere just in case. We should really have a better plan
+// on integrating text input with the rest of the GUI event handling, such as mouse clicks.
+void end_text_input(Gui_State* gui){
+    gui.text_input_widget = 0;
+    disable_text_input_mode();
+}
+
+void update_gui(Gui_State* gui, float dt, Allocator* allocator){
     gui.message_id        = Null_Gui_ID;
     Widget* hover_widget  = null;
     Widget* active_widget = null;
     Window* hover_window  = null;
+
+    Widget* text_widget;
+
+    if(!is_text_input_mode_enabled()){
+        end_text_input(gui);
+    }
 
     auto cursor = gui.cursor_pos;
     foreach(window; gui.windows.iterate!(-1)()){
@@ -697,6 +724,9 @@ void update_gui(Gui_State* gui, float dt){
             if(widget.id == gui.active_id){
                 active_widget = widget;
             }
+            if(widget.id == gui.text_input_widget){
+                text_widget = widget;
+            }
 
             // TODO: Update widgets that need updating even when they're not the
             // active widget here. Also, call the update_custom_widgets function
@@ -720,11 +750,17 @@ void update_gui(Gui_State* gui, float dt){
 
                         Rect input_bounds, sub_bounds, add_bounds = void;
                         get_spin_button_bounds(bounds, btn.button_width, &input_bounds, &sub_bounds, &add_bounds);
-                        if(is_point_inside_rect(gui.cursor_pos, sub_bounds)){
-                            (*btn.data) = min((*btn.data) - 1, btn.data_min);
+                        if(is_point_inside_rect(gui.cursor_pos, input_bounds)){
+                            auto initial_text = gen_string("{0}", (*btn.data), allocator);
+                            set_text_input_widget(gui, hover_widget, initial_text);
+                        }
+                        else if(is_point_inside_rect(gui.cursor_pos, sub_bounds)){
+                            (*btn.data) = min((*btn.data) - 1, btn.data_max);
+                            end_text_input(gui);
                         }
                         else if(is_point_inside_rect(gui.cursor_pos, add_bounds)){
-                            (*btn.data) = min((*btn.data) + 1, btn.data_min);
+                            (*btn.data) = min((*btn.data) + 1, btn.data_max);
+                            end_text_input(gui);
                         }
                     } break;
 
@@ -738,6 +774,10 @@ void update_gui(Gui_State* gui, float dt){
                         (*tb.current_value) = tb.target_value;
                     } break;
                 }
+            }
+
+            if(!hover_widget || hover_widget.id != gui.text_input_widget){
+                end_text_input(gui);
             }
 
             /+
@@ -786,6 +826,23 @@ void update_gui(Gui_State* gui, float dt){
         }
     }
 
+    // Note: Allow the widget to handle losing the text input mode. Some widgets (like Spin Boxes)
+    // will need to convert the text to something internal.
+    if(text_widget && text_widget.id != gui.text_input_widget){
+        switch(text_widget.type){
+            default: break;
+
+            case Widget_Type.Spin_Button:{
+                auto btn = cast(Spin_Button*)text_widget;
+                uint next_value;
+                auto text = gui.text_buffer[0 .. gui.text_buffer_used];
+                if(to_int(&next_value, text)){
+                    (*btn.data) = min(next_value, btn.data_max);
+                }
+            } break;
+        }
+    }
+
     // Clear event flags
     gui.mouse_left_pressed  = false;
     gui.mouse_left_released = false;
@@ -806,6 +863,19 @@ bool is_active, bool is_hover, Rect bounds, String text){
     render_button_bounds(rp_rects, bounds, is_active);
     auto baseline = center_text(font, text, bounds);
     render_text(rp_text, font, baseline, text, Vec4(0, 0, 0, 1));
+}
+
+void draw_cursor_for_text_field(Render_Pass* pass, Font* font, Rect bounds, float padding, float baseline_y){
+    auto text_input = get_text_input_state();
+    auto cursor = min(text_input.cursor, text_input.text.length);
+    auto text = text_input.text[0 .. cursor];
+    auto cursor_pos_x = get_text_width(font, text);
+
+    auto cursor_bounds = rect_from_min_wh(
+        Vec2(left(bounds) + cursor_pos_x + padding, baseline_y),
+        2, font.metrics.height
+    );
+    render_rect(pass, cursor_bounds, Vec4(0, 0, 0, 1));
 }
 
 void render_gui(Gui_State* gui, Camera* camera_data, Shader* shader_rects, Shader* shader_text, Allocator* allocator){
@@ -898,7 +968,13 @@ void render_gui(Gui_State* gui, Camera* camera_data, Shader* shader_rects, Shade
                     render_rect(rp_rects, input_bounds, Vec4(1, 1, 1, 1));
                     render_rect_outline(rp_rects, input_bounds, Vec4(0, 0, 0, 1), 1.0f);
 
-                    auto text_msg = gen_string("{0}", (*btn.data), allocator);
+                    String text_msg;
+                    if(gui.text_input_widget == btn.id){
+                        text_msg = gui.text_buffer[0 .. gui.text_buffer_used];
+                    }
+                    else{
+                        text_msg = gen_string("{0}", (*btn.data), allocator);
+                    }
                     auto text_p = center_text_left(font, text_msg, input_bounds) + Vec2(Button_Padding, 0);
                     render_text(rp_text, font, text_p, text_msg, Vec4(0, 0, 0, 1));
 
@@ -915,6 +991,10 @@ void render_gui(Gui_State* gui, Camera* camera_data, Shader* shader_rects, Shade
                         is_widget_active && add_hover, is_widget_hover && add_hover,
                         add_bounds, "+"
                     );
+
+                    if(gui.text_input_widget == btn.id){
+                        draw_cursor_for_text_field(rp_rects, font, bounds, 2, text_p.y);
+                    }
                 } break;
 
                 case Widget_Type.Checkbox:{

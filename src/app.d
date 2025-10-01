@@ -2974,7 +2974,7 @@ void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
     auto window = get_window_info();
     auto window_bounds = rect_from_min_max(Vec2(0, 0), Vec2(window.width, window.height));
 
-    update_gui(&s.gui, dt);
+    update_gui(&s.gui, dt, &s.frame_memory);
     simulate_menu(s, dt, window_bounds);
 
     s.session.timer += dt;
