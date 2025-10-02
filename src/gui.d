@@ -791,12 +791,12 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
                             set_text_input_widget(gui, hover_widget, initial_text);
                         }
                         else if(is_point_inside_rect(gui.cursor_pos, sub_bounds)){
-                            (*btn.data) = min((*btn.data) - 1, btn.data_max);
                             end_text_input(gui, text_widget);
+                            (*btn.data) = min((*btn.data) - 1, btn.data_max);
                         }
                         else if(is_point_inside_rect(gui.cursor_pos, add_bounds)){
-                            (*btn.data) = min((*btn.data) + 1, btn.data_max);
                             end_text_input(gui, text_widget);
+                            (*btn.data) = min((*btn.data) + 1, btn.data_max);
                         }
                     } break;
 
