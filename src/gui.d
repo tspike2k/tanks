@@ -500,21 +500,21 @@ auto iterate_widgets(Window* window){
 // TODO: This is being called everywhere just in case. We should really have a better plan
 // on integrating text input with the rest of the GUI event handling, such as mouse clicks.
 void end_text_input(Gui_State* gui, Widget* widget){
-    if(!widget) return;
+    if(widget){
+        assert(widget.id == gui.text_input_widget);
 
-    assert(widget.id == gui.text_input_widget);
+        switch(widget.type){
+            default: break;
 
-    switch(widget.type){
-        default: break;
-
-        case Widget_Type.Spin_Button:{
-            auto btn = cast(Spin_Button*)widget;
-            uint next_value;
-            auto text = gui.text_buffer[0 .. gui.text_buffer_used];
-            if(to_int(&next_value, text)){
-                (*btn.data) = min(next_value, btn.data_max);
-            }
-        } break;
+            case Widget_Type.Spin_Button:{
+                auto btn = cast(Spin_Button*)widget;
+                uint next_value;
+                auto text = gui.text_buffer[0 .. gui.text_buffer_used];
+                if(to_int(&next_value, text)){
+                    (*btn.data) = min(next_value, btn.data_max);
+                }
+            } break;
+        }
     }
 
     gui.text_input_widget = Null_Gui_ID;
@@ -524,13 +524,15 @@ void end_text_input(Gui_State* gui, Widget* widget){
 void end_text_input(Gui_State* gui, Window* window){
     if(gui.text_input_widget != Null_Gui_ID){
         Widget* text_widget;
-        foreach(ref widget; iterate_widgets(window)){
-            if(widget.id == gui.text_input_widget){
-                text_widget = widget;
-                break;
+        if(window){
+            foreach(ref widget; iterate_widgets(window)){
+                if(widget.id == gui.text_input_widget){
+                    text_widget = widget;
+                    break;
+                }
             }
+            assert(text_widget);
         }
-        assert(text_widget);
 
         end_text_input(gui, text_widget);
     }
@@ -636,7 +638,13 @@ void handle_event(Gui_State* gui, Event* evt){
                         }
                         else{
                             gui.action = Gui_Action.None;
-                            end_text_input(gui, window);
+                            if(gui.text_input_widget != Null_Gui_ID){
+                                auto window_id = window_id_from_widget_id(gui.text_input_widget);
+                                window = get_window_by_id(gui, window_id);
+                                assert(window);
+                                end_text_input(gui, window);
+                            }
+
                         }
                     }
                     else{
@@ -825,16 +833,6 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
             }
         }
     }
-
-    // Note: Allow the widget to handle losing the text input mode. Some widgets (like Spin Boxes)
-    // will need to convert the text to something internal.
-    if(gui.text_input_widget != Null_Gui_ID
-    && gui.text_input_widget != gui.text_input_widget_next){
-        assert(text_widget.id == gui.text_input_widget);
-
-
-    }
-    gui.text_input_widget = gui.text_input_widget_next;
 
     // Clear event flags
     gui.mouse_left_pressed  = false;
