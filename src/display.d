@@ -192,6 +192,7 @@ Text_Input* get_text_input_state(){
 }
 
 void text_input_handle_event(Event* evt){
+    if(!is_text_input_mode_enabled()) return;
     if(evt.consumed) return;
 
     auto buffer = &g_text_input;

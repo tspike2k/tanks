@@ -497,14 +497,48 @@ auto iterate_widgets(Window* window){
     return result;
 }
 
-void handle_event(Gui_State* gui, Event* evt){
-    if(evt.consumed) return;
+// TODO: This is being called everywhere just in case. We should really have a better plan
+// on integrating text input with the rest of the GUI event handling, such as mouse clicks.
+void end_text_input(Gui_State* gui, Widget* widget){
+    if(!widget) return;
 
-    if(is_text_input_mode_enabled()){
-        text_input_handle_event(evt);
+    assert(widget.id == gui.text_input_widget);
 
-        if(evt.consumed) return;
+    switch(widget.type){
+        default: break;
+
+        case Widget_Type.Spin_Button:{
+            auto btn = cast(Spin_Button*)widget;
+            uint next_value;
+            auto text = gui.text_buffer[0 .. gui.text_buffer_used];
+            if(to_int(&next_value, text)){
+                (*btn.data) = min(next_value, btn.data_max);
+            }
+        } break;
     }
+
+    gui.text_input_widget = Null_Gui_ID;
+    disable_text_input_mode();
+}
+
+void end_text_input(Gui_State* gui, Window* window){
+    if(gui.text_input_widget != Null_Gui_ID){
+        Widget* text_widget;
+        foreach(ref widget; iterate_widgets(window)){
+            if(widget.id == gui.text_input_widget){
+                text_widget = widget;
+                break;
+            }
+        }
+        assert(text_widget);
+
+        end_text_input(gui, text_widget);
+    }
+}
+
+void handle_event(Gui_State* gui, Event* evt){
+    text_input_handle_event(evt);
+    if(evt.consumed) return;
 
     auto display_window = get_window_info();
     switch(evt.type){
@@ -513,7 +547,11 @@ void handle_event(Gui_State* gui, Event* evt){
         // TODO: Should we move most of the Window Action handling code into update_gui?
         // We do need to be able to flag mouse clicks as consumed, but that's about all.
         // We could sum all the mouse motion events, for instance.
-
+        //
+        // It's important to note the reason we're doing it this way in the first place is
+        // so that we can consumed mouse click events that happen inside the bounds of a window.
+        // As such, a lot of this logic MUST happen here. Perhaps there is a better way to do
+        // this.
         case Event_Type.Mouse_Motion:{
             auto motion = &evt.mouse_motion;
             // TODO: Invert motion.pixel_y in display.d. This way we don't have to flip the coord
@@ -587,18 +625,18 @@ void handle_event(Gui_State* gui, Event* evt){
                                 gui.active_id   = window.id;
                                 gui.grab_offset = window.bounds.center - gui.cursor_pos;
                                 gui.window_resize_flags = resize_flags;
-                                end_text_input(gui);
+                                end_text_input(gui, window);
                             }
                             else if(is_point_inside_rect(cursor, titlebar_bounds)){
                                 gui.action      = Gui_Action.Dragging_Window;
                                 gui.active_id   = window.id;
                                 gui.grab_offset = window.bounds.center - gui.cursor_pos;
-                                end_text_input(gui);
+                                end_text_input(gui, window);
                             }
                         }
                         else{
                             gui.action = Gui_Action.None;
-                            end_text_input(gui);
+                            end_text_input(gui, window);
                         }
                     }
                     else{
@@ -681,13 +719,6 @@ void set_text_input_widget(Gui_State* gui, Widget* widget, String default_text){
     enable_text_input_mode(gui.text_buffer, &gui.text_buffer_used, 0);
 }
 
-// TODO: This is being called everywhere just in case. We should really have a better plan
-// on integrating text input with the rest of the GUI event handling, such as mouse clicks.
-void end_text_input(Gui_State* gui){
-    gui.text_input_widget_next = Null_Gui_ID;
-    disable_text_input_mode();
-}
-
 void update_gui(Gui_State* gui, float dt, Allocator* allocator){
     gui.message_id        = Null_Gui_ID;
     gui.hover_widget      = Null_Gui_ID;
@@ -696,6 +727,10 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
     Widget* active_widget = null;
     Window* hover_window  = null;
     Widget* text_widget   = null;
+
+    if(!is_text_input_mode_enabled() && gui.text_input_widget != Null_Gui_ID){
+        gui.text_input_widget_next = Null_Gui_ID;
+    }
 
     auto cursor = gui.cursor_pos;
     foreach(window; gui.windows.iterate!(-1)()){
@@ -736,9 +771,8 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
             if(hover_widget){
                 gui.active_id    = hover_widget.id;
 
-                if(gui.text_input_widget != Null_Gui_ID
-                && hover_widget.id != gui.text_input_widget){
-                    end_text_input(gui);
+                if(text_widget && hover_widget.id != text_widget.id){
+                    end_text_input(gui, text_widget);
                 }
 
                 switch(hover_widget.type){
@@ -758,11 +792,11 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
                         }
                         else if(is_point_inside_rect(gui.cursor_pos, sub_bounds)){
                             (*btn.data) = min((*btn.data) - 1, btn.data_max);
-                            end_text_input(gui);
+                            end_text_input(gui, text_widget);
                         }
                         else if(is_point_inside_rect(gui.cursor_pos, add_bounds)){
                             (*btn.data) = min((*btn.data) + 1, btn.data_max);
-                            end_text_input(gui);
+                            end_text_input(gui, text_widget);
                         }
                     } break;
 
@@ -778,7 +812,7 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
                 }
             }
             else{
-                end_text_input(gui);
+                end_text_input(gui, text_widget);
             }
         }
 
@@ -798,18 +832,7 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
     && gui.text_input_widget != gui.text_input_widget_next){
         assert(text_widget.id == gui.text_input_widget);
 
-        switch(text_widget.type){
-            default: break;
 
-            case Widget_Type.Spin_Button:{
-                auto btn = cast(Spin_Button*)text_widget;
-                uint next_value;
-                auto text = gui.text_buffer[0 .. gui.text_buffer_used];
-                if(to_int(&next_value, text)){
-                    (*btn.data) = min(next_value, btn.data_max);
-                }
-            } break;
-        }
     }
     gui.text_input_widget = gui.text_input_widget_next;
 
