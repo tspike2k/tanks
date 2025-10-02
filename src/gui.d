@@ -503,9 +503,6 @@ void handle_event(Gui_State* gui, Event* evt){
     if(is_text_input_mode_enabled()){
         text_input_handle_event(evt);
 
-        auto buffer = get_text_input_state();
-        gui.text_buffer_used = buffer.used;
-
         if(evt.consumed) return;
     }
 
@@ -680,8 +677,8 @@ void set_text_input_widget(Gui_State* gui, Widget* widget, String default_text){
     gui.text_input_widget      = widget.id;
     gui.text_input_widget_next = widget.id;
     copy(default_text, gui.text_buffer[0 .. default_text.length]);
-    enable_text_input_mode(gui.text_buffer, cast(uint)default_text.length, 0);
     gui.text_buffer_used = cast(uint)default_text.length;
+    enable_text_input_mode(gui.text_buffer, &gui.text_buffer_used, 0);
 }
 
 // TODO: This is being called everywhere just in case. We should really have a better plan
@@ -698,8 +695,7 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
     Widget* hover_widget  = null;
     Widget* active_widget = null;
     Window* hover_window  = null;
-
-    Widget* text_widget;
+    Widget* text_widget   = null;
 
     auto cursor = gui.cursor_pos;
     foreach(window; gui.windows.iterate!(-1)()){

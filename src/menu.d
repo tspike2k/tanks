@@ -447,8 +447,7 @@ private Menu_Event do_action(Menu* menu, Menu_Item* item){
     else if(item.type == Menu_Item_Type.Textfield){
         menu.text_input_item = item;
         auto buffer = item.text_buffer;
-        auto buffer_used = *item.text_buffer_used;
-        enable_text_input_mode(item.text_buffer, buffer_used, 0); // TODO: Base cursor position on mouse click offset (if clicked)
+        enable_text_input_mode(item.text_buffer, item.text_buffer_used, 0); // TODO: Base cursor position on mouse click offset (if clicked)
     }
     else{
         result.action  = item.action;
@@ -495,7 +494,7 @@ Menu_Event menu_process_event(Menu* menu, Event* event){
             text_input_handle_event(event);
             auto item = menu.text_input_item;
             auto text_input = get_text_input_state();
-            (*item.text_buffer_used) = text_input.used;
+            (*item.text_buffer_used) = *text_input.used;
         }
         else{
             // We lost text input mode. Time to accept the changes to the text in the buffer.

@@ -164,7 +164,7 @@ Window* get_window_info(){
 private{
     struct Text_Input{
         char[] text;
-        uint   used;
+        uint*  used;
         uint   cursor;
     }
 
@@ -176,7 +176,7 @@ bool is_text_input_mode_enabled(){
     return result;
 }
 
-void enable_text_input_mode(char[] buffer, uint buffer_used, uint text_cursor){
+void enable_text_input_mode(char[] buffer, uint* buffer_used, uint text_cursor){
     g_text_input.text = buffer;
     g_text_input.used = buffer_used;
     g_text_input.cursor = text_cursor;
@@ -215,7 +215,7 @@ void text_input_handle_event(Event* evt){
 
                     case Key_ID_Delete:{
                         // TODO: The ctrl key should allow you to delete the next word
-                        if(buffer.cursor < buffer.used){
+                        if(buffer.cursor < *buffer.used){
                             remove_text(buffer, buffer.cursor, 1);
                         }
                     } break;
@@ -236,7 +236,7 @@ void text_input_handle_event(Event* evt){
 
                     case Key_ID_Arrow_Right:{
                         // TODO: The ctrl key should allow cursor movement/text deletion on a word-by-word basis
-                        if(buffer.cursor < buffer.used){
+                        if(buffer.cursor < *buffer.used){
                             buffer.cursor = buffer.cursor + 1;
                         }
                     } break;
@@ -266,24 +266,24 @@ void text_input_handle_event(Event* evt){
 
 void remove_text(Text_Input* buffer, uint start, uint count){
     assert(count > 0);
-    assert(start <= buffer.used);
-    assert(buffer.used > 0);
+    assert(start <= *buffer.used);
+    assert(*buffer.used > 0);
 
-    auto end = min(start + count, buffer.used);
+    auto end = min(start + count, *buffer.used);
     auto to_move = 0;
-    if(end < buffer.used){
-        to_move = buffer.used - end;
+    if(end < *buffer.used){
+        to_move = *buffer.used - end;
         memmove(&buffer.text[start], &buffer.text[end], to_move);
     }
 
-    buffer.used = start + to_move;
+    *buffer.used = start + to_move;
     //buffer.cursor = min(buffer.cursor, buffer.used);
-    buffer.cursor = min(start, buffer.used);
+    buffer.cursor = min(start, *buffer.used);
 }
 
 void insert_text(Text_Input* buffer, uint start, char[] text){
     assert(text.length);
-    assert(start <= buffer.used);
+    assert(start <= *buffer.used);
 
     uint end = min(start + cast(uint)text.length, cast(uint)buffer.text.length);
     char[] dest = buffer.text[start .. end];
@@ -291,13 +291,13 @@ void insert_text(Text_Input* buffer, uint start, char[] text){
 
     if(dest.length){
         uint to_shift = 0;
-        if(remaining.length && start < buffer.used){
-            to_shift = min(buffer.used - start, cast(uint)remaining.length);
+        if(remaining.length && start < *buffer.used){
+            to_shift = min(*buffer.used - start, cast(uint)remaining.length);
             memmove(remaining.ptr, dest.ptr, to_shift);
         }
 
         memcpy(dest.ptr, text.ptr, dest.length);
-        buffer.used = end + to_shift;
+        *buffer.used = end + to_shift;
         buffer.cursor = end;
     }
 }
