@@ -511,9 +511,7 @@ auto iterate_widgets(Window* window){
 // TODO: This is being called everywhere just in case. We should really have a better plan
 // on integrating text input with the rest of the GUI event handling, such as mouse clicks.
 void end_text_input(Gui_State* gui, Widget* widget){
-    if(widget){
-        assert(widget.id == gui.text_input_widget);
-
+    if(widget && widget.id == gui.text_input_widget){
         switch(widget.type){
             default: break;
 
