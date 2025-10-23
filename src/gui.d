@@ -80,17 +80,22 @@ enum Window_Resize_Flag : uint{
     Bottom   = (1 << 2),
 }
 
+enum {
+    Window_Flag_Borderless = (1 << 0),
+}
+
 struct Window{
     Window* next;
     Window* prev;
 
+    uint       flags;
     String     name;
     Gui_ID     id;
     Gui_State* gui;
     void[]     buffer;
     size_t     buffer_used;
     Rect       bounds;
-    bool       dirty; // Do we need to run layout algorithms?
+    bool       dirty; // Tells if we need to run the element layout algorithms
 }
 
 pragma(inline) Gui_ID gui_id(uint window_id, uint widget_id = __LINE__){
@@ -179,17 +184,23 @@ Window* get_window_under_cursor(Gui_State* gui){
 }
 
 Rect get_work_area(Window* window){
-    auto gui  = window.gui;
-    auto r    = window.bounds;
-    auto font = gui.font;
+    if(window.flags & Window_Flag_Borderless){
+        auto result = window.bounds;
+        return result;
+    }
+    else{
+        auto r    = window.bounds;
+        auto gui  = window.gui;
+        auto font = gui.font;
 
-    auto title_bar_bounds = get_titlebar_bounds(window);
-    auto border = Vec2(Window_Border_Size, Window_Border_Size);
-    auto min_p = Vec2(left(r), bottom(r)) + border;
-    auto max_p = min_p + Vec2(width(r), height(r)) - Vec2(0, height(title_bar_bounds)) - border*2.0f;
-    auto result = rect_from_min_max(min_p, max_p);
+        auto title_bar_bounds = get_titlebar_bounds(window);
+        auto border = Vec2(Window_Border_Size, Window_Border_Size);
+        auto min_p = Vec2(left(r), bottom(r)) + border;
+        auto max_p = min_p + Vec2(width(r), height(r)) - Vec2(0, height(title_bar_bounds)) - border*2.0f;
+        auto result = rect_from_min_max(min_p, max_p);
 
-    return result;
+        return result;
+    }
 }
 
 void render_button_bounds(Render_Pass* pass, Rect r, bool pressed_down){
@@ -542,64 +553,13 @@ void handle_event(Gui_State* gui, Event* evt){
     text_input_handle_event(evt);
     if(evt.consumed) return;
 
-    auto display_window = get_window_info();
     switch(evt.type){
         default: break;
 
-        // TODO: Should we move most of the Window Action handling code into update_gui?
-        // We do need to be able to flag mouse clicks as consumed, but that's about all.
-        // We could sum all the mouse motion events, for instance.
-        //
-        // It's important to note the reason we're doing it this way in the first place is
-        // so that we can consumed mouse click events that happen inside the bounds of a window.
-        // As such, a lot of this logic MUST happen here. Perhaps there is a better way to do
-        // this.
         case Event_Type.Mouse_Motion:{
             auto motion = &evt.mouse_motion;
-            // TODO: Invert motion.pixel_y in display.d. This way we don't have to flip the coord
-            // all the time.
+            auto display_window = get_window_info();
             gui.cursor_pos = Vec2(motion.pixel_x, display_window.height - motion.pixel_y);
-            auto cursor = gui.cursor_pos;
-            if(gui.action == Gui_Action.Dragging_Window){
-                auto window = get_window_by_id(gui, gui.active_id);
-                if(window){
-                    window.bounds.center = gui.cursor_pos + gui.grab_offset;
-                }
-                else{
-                    gui.action = Gui_Action.None;
-                }
-            }
-            else if(gui.action == Gui_Action.Resizing_Window){
-                auto window = get_window_by_id(gui, gui.active_id);
-                if(window){
-                    if(gui.window_resize_flags & Window_Resize_Flag.Left){
-                        auto delta_x = left(window.bounds) - cursor.x;
-                        auto next_w  = max(width(window.bounds) + delta_x, Window_Min_Width);
-                        window.bounds = rect_from_min_wh(
-                            Vec2(right(window.bounds) - next_w, bottom(window.bounds)),
-                            next_w, height(window.bounds)
-                        );
-                    }
-                    else if(gui.window_resize_flags & Window_Resize_Flag.Right){
-                        auto delta_x = cursor.x - right(window.bounds);
-                        auto next_w  = max(width(window.bounds) + delta_x, Window_Min_Width);
-                        window.bounds = rect_from_min_wh(min(window.bounds), next_w, height(window.bounds));
-                    }
-
-                    if(gui.window_resize_flags & Window_Resize_Flag.Bottom){
-                        auto delta_y = bottom(window.bounds) - cursor.y;
-                        auto next_h  = max(height(window.bounds) + delta_y, Window_Min_Height);
-                        auto min_p = min(window.bounds);
-                        window.bounds = rect_from_min_wh(
-                            Vec2(left(window.bounds), top(window.bounds) - next_h),
-                            width(window.bounds), next_h
-                        );
-                    }
-                }
-                else{
-                    gui.action = Gui_Action.None;
-                }
-            }
         } break;
 
         case Event_Type.Button:{
@@ -609,47 +569,16 @@ void handle_event(Gui_State* gui, Event* evt){
 
                 case Button_ID.Mouse_Left:{
                     if(btn.pressed){
+                        // Consume mouse button presses that are made inside the bounds
+                        // of a given GUI window.
                         auto window = get_window_under_cursor(gui);
-                        auto cursor = gui.cursor_pos;
-                        gui.mouse_left_pressed = true;
-
                         if(window){
                             evt.consumed = true;
-                            if(is_point_inside_rect(cursor, window.bounds)
-                            && !window_has_focus(window)){
-                                raise_window(window);
-                            }
-
-                            auto titlebar_bounds = get_titlebar_bounds(window);
-                            auto resize_flags = get_window_resize_flags(gui.cursor_pos, window.bounds);
-                            if(resize_flags != Window_Resize_Flag.None){
-                                gui.action      = Gui_Action.Resizing_Window; // TODO: Rename this Window_Action?
-                                gui.active_id   = window.id;
-                                gui.grab_offset = window.bounds.center - gui.cursor_pos;
-                                gui.window_resize_flags = resize_flags;
-                                end_text_input(gui, window);
-                            }
-                            else if(is_point_inside_rect(cursor, titlebar_bounds)){
-                                gui.action      = Gui_Action.Dragging_Window;
-                                gui.active_id   = window.id;
-                                gui.grab_offset = window.bounds.center - gui.cursor_pos;
-                                end_text_input(gui, window);
-                            }
-                        }
-                        else{
-                            gui.action = Gui_Action.None;
-                            if(gui.text_input_widget != Null_Gui_ID){
-                                auto window_id = window_id_from_widget_id(gui.text_input_widget);
-                                window = get_window_by_id(gui, window_id);
-                                assert(window);
-                                end_text_input(gui, window);
-                            }
-
+                            gui.mouse_left_pressed = true;
                         }
                     }
                     else{
                         gui.mouse_left_released = true;
-                        gui.action = Gui_Action.None;
                     }
                 } break;
 
@@ -727,6 +656,11 @@ void set_text_input_widget(Gui_State* gui, Widget* widget, String default_text){
     enable_text_input_mode(gui.text_buffer, &gui.text_buffer_used, 0);
 }
 
+bool has_border(Window* window){
+    bool result = !(window.flags & Window_Flag_Borderless);
+    return result;
+}
+
 void update_gui(Gui_State* gui, float dt, Allocator* allocator){
     gui.message_id        = Null_Gui_ID;
     gui.hover_widget      = Null_Gui_ID;
@@ -736,8 +670,78 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
     Window* hover_window  = null;
     Widget* text_widget   = null;
 
-    if(!is_text_input_mode_enabled() && gui.text_input_widget != Null_Gui_ID){
-        gui.text_input_widget_next = Null_Gui_ID;
+    // Handle Window Actions (dragging, resizing, etc).
+    if(gui.action == Gui_Action.None){
+        if(gui.mouse_left_pressed){
+            auto window = get_window_under_cursor(gui);
+            if(window && has_border(window)){
+                if(!window_has_focus(window))
+                    raise_window(window);
+
+                auto cursor = gui.cursor_pos;
+                auto titlebar_bounds = get_titlebar_bounds(window);
+                auto resize_flags = get_window_resize_flags(gui.cursor_pos, window.bounds);
+                if(resize_flags != Window_Resize_Flag.None){
+                    gui.action      = Gui_Action.Resizing_Window; // TODO: Rename this Window_Action?
+                    gui.active_id   = window.id;
+                    gui.grab_offset = window.bounds.center - gui.cursor_pos;
+                    gui.window_resize_flags = resize_flags;
+                    end_text_input(gui, window);
+                }
+                else if(is_point_inside_rect(cursor, titlebar_bounds)){
+                    gui.action      = Gui_Action.Dragging_Window;
+                    gui.active_id   = window.id;
+                    gui.grab_offset = window.bounds.center - gui.cursor_pos;
+                    end_text_input(gui, window);
+                }
+            }
+        }
+    }
+    else{
+        auto window = get_window_by_id(gui, gui.active_id);
+        if(window){
+            switch(gui.action){
+                default: assert(0);
+
+                case Gui_Action.Dragging_Window:{
+                    window.bounds.center = gui.cursor_pos + gui.grab_offset;
+                } break;
+
+                case Gui_Action.Resizing_Window:{
+                    auto cursor = gui.cursor_pos;
+                    if(gui.window_resize_flags & Window_Resize_Flag.Left){
+                        auto delta_x = left(window.bounds) - cursor.x;
+                        auto next_w  = max(width(window.bounds) + delta_x, Window_Min_Width);
+                        window.bounds = rect_from_min_wh(
+                            Vec2(right(window.bounds) - next_w, bottom(window.bounds)),
+                            next_w, height(window.bounds)
+                        );
+                    }
+                    else if(gui.window_resize_flags & Window_Resize_Flag.Right){
+                        auto delta_x = cursor.x - right(window.bounds);
+                        auto next_w  = max(width(window.bounds) + delta_x, Window_Min_Width);
+                        window.bounds = rect_from_min_wh(min(window.bounds), next_w, height(window.bounds));
+                    }
+
+                    if(gui.window_resize_flags & Window_Resize_Flag.Bottom){
+                        auto delta_y = bottom(window.bounds) - cursor.y;
+                        auto next_h  = max(height(window.bounds) + delta_y, Window_Min_Height);
+                        auto min_p = min(window.bounds);
+                        window.bounds = rect_from_min_wh(
+                            Vec2(left(window.bounds), top(window.bounds) - next_h),
+                            width(window.bounds), next_h
+                        );
+                    }
+                } break;
+            }
+        }
+        else{
+            gui.action = Gui_Action.None;
+        }
+    }
+
+    if(gui.mouse_left_released){
+        gui.action = Gui_Action.None;
     }
 
     auto cursor = gui.cursor_pos;
@@ -774,6 +778,11 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
         }
     }
 
+    if(!is_text_input_mode_enabled() && gui.text_input_widget != Null_Gui_ID){
+        end_text_input(gui, text_widget);
+    }
+
+    // Do input for hover widget.
     if(gui.action == Gui_Action.None){
         if(gui.mouse_left_pressed){
             if(hover_widget){

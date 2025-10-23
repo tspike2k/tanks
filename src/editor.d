@@ -39,10 +39,11 @@ enum Place_Type : uint{
 }
 
 enum Editor_Tab : uint{
+    Selected,
     Map,
-    Tile,
     Missions,
     Tanks,
+    View,
 }
 
 enum Cursor_Mode : uint{
@@ -296,8 +297,12 @@ public bool editor_simulate(App_State* s, float dt){
     auto gui = &s.gui;
     begin_window(gui, Window_ID_Main, "Editor", rect_from_min_wh(Vec2(20, 400), 400, 200), g_window_memory);
 
+    label(gui, gui_id(Window_ID_Main), "Overhead:");
+    checkbox(gui, gui_id(Window_ID_Main), &g_overhead_view);
+    next_row(gui);
+
+    tab(gui, gui_id(Window_ID_Main), "Selected", &g_editor_tab, Editor_Tab.Selected);
     tab(gui, gui_id(Window_ID_Main), "Map", &g_editor_tab, Editor_Tab.Map);
-    tab(gui, gui_id(Window_ID_Main), "Tile", &g_editor_tab, Editor_Tab.Tile);
     tab(gui, gui_id(Window_ID_Main), "Mission", &g_editor_tab, Editor_Tab.Missions);
     tab(gui, gui_id(Window_ID_Main), "Tanks", &g_editor_tab, Editor_Tab.Tanks);
     next_row(gui);
@@ -319,11 +324,9 @@ public bool editor_simulate(App_State* s, float dt){
             label(gui, gui_id(Window_ID_Main), "Map height:");
             spin_button(gui, gui_id(Window_ID_Main), &map.height, Map_Height_Max);
             next_row(gui);
-            label(gui, gui_id(Window_ID_Main), "Overhead:");
-            checkbox(gui, gui_id(Window_ID_Main), &g_overhead_view);
         } break;
 
-        case Editor_Tab.Tile:{
+        case Editor_Tab.Selected:{
             // TODO: Allow bulk selecting tiles?
             if(g_selected_tile){
                 auto tile = g_selected_tile;
