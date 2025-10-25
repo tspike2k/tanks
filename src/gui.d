@@ -27,7 +27,7 @@ enum Button_Padding      = 4;
 enum Window_Border_Size  = 4;
 enum Default_Margin      = 4;
 enum Window_Min_Width    = 200;
-enum Window_Min_Height   = 140;
+enum Window_Min_Height   = 24;
 enum Window_Resize_Slack = 4; // Additional space for grabbing window border for resize operation
 
 enum Button_BG_Color = Vec4(0.75f, 0.75f, 0.75f, 1);
@@ -98,12 +98,11 @@ struct Window{
     bool       dirty; // Tells if we need to run the element layout algorithms
 }
 
-pragma(inline) Gui_ID gui_id(uint window_id, uint widget_id = __LINE__){
+// NOTE: This function generates an ID for a widget. Once the widget is created, the upper bits
+// of the widget will contain the window ID.
+pragma(inline) Gui_ID gui_id(uint widget_id = __LINE__){
     assert(widget_id <= 0xffff);
-    assert(window_id <= 0xffff);
-    Gui_ID result = 0;
-    result |= (cast(uint)(window_id & 0xffff) << 16);
-    result |= (cast(uint)(widget_id & 0xffff) << 0);
+    Gui_ID result = widget_id;
     assert(result != Null_Gui_ID);
     return result;
 }
@@ -113,7 +112,7 @@ void init_gui(Gui_State* gs){
     gs.hover_widget = Null_Gui_ID;
 }
 
-void begin_window(Gui_State* gui, Gui_ID id, String window_name, Rect bounds, void[] buffer){
+void begin_window(Gui_State* gui, Gui_ID id, String window_name, Rect bounds, void[] buffer, uint flags = 0){
     Window* window = null;
     foreach(entry; gui.windows.iterate()){
         if(entry == cast(Window*)buffer){
@@ -137,6 +136,7 @@ void begin_window(Gui_State* gui, Gui_ID id, String window_name, Rect bounds, vo
         gui.windows.insert(gui.windows.top, window);
     }
 
+    window.flags = flags;
     window.dirty  = true;
     window.buffer_used = 0;
     gui.edit_window = cast(Window*)buffer;
@@ -318,6 +318,8 @@ Gui_ID window_id_from_widget_id(Gui_ID widget_id){
 
 void[] add_widget(Gui_State* gui, Gui_ID id, float w, float h, Widget_Type type, uint size){
     auto window = gui.edit_window;
+
+    id |= (cast(uint)(window.id & 0xffff) << 16);
 
     auto cmd = cast(Window_Cmd*)push_to_command_buffer(window, Window_Cmd.sizeof);
     cmd.type = Window_Cmd_Type.Widget;
@@ -887,26 +889,30 @@ void render_gui(Gui_State* gui, Camera* camera_data, Shader* shader_rects, Shade
         rp_text.flags = Render_Flag_Disable_Depth_Test;
         rp_text.blend_mode = Blend_Mode.One_Minus_Source_Alpha;
 
-        // TODO: Clamp text to pixel boundaries?
-        Vec4 seperator_color = Vec4(0.22f, 0.23f, 0.24f, 1.0f);
+        auto font = gui.font;
+        auto work_area    = get_work_area(window);
         Vec4 internal_color = Vec4(0.86f, 0.90f, 0.97f, 1.0f);
-        if(window_has_focus(window)){
-            render_rect(rp_rects, window.bounds, Vec4(0.2f, 0.42f, 0.66f, 1.0f));
-            render_rect_outline(rp_rects, window.bounds, Vec4(1, 1, 1, 1), 1.0f);
+        if(has_border(window)){
+            Vec4 seperator_color = Vec4(0.22f, 0.23f, 0.24f, 1.0f);
+            if(window_has_focus(window)){
+                render_rect(rp_rects, window.bounds, Vec4(0.2f, 0.42f, 0.66f, 1.0f));
+                render_rect_outline(rp_rects, window.bounds, Vec4(1, 1, 1, 1), 1.0f);
+            }
+            else{
+                render_rect(rp_rects, window.bounds, Vec4(0.4f, 0.4f, 0.45f, 1.0f));
+                render_rect_outline(rp_rects, window.bounds, seperator_color, 1.0f);
+            }
+
+            auto title_bounds = get_titlebar_bounds(window);
+            render_rect(rp_rects, work_area, internal_color);
+            render_rect_outline(rp_rects, work_area, seperator_color, 1.0f);
+
+            auto title_baseline = center_text(font, window.name, title_bounds);
+            render_text(rp_text, gui.font, title_baseline, window.name, Vec4(1, 1, 1, 1));
         }
         else{
-            render_rect(rp_rects, window.bounds, Vec4(0.4f, 0.4f, 0.45f, 1.0f));
-            render_rect_outline(rp_rects, window.bounds, seperator_color, 1.0f);
+            render_rect(rp_rects, work_area, internal_color);
         }
-
-        auto title_bounds = get_titlebar_bounds(window);
-        auto work_area    = get_work_area(window);
-        render_rect(rp_rects, work_area, internal_color);
-        render_rect_outline(rp_rects, work_area, seperator_color, 1.0f);
-
-        auto font = gui.font;
-        auto title_baseline = center_text(font, window.name, title_bounds);
-        render_text(rp_text, gui.font, title_baseline, window.name, Vec4(1, 1, 1, 1));
 
         // Account for work area outline.
         // TODO: Make it so render_rect_outline draws an outline *inside* the given

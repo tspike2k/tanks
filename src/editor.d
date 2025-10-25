@@ -96,10 +96,11 @@ struct Variant{
 }
 
 enum Window_ID_Main            = 1;
-enum Button_Prev_Map           = gui_id(Window_ID_Main);
-enum Button_Next_Map           = gui_id(Window_ID_Main);
-enum Button_New_Map            = gui_id(Window_ID_Main);
-enum Button_Delete_Map         = gui_id(Window_ID_Main);
+enum Window_ID_Panel           = 2;
+enum Button_Prev_Map           = gui_id();
+enum Button_Next_Map           = gui_id();
+enum Button_New_Map            = gui_id();
+enum Button_Delete_Map         = gui_id();
 
 __gshared bool           g_editor_is_open;
 __gshared Allocator*     g_allocator;
@@ -121,6 +122,7 @@ __gshared Variant*       g_current_variant;
 __gshared uint           g_editor_tab;
 
 __gshared void[]         g_window_memory;
+__gshared void[]         g_panel_memory;
 
 void save_campaign_file(App_State* s, String file_name){
     auto scratch = s.frame_memory.scratch;
@@ -275,15 +277,38 @@ public bool editor_simulate(App_State* s, float dt){
     auto grid_center  = world_to_render_pos(grid_extents);
     s.world_camera_target_pos = world_to_render_pos(Vec2(map.width, map.height)*0.5f);
 
+    auto display_window = get_window_info();
+    float display_w = display_window.width;
+    float display_h = display_window.height;
     if(g_overhead_view){
-        auto window = get_window_info();
-        float window_aspect_ratio = (cast(float)window.width)/cast(float)window.height;
+        float window_aspect_ratio = display_w/display_h;
         set_world_projection(&s.world_camera, map.width + 2, map.height + 2, window_aspect_ratio, 0);
         set_world_view(&s.world_camera, world_to_render_pos(Vec2(map.width, map.height)*0.5f), 90);
 
-        auto mouse_world_3d = camera_ray_vs_plane(&s.world_camera, s.mouse_pixel, window.width, window.height);
+        auto mouse_world_3d = camera_ray_vs_plane(&s.world_camera, s.mouse_pixel, display_w, display_h);
         s.mouse_world = Vec2(mouse_world_3d.x, -mouse_world_3d.z);
     }
+
+    auto font = &s.font_editor_small;
+    auto gui = &s.gui;
+
+    float panel_h = 32.0f;
+    auto panel_bounds = rect_from_min_wh(Vec2(0, display_h - panel_h), display_w, panel_h);
+    begin_window(gui, Window_ID_Panel, "Panel", panel_bounds, g_panel_memory, Window_Flag_Borderless);
+    text_field(gui, gui_id(), g_dest_file_name, &g_dest_file_name_used);
+    button(gui, gui_id(), "Save");
+    button(gui, gui_id(), "Load");
+
+    label(gui, gui_id(), gen_string("Mode: {0}", enum_string(g_cursor_mode), &s.frame_memory));
+    label(gui, gui_id(), gen_string("Place: {0}", enum_string(g_place_type), &s.frame_memory));
+
+    label(gui, gui_id(), "| Camera:");
+    label(gui, gui_id(), "Overhead:");
+    checkbox(gui, gui_id(), &g_overhead_view);
+
+    //label(gui, gui_id(Window_ID_Panel));
+
+    end_window(gui);
 
     // NOTE: We need to regenerate the GUI every frame because we generate strings and wire up
     // pointers for value editors. One solution for this is to only redefine the GUI when a
@@ -294,17 +319,13 @@ public bool editor_simulate(App_State* s, float dt){
     // Doing it every frame ensures the performance cost is fairly consistent. See this internal
     // email by John Carmack:
     // http://number-none.com/blow/blog/programming/2014/09/26/carmack-on-inlined-code.html
-    auto gui = &s.gui;
     begin_window(gui, Window_ID_Main, "Editor", rect_from_min_wh(Vec2(20, 400), 400, 200), g_window_memory);
-
-    label(gui, gui_id(Window_ID_Main), "Overhead:");
-    checkbox(gui, gui_id(Window_ID_Main), &g_overhead_view);
     next_row(gui);
 
-    tab(gui, gui_id(Window_ID_Main), "Selected", &g_editor_tab, Editor_Tab.Selected);
-    tab(gui, gui_id(Window_ID_Main), "Map", &g_editor_tab, Editor_Tab.Map);
-    tab(gui, gui_id(Window_ID_Main), "Mission", &g_editor_tab, Editor_Tab.Missions);
-    tab(gui, gui_id(Window_ID_Main), "Tanks", &g_editor_tab, Editor_Tab.Tanks);
+    tab(gui, gui_id(), "Selected", &g_editor_tab, Editor_Tab.Selected);
+    tab(gui, gui_id(), "Map", &g_editor_tab, Editor_Tab.Map);
+    tab(gui, gui_id(), "Mission", &g_editor_tab, Editor_Tab.Missions);
+    tab(gui, gui_id(), "Tanks", &g_editor_tab, Editor_Tab.Tanks);
     next_row(gui);
     switch(g_editor_tab){
         default: break;
@@ -313,16 +334,16 @@ public bool editor_simulate(App_State* s, float dt){
             button(gui, Button_Prev_Map, "<");
             auto map_index = get_map_index(map);
             auto map_msg = gen_string("Map index: {0}", map_index, &s.frame_memory);
-            label(gui, gui_id(Window_ID_Main), map_msg);
+            label(gui, gui_id(), map_msg);
             button(gui, Button_Next_Map, ">");
             button(gui, Button_Delete_Map, "-");
             button(gui, Button_New_Map, "+");
             next_row(gui);
-            label(gui, gui_id(Window_ID_Main), "Map width:");
-            spin_button(gui, gui_id(Window_ID_Main), &map.width, Map_Width_Max);
+            label(gui, gui_id(), "Map width:");
+            spin_button(gui, gui_id(), &map.width, Map_Width_Max);
             next_row(gui);
-            label(gui, gui_id(Window_ID_Main), "Map height:");
-            spin_button(gui, gui_id(Window_ID_Main), &map.height, Map_Height_Max);
+            label(gui, gui_id(), "Map height:");
+            spin_button(gui, gui_id(), &map.height, Map_Height_Max);
             next_row(gui);
         } break;
 
@@ -338,20 +359,20 @@ public bool editor_simulate(App_State* s, float dt){
                     max_index = Max_Players-1;
                 }
 
-                label(gui, gui_id(Window_ID_Main), "Special:");
-                checkbox(gui, gui_id(Window_ID_Main), &tile.is_special);
+                label(gui, gui_id(), "Special:");
+                checkbox(gui, gui_id(), &tile.is_special);
                 next_row(gui);
-                label(gui, gui_id(Window_ID_Main), "Index:");
-                spin_button(gui, gui_id(Window_ID_Main), &tile.index, max_index);
+                label(gui, gui_id(), "Index:");
+                spin_button(gui, gui_id(), &tile.index, max_index);
                 next_row(gui);
             }
             else{
-                label(gui, gui_id(Window_ID_Main), "Press 'S' to enter Select mode and choose a tile to edit.");;
+                label(gui, gui_id(), "Press 'S' to enter Select mode and choose a tile to edit.");;
             }
         } break;
 
         case Editor_Tab.Missions:{
-            label(gui, gui_id(Window_ID_Main), "TODO: Add things!");
+            label(gui, gui_id(), "TODO: Add things!");
         } break;
     }
     end_window(gui);
@@ -675,16 +696,18 @@ public void editor_render(App_State* s, Render_Passes rp){
 
     auto padding = 16;
     auto pen = Vec2(padding, window.height - padding - font_small.metrics.height);
-    render_text(
-        rp.hud_text, font_small, pen,
-        gen_string("Mode: {0}", enum_string(g_cursor_mode), &s.frame_memory)
-    );
-    pen.y -= font_small.metrics.line_gap;
-    if(g_cursor_mode == Cursor_Mode.Place){
+    version(none){
         render_text(
             rp.hud_text, font_small, pen,
-            gen_string("Place Mode: {0}", enum_string(g_place_type), &s.frame_memory)
+            gen_string("Mode: {0}", enum_string(g_cursor_mode), &s.frame_memory)
         );
+        pen.y -= font_small.metrics.line_gap;
+        if(g_cursor_mode == Cursor_Mode.Place){
+            render_text(
+                rp.hud_text, font_small, pen,
+                gen_string("Place Mode: {0}", enum_string(g_place_type), &s.frame_memory)
+            );
+        }
     }
 
     auto map = g_current_map;
@@ -885,6 +908,7 @@ public void editor_toggle(App_State* s){
         g_overhead_view = true;
 
         g_window_memory = malloc(2048)[0 .. 2048];
+        g_panel_memory  = malloc(2048)[0 .. 2048];
 
         /+
         memory = (malloc(4086)[0 .. 4086]);
