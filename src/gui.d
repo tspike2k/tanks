@@ -345,17 +345,13 @@ void button(Gui_State* gui, Gui_ID id, String label, bool disabled = false){
 }
 
 void text_field(Gui_State* gui, Gui_ID id, char[] buffer, uint* buffer_used){
-/+
-    auto font = window.gui.font;
-
-    auto writer = begin_window_cmd(window, Window_Cmd_Type.Widget);
+    auto font = gui.font;
     float w = 200.0f;
     float h = font.metrics.height + Button_Padding*2.0f;
-    auto widget = push_widget!Text_Field(&writer, id, w, h);
-    widget.buffer = buffer;
-    widget.used = buffer_used;
 
-    end_window_cmd(window, &writer);+/
+    auto txt = cast(Text_Field*)add_widget(gui, id, w, h, Widget_Type.Text_Field, Text_Field.sizeof);
+    txt.buffer = buffer;
+    txt.used   = buffer_used;
 }
 
 struct Spin_Button{
