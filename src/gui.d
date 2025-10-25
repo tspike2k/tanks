@@ -843,8 +843,9 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
 
                     case Widget_Type.Text_Field:{
                         if(gui.text_input_widget != hover_widget.id){
-                            gui.text_input_widget = hover_widget.id;
-                            enable_text_input_mode(gui.text_buffer, &gui.text_buffer_used, 0);
+                            auto txt = cast(Text_Field*)hover_widget;
+                            gui.text_input_widget = txt.id;
+                            enable_text_input_mode(txt.buffer, txt.used, 0); // TODO: Get cursor click position.
                         }
                     } break;
 
