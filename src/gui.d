@@ -62,7 +62,6 @@ struct Gui_State{
     bool mouse_left_released;
 
     Gui_ID    text_input_widget;
-    Gui_ID    text_input_widget_next;
     char[256] text_buffer;
     uint      text_buffer_used;
 }
@@ -311,11 +310,6 @@ struct Label{
     String text;
 }
 
-Gui_ID window_id_from_widget_id(Gui_ID widget_id){
-    Gui_ID result = (widget_id >> 16) & 0xfffff;
-    return result;
-}
-
 void[] add_widget(Gui_State* gui, Gui_ID id, float w, float h, Widget_Type type, uint size){
     auto window = gui.edit_window;
 
@@ -506,42 +500,79 @@ auto iterate_widgets(Window* window){
     return result;
 }
 
-// TODO: This is being called everywhere just in case. We should really have a better plan
-// on integrating text input with the rest of the GUI event handling, such as mouse clicks.
-void end_text_input(Gui_State* gui, Widget* widget){
-    if(widget && widget.id == gui.text_input_widget){
-        switch(widget.type){
-            default: break;
-
-            case Widget_Type.Spin_Button:{
-                auto btn = cast(Spin_Button*)widget;
-                uint next_value;
-                auto text = gui.text_buffer[0 .. gui.text_buffer_used];
-                if(to_int(&next_value, text)){
-                    (*btn.data) = min(next_value, btn.data_max);
-                }
-            } break;
+Widget* get_widget_by_id(Window* window, uint widget_id){
+    Widget* result;
+    foreach(w; iterate_widgets(window)){
+        if(w.id == widget_id){
+            result = w;
+            break;
         }
     }
 
-    gui.text_input_widget = Null_Gui_ID;
+    return result;
+}
+
+void decompose_gui_id(Gui_ID id, Gui_ID* window_id, Gui_ID* widget_id){
+    *widget_id = id & 0xffff;
+    *window_id = (id >> 16) & 0xffff;
+}
+
+// TODO: This is being called everywhere just in case. We should really have a better plan
+// on integrating text input with the rest of the GUI event handling, such as mouse clicks.
+void end_text_input(Gui_State* gui){
+    if(gui.text_input_widget != Null_Gui_ID){
+        uint window_id, widget_id;
+        decompose_gui_id(gui.text_input_widget, &window_id, &widget_id);
+        auto window = get_window_by_id(gui, window_id);
+        if(window){
+            auto widget = get_widget_by_id(window, gui.text_input_widget);
+            if(widget){
+                switch(widget.type){
+                    default: break;
+
+                    case Widget_Type.Spin_Button:{
+                        auto btn = cast(Spin_Button*)widget;
+                        uint next_value;
+                        auto text = gui.text_buffer[0 .. gui.text_buffer_used];
+                        if(to_int(&next_value, text)){
+                            (*btn.data) = min(next_value, btn.data_max);
+                        }
+                    } break;
+                }
+            }
+        }
+
+        gui.text_input_widget = Null_Gui_ID;
+    }
+
     disable_text_input_mode();
 }
 
-void end_text_input(Gui_State* gui, Window* window){
-    if(gui.text_input_widget != Null_Gui_ID){
-        Widget* text_widget;
-        if(window){
-            foreach(ref widget; iterate_widgets(window)){
-                if(widget.id == gui.text_input_widget){
-                    text_widget = widget;
-                    break;
-                }
-            }
-            assert(text_widget);
+version(none){
+    void end_text_input(Gui_State* gui){
+        if(gui.text_input_widget != Null_Gui_ID){
+            uint window_id = (gui.text_input_widget >> 16) & 0xffff;
+            auto window = get_window_by_id(gui, window_id);
+            end_text_input(gui, window);
         }
+        gui.text_input_widget = Null_Gui_ID;
+    }
 
-        end_text_input(gui, text_widget);
+    void end_text_input(Gui_State* gui, Window* window){
+        if(gui.text_input_widget != Null_Gui_ID){
+            Widget* text_widget;
+            if(window){
+                foreach(ref widget; iterate_widgets(window)){
+                    if(widget.id == gui.text_input_widget){
+                        text_widget = widget;
+                        break;
+                    }
+                }
+                assert(text_widget);
+            }
+
+            end_text_input(gui, text_widget);
+        }
     }
 }
 
@@ -565,12 +596,13 @@ void handle_event(Gui_State* gui, Event* evt){
 
                 case Button_ID.Mouse_Left:{
                     if(btn.pressed){
+                        gui.mouse_left_pressed = true;
+
                         // Consume mouse button presses that are made inside the bounds
                         // of a given GUI window.
                         auto window = get_window_under_cursor(gui);
                         if(window){
                             evt.consumed = true;
-                            gui.mouse_left_pressed = true;
                         }
                     }
                     else{
@@ -642,16 +674,6 @@ Rect get_widget_bounds(Rect window_work_area, Widget* widget){
     return result;
 }
 
-void set_text_input_widget(Gui_State* gui, Widget* widget, String default_text){
-    // TODO: Base cursor position on mouse click offset (if clicked)
-    uint cursor = 0;
-    gui.text_input_widget      = widget.id;
-    gui.text_input_widget_next = widget.id;
-    copy(default_text, gui.text_buffer[0 .. default_text.length]);
-    gui.text_buffer_used = cast(uint)default_text.length;
-    enable_text_input_mode(gui.text_buffer, &gui.text_buffer_used, 0);
-}
-
 bool has_border(Window* window){
     bool result = !(window.flags & Window_Flag_Borderless);
     return result;
@@ -682,14 +704,17 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
                     gui.active_id   = window.id;
                     gui.grab_offset = window.bounds.center - gui.cursor_pos;
                     gui.window_resize_flags = resize_flags;
-                    end_text_input(gui, window);
+                    end_text_input(gui);
                 }
                 else if(is_point_inside_rect(cursor, titlebar_bounds)){
                     gui.action      = Gui_Action.Dragging_Window;
                     gui.active_id   = window.id;
                     gui.grab_offset = window.bounds.center - gui.cursor_pos;
-                    end_text_input(gui, window);
+                    end_text_input(gui);
                 }
+            }
+            else{
+                end_text_input(gui);
             }
         }
     }
@@ -775,7 +800,7 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
     }
 
     if(!is_text_input_mode_enabled() && gui.text_input_widget != Null_Gui_ID){
-        end_text_input(gui, text_widget);
+        end_text_input(gui);
     }
 
     // Do input for hover widget.
@@ -785,7 +810,7 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
                 gui.active_id    = hover_widget.id;
 
                 if(text_widget && hover_widget.id != text_widget.id){
-                    end_text_input(gui, text_widget);
+                    end_text_input(gui);
                 }
 
                 switch(hover_widget.type){
@@ -799,17 +824,27 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
                         Rect input_bounds, sub_bounds, add_bounds = void;
                         get_spin_button_bounds(bounds, btn.button_width, &input_bounds, &sub_bounds, &add_bounds);
                         if(is_point_inside_rect(gui.cursor_pos, input_bounds)
-                        && gui.text_input_widget != btn.id){
+                        && gui.text_input_widget != hover_widget.id){
                             auto initial_text = gen_string("{0}", (*btn.data), allocator);
-                            set_text_input_widget(gui, hover_widget, initial_text);
+                            copy(initial_text, gui.text_buffer[0 .. initial_text.length]);
+                            gui.text_input_widget = hover_widget.id;
+                            gui.text_buffer_used = cast(uint)initial_text.length;
+                            enable_text_input_mode(gui.text_buffer, &gui.text_buffer_used, 0);
                         }
                         else if(is_point_inside_rect(gui.cursor_pos, sub_bounds)){
-                            end_text_input(gui, text_widget);
+                            end_text_input(gui);
                             (*btn.data) = min((*btn.data) - 1, btn.data_max);
                         }
                         else if(is_point_inside_rect(gui.cursor_pos, add_bounds)){
-                            end_text_input(gui, text_widget);
+                            end_text_input(gui);
                             (*btn.data) = min((*btn.data) + 1, btn.data_max);
+                        }
+                    } break;
+
+                    case Widget_Type.Text_Field:{
+                        if(gui.text_input_widget != hover_widget.id){
+                            gui.text_input_widget = hover_widget.id;
+                            enable_text_input_mode(gui.text_buffer, &gui.text_buffer_used, 0);
                         }
                     } break;
 
@@ -825,7 +860,7 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
                 }
             }
             else{
-                end_text_input(gui, text_widget);
+                end_text_input(gui);
             }
         }
 
@@ -872,6 +907,19 @@ void draw_cursor_for_text_field(Render_Pass* pass, Font* font, Rect bounds, floa
         2, font.metrics.height
     );
     render_rect(pass, cursor_bounds, Vec4(0, 0, 0, 1));
+}
+
+private void render_text_field(Render_Pass* rp_rects, Render_Pass* rp_text, Font *font, Rect bounds,
+const(char)[] text, bool is_active){
+    render_rect(rp_rects, bounds, Vec4(1, 1, 1, 1));
+    render_rect_outline(rp_rects, bounds, Vec4(0, 0, 0, 1), 1.0f);
+
+    auto text_p = center_text_left(font, text, bounds) + Vec2(Button_Padding, 0);
+    render_text(rp_text, font, text_p, text, Vec4(0, 0, 0, 1));
+
+    if(is_active){
+        draw_cursor_for_text_field(rp_rects, font, bounds, 2, text_p.y);
+    }
 }
 
 void render_gui(Gui_State* gui, Camera* camera_data, Shader* shader_rects, Shader* shader_text, Allocator* allocator){
@@ -937,21 +985,11 @@ void render_gui(Gui_State* gui, Camera* camera_data, Shader* shader_rects, Shade
 
                 case Widget_Type.Text_Field:{
                     auto field = cast(Text_Field*)widget;
-                    auto bg_color = Button_BG_Color;
-                    if(gui.active_id == widget.id){
-                        bg_color *= 0.75f;
-                        bg_color.a = 1;
-                    }
-                    else if(gui.hover_widget == widget.id){
-                        bg_color = Hover_Button_Color;
-                    }
-
                     auto text = field.buffer[0 .. (*field.used)];
-
-                    render_rect(rp_rects, bounds, bg_color);
-                    render_button_bounds(rp_rects, bounds, gui.active_id == widget.id);
-                    auto baseline = center_text_left(font, text, bounds) + Vec2(Button_Padding, 0);
-                    render_text(rp_text, font, baseline, text, Vec4(0, 0, 0, 1));
+                    render_text_field(
+                        rp_rects, rp_text, font, bounds, text,
+                        gui.text_input_widget == field.id
+                    );
                 } break;
 
                 case Widget_Type.Label:{
@@ -965,9 +1003,6 @@ void render_gui(Gui_State* gui, Camera* camera_data, Shader* shader_rects, Shade
                     Rect input_bounds, sub_bounds, add_bounds = void;
                     get_spin_button_bounds(bounds, btn.button_width, &input_bounds, &sub_bounds, &add_bounds);
 
-                    render_rect(rp_rects, input_bounds, Vec4(1, 1, 1, 1));
-                    render_rect_outline(rp_rects, input_bounds, Vec4(0, 0, 0, 1), 1.0f);
-
                     String text_msg;
                     if(gui.text_input_widget == btn.id){
                         text_msg = gui.text_buffer[0 .. gui.text_buffer_used];
@@ -975,8 +1010,11 @@ void render_gui(Gui_State* gui, Camera* camera_data, Shader* shader_rects, Shade
                     else{
                         text_msg = gen_string("{0}", (*btn.data), allocator);
                     }
-                    auto text_p = center_text_left(font, text_msg, input_bounds) + Vec2(Button_Padding, 0);
-                    render_text(rp_text, font, text_p, text_msg, Vec4(0, 0, 0, 1));
+
+                    render_text_field(
+                        rp_rects, rp_text, font, bounds, text_msg,
+                        gui.text_input_widget == btn.id
+                    );
 
                     auto sub_hover = is_point_inside_rect(gui.cursor_pos, sub_bounds);
                     render_text_button(
@@ -991,10 +1029,6 @@ void render_gui(Gui_State* gui, Camera* camera_data, Shader* shader_rects, Shade
                         is_widget_active && add_hover, is_widget_hover && add_hover,
                         add_bounds, "+"
                     );
-
-                    if(gui.text_input_widget == btn.id){
-                        draw_cursor_for_text_field(rp_rects, font, bounds, 2, text_p.y);
-                    }
                 } break;
 
                 case Widget_Type.Checkbox:{
