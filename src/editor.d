@@ -90,9 +90,7 @@ struct Variant{
     uint players;
     uint lives;
 
-    List!Map_Entry      maps;
     List!Mission_Entry  missions;
-    List!Tank_Entry     tank_params;
 }
 
 enum Window_ID_Main            = 1;
@@ -101,7 +99,19 @@ enum Button_Prev_Map           = gui_id();
 enum Button_Next_Map           = gui_id();
 enum Button_New_Map            = gui_id();
 enum Button_Delete_Map         = gui_id();
+enum Button_Begin_Save         = gui_id();
+enum Button_Begin_Load         = gui_id();
+enum Button_Confirm_Load       = gui_id();
+enum Button_Confirm_Save       = gui_id();
+enum Button_Cancel_File_Op     = gui_id();
 
+enum File_Op : uint{
+    None,
+    Save,
+    Load,
+}
+
+__gshared File_Op        g_file_op;
 __gshared bool           g_editor_is_open;
 __gshared Allocator*     g_allocator;
 __gshared Allocator*     g_frame_allocator;
@@ -116,7 +126,10 @@ __gshared bool           g_dragging_selected;
 __gshared Vec2           g_drag_offset;
 __gshared bool           g_overhead_view;
 
-__gshared List!Variant   g_variants;
+__gshared List!Variant    g_variants;
+__gshared List!Map_Entry  g_maps;
+__gshared List!Tank_Entry g_tank_params;
+
 __gshared Map_Entry*     g_current_map;
 __gshared Variant*       g_current_variant;
 __gshared uint           g_editor_tab;
@@ -124,10 +137,12 @@ __gshared uint           g_editor_tab;
 __gshared void[]         g_window_memory;
 __gshared void[]         g_panel_memory;
 
-void save_campaign_file(App_State* s, String file_name){
+void editor_save_campaign_file(App_State* s, String file_name){
     auto scratch = s.frame_memory.scratch;
     push_frame(scratch);
     scope(exit) pop_frame(scratch);
+
+    auto full_path = concat(trim_path(s.campaigns_path), to_string(Dir_Char), file_name, scratch);
 
     auto header = zero_type!Asset_Header;
     header.magic        = Campaign_Meta.magic;
@@ -136,17 +151,33 @@ void save_campaign_file(App_State* s, String file_name){
 
     Campaign campaign;
     // TODO: Get info strings from editor state
-    campaign.name   = "WII Play Tanks";
+    campaign.name   = "Test Campaign";
     campaign.author = "tspike";
-    //info.next_map_id = 0;
+
+    campaign.maps = alloc_array!Campaign_Map(scratch, g_maps.count);
+    uint map_index = 0;
+    foreach(map; g_maps.iterate()){
+        auto dest = &campaign.maps[map_index++];
+        auto w = map.width;
+        auto h = map.height;
+
+        dest.width  = w;
+        dest.height = h;
+        dest.cells = alloc_array!Map_Cell(scratch, w*h);
+
+        foreach(y; 0 .. h){
+            foreach(x; 0 .. w){
+                auto tile = &map.cells[x + y * Map_Width_Max];
+                dest.cells[x + y * w] = encode_map_cell(tile.is_tank, tile.is_special, cast(ubyte)tile.index);
+            }
+        }
+    }
+
+
+
     // TODO: Put date
     //info.missions_count = cast(uint)g_missions.count;
     //info.maps_count     = cast(uint)g_maps.count;
-
-    auto dest_buffer = begin_reserve_all(scratch);
-    auto serializer = Serializer(dest_buffer);
-    write(&serializer, header);
-    write(&serializer, campaign);
 
     /+
     auto section = begin_writing_section(&serializer, Campaign_Section_Type.Maps);
@@ -165,35 +196,55 @@ void save_campaign_file(App_State* s, String file_name){
         end_writing_section(&serializer, section);
     }+/
 
+    auto dest_buffer = begin_reserve_all(scratch);
+    auto serializer = Serializer(dest_buffer);
+    write(&serializer, header);
+    write(&serializer, campaign);
+
     end_reserve_all(scratch, serializer.buffer, serializer.buffer_used);
-    write_file_from_memory(file_name, serializer.buffer[0 .. serializer.buffer_used]);
+    write_file_from_memory(full_path, serializer.buffer[0 .. serializer.buffer_used]);
 }
 
-bool editor_load_campaign(App_State* s, String name){
-    push_frame(g_frame_allocator);
-    scope(exit) pop_frame(g_frame_allocator);
-    bool success = false;
+bool editor_load_campaign(App_State* s, String file_name, uint file_flags = 0){
+    auto scratch = g_frame_allocator;
+    push_frame(scratch);
+    scope(exit) pop_frame(scratch);
 
     Campaign campaign;
-    if(load_campaign_from_file(s, name)){
-        success = true;
-        prepare_campaign();
+    auto full_path = concat(trim_path(s.campaigns_path), to_string(Dir_Char), file_name, g_frame_allocator);
+    auto memory = read_file_into_memory(full_path, scratch, file_flags);
+    bool success = false;
+    if(memory.length){
+        if(load_campaign_from_memory(&campaign, memory, full_path, scratch)){
+            success = true;
+            prepare_campaign();
 
-        foreach(ref source_variant; campaign.variants){
-            auto variant = editor_add_variant();
-        }
+            if(campaign.variants.length){
+                foreach(ref source_variant; campaign.variants){
+                    auto variant = editor_add_variant();
+                }
+            }
+            else{
+                auto variant = editor_add_variant();
+            }
 
-        foreach(ref source_map; campaign.maps){
-            auto entry   = editor_add_map(22, 17);
-            // TODO: Set map width/height
-            // TODO: Populate map cells.
-            //entry.map = source_map;
-            //entry.map.cells = dup_array(source_map.cells, g_allocator);
+            if(campaign.maps.length){
+                foreach(ref source_map; campaign.maps){
+                    auto entry   = editor_add_map(source_map.width, source_map.height);
+                    // TODO: Set map width/height
+                    // TODO: Populate map cells.
+                    //entry.map = source_map;
+                    //entry.map.cells = dup_array(source_map.cells, g_allocator);
+                }
+            }
+            else{
+                editor_add_map(24, 17);
+            }
         }
-    }
-    else{
-        // TODO: Have a GUI-facing error log for the editor?
-        log_error("Unable to edit campaign file {0}. Failed to load file.\n", name);
+        else{
+            // TODO: Have a GUI-facing error log for the editor?
+            log_error("Unable to edit campaign file {0}.\n", file_name);
+        }
     }
 
     return success;
@@ -232,10 +283,9 @@ void set_cell(Map_Entry* map, Vec2 pos, bool is_tank, bool is_special, uint inde
 }
 
 uint get_map_index(Map_Entry* map){
-    auto variant = g_current_variant;
     uint index = 0;
     bool found_entry = false;
-    foreach(entry; variant.maps.iterate()){
+    foreach(entry; g_maps.iterate()){
         if(entry == map){
             found_entry = true;
             break;
@@ -248,8 +298,7 @@ uint get_map_index(Map_Entry* map){
 }
 
 void editor_remove_current_map(){
-    auto variant = g_current_variant;
-    auto maps = &variant.maps;
+    auto maps = &g_maps;
     if(maps.count > 1){
         auto to_remove = g_current_map;
         auto next = g_current_map.next;
@@ -295,9 +344,26 @@ public bool editor_simulate(App_State* s, float dt){
     float panel_h = 32.0f;
     auto panel_bounds = rect_from_min_wh(Vec2(0, display_h - panel_h), display_w, panel_h);
     begin_window(gui, Window_ID_Panel, "Panel", panel_bounds, g_panel_memory, Window_Flag_Borderless);
+    gui.edit_window.bounds = panel_bounds; // TODO: We should probably have a better way to anchor window positions.
     text_field(gui, gui_id(), g_dest_file_name, &g_dest_file_name_used);
-    button(gui, gui_id(), "Save");
-    button(gui, gui_id(), "Load");
+    switch(g_file_op){
+        default: break;
+
+        case File_Op.None:{
+            button(gui, Button_Begin_Save, "Save");
+            button(gui, Button_Begin_Load, "Load");
+        } break;
+
+        case File_Op.Save:{
+            button(gui, Button_Confirm_Save, "Confirm");
+            button(gui, Button_Cancel_File_Op, "Cancel");
+        } break;
+
+        case File_Op.Load:{
+            button(gui, Button_Confirm_Load, "Confirm");
+            button(gui, Button_Cancel_File_Op, "Cancel");
+        } break;
+    }
 
     label(gui, gui_id(), gen_string("Mode: {0}", enum_string(g_cursor_mode), &s.frame_memory));
     label(gui, gui_id(), gen_string("Place: {0}", enum_string(g_place_type), &s.frame_memory));
@@ -331,13 +397,13 @@ public bool editor_simulate(App_State* s, float dt){
         default: break;
 
         case Editor_Tab.Map:{
-            button(gui, Button_Prev_Map, "<");
+            button(gui, Button_Prev_Map, "<", 0);
             auto map_index = get_map_index(map);
             auto map_msg = gen_string("Map index: {0}", map_index, &s.frame_memory);
             label(gui, gui_id(), map_msg);
-            button(gui, Button_Next_Map, ">");
-            button(gui, Button_Delete_Map, "-");
-            button(gui, Button_New_Map, "+");
+            button(gui, Button_Next_Map, ">", 0);
+            button(gui, Button_Delete_Map, "-", 0);
+            button(gui, Button_New_Map, "+", 0);
             next_row(gui);
             label(gui, gui_id(), "Map width:");
             spin_button(gui, gui_id(), &map.width, Map_Width_Max);
@@ -520,7 +586,7 @@ public bool editor_simulate(App_State* s, float dt){
             case Button_Next_Map:{
                 auto next_map = g_current_map.next;
                 auto variant  = g_current_variant;
-                if(variant.maps.is_sentinel(next_map)){
+                if(g_maps.is_sentinel(next_map)){
                     next_map = next_map.next;
                 }
                 g_current_map = next_map;
@@ -529,10 +595,32 @@ public bool editor_simulate(App_State* s, float dt){
             case Button_Prev_Map:{
                 auto next_map = g_current_map.prev;
                 auto variant  = g_current_variant;
-                if(variant.maps.is_sentinel(next_map)){
+                if(g_maps.is_sentinel(next_map)){
                     next_map = next_map.prev;
                 }
                 g_current_map = next_map;
+            } break;
+
+            case Button_Begin_Save:{
+                g_file_op = File_Op.Save;
+            } break;
+
+            case Button_Begin_Load:{
+                g_file_op = File_Op.Load;
+            } break;
+
+            case Button_Confirm_Save:{
+                editor_save_campaign_file(s, g_dest_file_name[0 .. g_dest_file_name_used]);
+                g_file_op = File_Op.None;
+            } break;
+
+            case Button_Confirm_Load:{
+                editor_load_campaign(s, g_dest_file_name[0 .. g_dest_file_name_used]);
+                g_file_op = File_Op.None;
+            } break;
+
+            case Button_Cancel_File_Op:{
+                g_file_op = File_Op.None;
             } break;
         }
     }
@@ -823,9 +911,7 @@ Variant* editor_add_variant(){
     variant.players = 1;
     variant.lives   = 4; // TODO: Is this the default of the WII original?
 
-    variant.maps.make();
     variant.missions.make();
-    variant.tank_params.make();
 
     return variant;
 }
@@ -840,7 +926,7 @@ Map_Entry* editor_add_map(uint width, uint height){
     map.width  = width;
     map.height = height;
 
-    variant.maps.insert(variant.maps.top, map);
+    g_maps.insert(g_maps.top, map);
     g_current_map = map;
     return map;
 }
@@ -848,6 +934,8 @@ Map_Entry* editor_add_map(uint width, uint height){
 void prepare_campaign(){
     reset(g_allocator); // IMPORTANT: This frees all the memory used by the editor.
     g_variants.make();
+    g_maps.make();
+    g_tank_params.make();
 }
 
 void editor_new_campaign(){
@@ -896,10 +984,14 @@ public void editor_toggle(App_State* s){
         g_mouse_left_is_down  = false;
         g_mouse_right_is_down = false;
 
-        //if(!editor_load_campaign(s, "./build/main.camp")){
+        string target_file_name = "sample.camp"; // TODO: This should be loaded from an editor session file.
+        auto dest_name = copy_string_to_buffer(target_file_name, g_dest_file_name);
+        g_dest_file_name_used = cast(uint)dest_name.length;
+
+        if(!editor_load_campaign(s, target_file_name, File_Flag_No_Open_Errors)){
             editor_new_campaign();
             //editor_load_maps_file("./build/wii_16x9.maps");
-        //}
+        }
 
         auto map = g_current_map;
         auto map_center = 0.5f*Vec2(map.width, map.height);

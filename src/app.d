@@ -642,6 +642,21 @@ void save_preferences_and_scores(App_State* s){
     write_file_from_memory(file_name, dest[0 .. writer.buffer_used]);
 }
 
+bool load_campaign_from_memory(Campaign* campaign, void[] memory, String full_path, Allocator* allocator){
+    auto reader = Serializer(memory, allocator);
+    auto header = eat_type!Asset_Header(&reader);
+    bool success = false;
+    if(verify_asset_header!Campaign_Meta(full_path, header)){
+        read(&reader, *campaign);
+        //success = !reader.errors && campaign.variants.length > 0;
+        success = !reader.errors;
+        if(!success){
+            log_error("Failed to deserialize campaign from file {0}\n", full_path);
+        }
+    }
+    return success;
+}
+
 bool load_campaign_from_file(App_State* s, String file_name){
     auto allocator = &s.campaign_memory;
     auto campaign = &s.campaign;
@@ -664,11 +679,8 @@ bool load_campaign_from_file(App_State* s, String file_name){
 
         s.campaign_file_name = dup_array(file_name, &s.campaign_memory);
 
-        auto reader = Serializer(memory, allocator);
-        auto header = eat_type!Asset_Header(&reader);
-        if(verify_asset_header!Campaign_Meta(file_name, header)){
-            read(&reader, *campaign);
-            success = !reader.errors && campaign.variants.length > 0;
+        if(load_campaign_from_memory(&s.campaign, memory, full_path, allocator)){
+            success = true;
 
             // Setup enemy tank colors based on tank params
             auto tank_types = campaign.tank_types;

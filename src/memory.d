@@ -69,6 +69,16 @@ void copy(T)(const(T[]) src, T[] dest){
     }
 }
 
+char[] copy_string_to_buffer(const(char)[] src, char[] dest){
+    import math : min;
+    // TODO: Truncate if needed.
+    copy(src, dest[0 .. src.length]);
+    auto null_index = min(src.length, dest.length-1);
+    dest[null_index] = '\0';
+    auto result = dest[0 .. null_index];
+    return result;
+}
+
 /+
 char[] concat(String a, String b, Allocator* allocator){
     auto result = alloc_array!(char)(allocator, a.length+b.length+1);

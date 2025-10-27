@@ -397,7 +397,7 @@ int XUngrabPointer(Display*, Time);
 Bool XQueryPointer(Display*, Window, Window*, Window*, int*, int*, int*, int*, uint*);
 int XWarpPointer(Display*, Window, Window, int, int, uint, uint, int, int);
 int XGetWindowProperty(Display*, Window, Atom, c_long, c_long, Bool, Atom, Atom*, int*, c_ulong*, c_ulong*, ubyte**);
-//Status XGetWindowAttributes(Display*, Window, XWindowAttributes*);
+Status XGetWindowAttributes(Display*, Window, XWindowAttributes*);
 int XChangeWindowAttributes(Display*, Window, c_ulong, XSetWindowAttributes*);
 int XMoveWindow(Display*, Window, int, int);
 int XResizeWindow(Display*, Window, uint, uint);
@@ -414,6 +414,7 @@ int XMapWindow(Display*, Window);
 int XGetErrorText(Display* display, int code, char* buffer, int length);
 int XSetInputFocus(Display* display, Window focus, int revert_to, Time time);
 int XGetInputFocus(Display* display, Window* focus, int* revert_to);
+Status XGetGeometry(Display* display, Drawable d, Window* root_return, int* x_return, int* y_return, uint* width_return, uint* height_return, uint* border_width_return, uint* depth_return);
 
 int XLookupString(XKeyEvent* event_struct, char* buffer_return, int	bytes_buffer, KeySym* keysym_return, XComposeStatus* status_in_out);
 char* XSetLocaleModifiers(const(char)* modifier_list);
@@ -602,6 +603,30 @@ struct XSetWindowAttributes
     Bool override_redirect;	/* boolean value for override-redirect */
     Colormap colormap;		/* color map to be associated with window */
     Cursor cursor;		/* cursor to be displayed (or None) */
+}
+
+struct XWindowAttributes{
+    int x, y;			/* location of window */
+    int width, height;		/* width and height of window */
+    int border_width;		/* border width of window */
+    int depth;          	/* depth of window */
+    Visual *visual;		/* the associated visual structure */
+    Window root;        	/* root of screen containing window */
+    int c_class;		/* C++ InputOutput, InputOnly*/
+    int bit_gravity;		/* one of bit gravity values */
+    int win_gravity;		/* one of the window gravity values */
+    int backing_store;		/* NotUseful, WhenMapped, Always */
+    c_ulong backing_planes;/* planes to be preserved if possible */
+    c_ulong backing_pixel;/* value to be used when restoring planes */
+    Bool save_under;		/* boolean, should bits under be saved? */
+    Colormap colormap;		/* color map to be associated with window */
+    Bool map_installed;		/* boolean, is color map currently installed*/
+    int map_state;		/* IsUnmapped, IsUnviewable, IsViewable */
+    long all_event_masks;	/* set of events all people have interest in*/
+    long your_event_mask;	/* my event mask */
+    long do_not_propagate_mask; /* set of events that should not propagate */
+    uint override_redirect;	/* boolean value for override-redirect */
+    Screen *screen;		/* back pointer to correct screen */
 }
 
 struct XVisualInfo

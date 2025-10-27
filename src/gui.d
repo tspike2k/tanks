@@ -13,6 +13,17 @@ See accompanying file LICENSE_BOOST.txt or copy at http://www.boost.org/LICENSE_
     would be pushed.
 +/
 
+/+
+TODO:
+    I wonder about making window management more in the retained-mode style. Then when it comes
+    time to update, we could loop over all the windows and set their widgets based on the window
+    ID. The reaosn for this is to make it easier to allocate and deallocate the memory for a given
+    window. As it stands now, it's a bit combersome. By that, I mean we have to hold onto a pointer
+    for the window memory in order to pass it to begin_window(). That's a wierd issue to have, since
+    the window is stored at the start of the memory buffer anyway.
+
++/
+
 import app;
 import render;
 import math;
@@ -328,14 +339,17 @@ void[] add_widget(Gui_State* gui, Gui_ID id, float w, float h, Widget_Type type,
     return result;
 }
 
-void button(Gui_State* gui, Gui_ID id, String label, bool disabled = false){
+void button(Gui_State* gui, Gui_ID id, String label, float width = 100.0f){
     auto font = gui.font;
-    float w = get_text_width(font, label) + Button_Padding*2.0f;
+
+    if(width == 0.0f){
+        width = get_text_width(font, label) + Button_Padding*2.0f;
+    }
     float h = font.metrics.height + Button_Padding*2.0f;
 
-    auto btn = cast(Button*)add_widget(gui, id, w, h, Widget_Type.Button, Button.sizeof);
+    auto btn = cast(Button*)add_widget(gui, id, width, h, Widget_Type.Button, Button.sizeof);
     btn.label    = label;
-    btn.disabled = disabled;
+    btn.disabled = false;
 }
 
 void text_field(Gui_State* gui, Gui_ID id, char[] buffer, uint* buffer_used){
@@ -869,7 +883,7 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
             if(active_widget.type != Widget_Type.Text_Field){
                 gui.active_id = Null_Gui_ID;
                 if(hover_widget == active_widget){
-                    gui.message_id = active_widget.id;
+                    gui.message_id = (active_widget.id & 0xffff); // Strip off the window id;
                 }
             }
         }
