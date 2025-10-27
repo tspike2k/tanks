@@ -37,8 +37,8 @@ alias Gui_ID = uint;
 enum Button_Padding      = 4;
 enum Window_Border_Size  = 4;
 enum Default_Margin      = 4;
-enum Window_Min_Width    = 200;
-enum Window_Min_Height   = 24;
+enum Window_Min_Width    = 400;
+enum Window_Min_Height   = 120;
 enum Window_Resize_Slack = 4; // Additional space for grabbing window border for resize operation
 
 enum Button_BG_Color = Vec4(0.75f, 0.75f, 0.75f, 1);
@@ -132,8 +132,12 @@ void begin_window(Gui_State* gui, Gui_ID id, String window_name, Rect bounds, vo
     }
 
     if(!window){
-        auto width  = max(width(bounds), Window_Min_Width);
-        auto height = max(height(bounds), Window_Min_Height);
+        auto width  = width(bounds);
+        auto height = height(bounds);
+        if(!(flags & Window_Flag_Borderless)){
+            width  = max(width, Window_Min_Width);
+            height = max(height, Window_Min_Height);
+        }
         auto bbox   = rect_from_min_wh(Vec2(left(bounds), top(bounds) - height), width, height);
 
         window = cast(Window*)buffer;

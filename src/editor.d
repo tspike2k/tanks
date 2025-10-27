@@ -44,6 +44,7 @@ enum Editor_Tab : uint{
     Missions,
     Tanks,
     View,
+    Info,
 }
 
 enum Cursor_Mode : uint{
@@ -93,6 +94,11 @@ struct Variant{
     List!Mission_Entry  missions;
 }
 
+struct Text_Entry(uint Count){
+    char[Count] buffer;
+    uint        used;
+}
+
 enum Window_ID_Main            = 1;
 enum Window_ID_Panel           = 2;
 enum Button_Prev_Map           = gui_id();
@@ -134,8 +140,24 @@ __gshared Map_Entry*     g_current_map;
 __gshared Variant*       g_current_variant;
 __gshared uint           g_editor_tab;
 
+__gshared Text_Entry!(64)  g_campaign_name;
+__gshared Text_Entry!(64)  g_campaign_author;
+__gshared Text_Entry!(512) g_campaign_desc;
+__gshared Text_Entry!(32)  g_campaign_version_string;
+
 __gshared void[]         g_window_memory;
 __gshared void[]         g_panel_memory;
+
+char[] slice_text_entry(T)(T* t){
+    auto result = t.buffer[0 .. t.used];
+    return result;
+}
+
+void set_text_entry(T)(T *t, const(char)[] s){
+    uint to_copy = cast(uint)min(t.buffer.length, s.length);
+    copy(s[0 .. to_copy], t.buffer[0 .. to_copy]);
+    t.used = to_copy;
+}
 
 void editor_save_campaign_file(App_State* s, String file_name){
     auto scratch = s.frame_memory.scratch;
@@ -150,9 +172,11 @@ void editor_save_campaign_file(App_State* s, String file_name){
     header.asset_type   = Campaign_Meta.type;
 
     Campaign campaign;
-    // TODO: Get info strings from editor state
-    campaign.name   = "Test Campaign";
-    campaign.author = "tspike";
+    campaign.name           = slice_text_entry(&g_campaign_name);
+    campaign.author         = slice_text_entry(&g_campaign_author);
+    campaign.description    = slice_text_entry(&g_campaign_desc);
+    campaign.version_string = slice_text_entry(&g_campaign_version_string);
+    // TODO: Save date!
 
     campaign.maps = alloc_array!Campaign_Map(scratch, g_maps.count);
     uint map_index = 0;
@@ -217,6 +241,13 @@ bool editor_load_campaign(App_State* s, String file_name, uint file_flags = 0){
     if(memory.length){
         if(load_campaign_from_memory(&campaign, memory, full_path, scratch)){
             success = true;
+
+            set_text_entry(&g_campaign_name, campaign.name);
+            set_text_entry(&g_campaign_author, campaign.author);
+            set_text_entry(&g_campaign_desc, campaign.description);
+            set_text_entry(&g_campaign_version_string, campaign.version_string);
+            //set_text_entry(&g_campaign_date, campaign.date);
+
             prepare_campaign();
 
             if(campaign.variants.length){
@@ -392,6 +423,7 @@ public bool editor_simulate(App_State* s, float dt){
     tab(gui, gui_id(), "Map", &g_editor_tab, Editor_Tab.Map);
     tab(gui, gui_id(), "Mission", &g_editor_tab, Editor_Tab.Missions);
     tab(gui, gui_id(), "Tanks", &g_editor_tab, Editor_Tab.Tanks);
+    tab(gui, gui_id(), "Info", &g_editor_tab, Editor_Tab.Info);
     next_row(gui);
     switch(g_editor_tab){
         default: break;
@@ -439,6 +471,26 @@ public bool editor_simulate(App_State* s, float dt){
 
         case Editor_Tab.Missions:{
             label(gui, gui_id(), "TODO: Add things!");
+        } break;
+
+        case Editor_Tab.Info:{
+            label(gui, gui_id(), "-Campaign Info-");
+            next_row(gui);
+            label(gui, gui_id(), "Name:");
+            text_field(gui, gui_id(), g_campaign_name.buffer[], &g_campaign_name.used);
+            next_row(gui);
+
+            label(gui, gui_id(), "Author:");
+            text_field(gui, gui_id(), g_campaign_author.buffer[], &g_campaign_author.used);
+            next_row(gui);
+
+            label(gui, gui_id(), "Description:");
+            text_field(gui, gui_id(), g_campaign_desc.buffer[], &g_campaign_desc.used);
+            next_row(gui);
+
+            label(gui, gui_id(), "Version:");
+            text_field(gui, gui_id(), g_campaign_version_string.buffer[], &g_campaign_version_string.used);
+            next_row(gui);
         } break;
     }
     end_window(gui);
