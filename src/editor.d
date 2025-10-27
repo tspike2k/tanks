@@ -159,11 +159,12 @@ void set_text_entry(T)(T *t, const(char)[] s){
     t.used = to_copy;
 }
 
-void editor_save_campaign_file(App_State* s, String file_name){
+void editor_save_campaign_file(App_State* s){
     auto scratch = s.frame_memory.scratch;
     push_frame(scratch);
     scope(exit) pop_frame(scratch);
 
+    auto file_name = g_dest_file_name[0 .. g_dest_file_name_used];
     auto full_path = concat(trim_path(s.campaigns_path), to_string(Dir_Char), file_name, scratch);
 
     auto header = zero_type!Asset_Header;
@@ -192,7 +193,9 @@ void editor_save_campaign_file(App_State* s, String file_name){
         foreach(y; 0 .. h){
             foreach(x; 0 .. w){
                 auto tile = &map.cells[x + y * Map_Width_Max];
-                dest.cells[x + y * w] = encode_map_cell(tile.is_tank, tile.is_special, cast(ubyte)tile.index);
+                if(tile.occupied){
+                    dest.cells[x + y * w] = encode_map_cell(tile.is_tank, tile.is_special, cast(ubyte)tile.index);
+                }
             }
         }
     }
@@ -229,10 +232,12 @@ void editor_save_campaign_file(App_State* s, String file_name){
     write_file_from_memory(full_path, serializer.buffer[0 .. serializer.buffer_used]);
 }
 
-bool editor_load_campaign(App_State* s, String file_name, uint file_flags = 0){
+bool editor_load_campaign(App_State* s, uint file_flags = 0){
     auto scratch = g_frame_allocator;
     push_frame(scratch);
     scope(exit) pop_frame(scratch);
+
+    auto file_name = g_dest_file_name[0 .. g_dest_file_name_used];
 
     Campaign campaign;
     auto full_path = concat(trim_path(s.campaigns_path), to_string(Dir_Char), file_name, g_frame_allocator);
@@ -260,12 +265,21 @@ bool editor_load_campaign(App_State* s, String file_name, uint file_flags = 0){
             }
 
             if(campaign.maps.length){
-                foreach(ref source_map; campaign.maps){
-                    auto entry   = editor_add_map(source_map.width, source_map.height);
-                    // TODO: Set map width/height
-                    // TODO: Populate map cells.
-                    //entry.map = source_map;
-                    //entry.map.cells = dup_array(source_map.cells, g_allocator);
+                foreach(ref source; campaign.maps){
+                    auto w = source.width;
+                    auto h = source.height;
+                    auto dest = editor_add_map(w, h);
+
+                    foreach(y; 0 .. h){
+                        foreach(x; 0 .. w){
+                            auto cell_value = source.cells[x + y * w];
+                            auto tile = &dest.cells[x + y * Map_Width_Max];
+                            tile.occupied   = cell_value != 0;
+                            tile.is_tank    = cast(bool)(cell_value & Map_Cell_Is_Tank);
+                            tile.is_special = cast(bool)(cell_value & Map_Cell_Is_Special);
+                            tile.index      = cell_value & Map_Cell_Index_Mask;
+                        }
+                    }
                 }
             }
             else{
@@ -596,7 +610,7 @@ public bool editor_simulate(App_State* s, float dt){
                             case Key_ID_S:{
                                 if(!key.is_repeat){
                                     if(key.modifier & Key_Modifier_Ctrl){
-                                        //save_campaign_file(s, "./build/main.camp");
+                                        editor_save_campaign_file(s);
                                     }
                                     else{
                                         g_cursor_mode = Cursor_Mode.Select;
@@ -606,7 +620,7 @@ public bool editor_simulate(App_State* s, float dt){
 
                             case Key_ID_L:{
                                 if(!key.is_repeat && key.modifier & Key_Modifier_Ctrl){
-                                    editor_load_campaign(s, Campaign_File_Name);
+                                    editor_load_campaign(s);
                                 }
                             } break;
 
@@ -662,12 +676,12 @@ public bool editor_simulate(App_State* s, float dt){
             } break;
 
             case Button_Confirm_Save:{
-                editor_save_campaign_file(s, g_dest_file_name[0 .. g_dest_file_name_used]);
+                editor_save_campaign_file(s);
                 g_file_op = File_Op.None;
             } break;
 
             case Button_Confirm_Load:{
-                editor_load_campaign(s, g_dest_file_name[0 .. g_dest_file_name_used]);
+                editor_load_campaign(s);
                 g_file_op = File_Op.None;
             } break;
 
@@ -1040,7 +1054,7 @@ public void editor_toggle(App_State* s){
         auto dest_name = copy_string_to_buffer(target_file_name, g_dest_file_name);
         g_dest_file_name_used = cast(uint)dest_name.length;
 
-        if(!editor_load_campaign(s, target_file_name, File_Flag_No_Open_Errors)){
+        if(!editor_load_campaign(s, File_Flag_No_Open_Errors)){
             editor_new_campaign();
             //editor_load_maps_file("./build/wii_16x9.maps");
         }
