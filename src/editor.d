@@ -110,6 +110,8 @@ enum Button_Begin_Load         = gui_id();
 enum Button_Confirm_Load       = gui_id();
 enum Button_Confirm_Save       = gui_id();
 enum Button_Cancel_File_Op     = gui_id();
+enum Button_Prev_Tank_Type     = gui_id();
+enum Button_Next_Tank_Type     = gui_id();
 
 enum File_Op : uint{
     None,
@@ -394,6 +396,8 @@ void set_tank_type_to_default(Tank_Type* type){
     type.aim_max_angle = 2.967057;
 }
 
+__gshared uint[4] spin_test;
+
 public bool editor_simulate(App_State* s, float dt){
     assert(g_editor_is_open);
 
@@ -528,8 +532,10 @@ public bool editor_simulate(App_State* s, float dt){
         case Editor_Tab.Tanks:{
             auto type = &g_tank_types[g_current_tank_type];
 
-            label(gui, gui_id(), "Type index:");
-            spin_button(gui, gui_id(), &g_current_tank_type, g_tank_types_count);
+            auto index_label = gen_string("Type index: {0}", g_current_tank_type, &s.frame_memory);
+            button(gui, Button_Prev_Tank_Type, "<", 0);
+            label(gui, gui_id(), index_label);
+            button(gui, Button_Next_Tank_Type, ">", 0);
             next_row(gui);
 
             auto section_header = "-Tank Params (Enemy)-";
@@ -540,13 +546,13 @@ public bool editor_simulate(App_State* s, float dt){
             label(gui, gui_id(), section_header);
             next_row(gui);
 
-            static foreach(i, member; Tank_Type.tupleof){
-                label(gui, gui_id(), __traits(identifier, member));
+            static foreach(i, member; type.tupleof){
+                label(gui, gui_id(), __traits(identifier, member) ~ ":");
                 static if(is(typeof(member) == uint)){
-                    spin_button(gui, gui_id(), &(*type).tupleof[i]);
+                    spin_button(gui, gui_id(i), &type.tupleof[i]);
                 }
                 else static if(is(typeof(member) == bool)){
-                    checkbox(gui, gui_id(), &(*type).tupleof[i]);
+                    checkbox(gui, gui_id(i), &type.tupleof[i]);
                 }
                 next_row(gui);
             }
@@ -730,6 +736,18 @@ public bool editor_simulate(App_State* s, float dt){
                     next_map = next_map.prev;
                 }
                 g_current_map = next_map;
+            } break;
+
+            case Button_Next_Tank_Type:{
+                g_current_tank_type++;
+                if(g_current_tank_type == g_tank_types_count)
+                    g_current_tank_type = 0;
+            } break;
+
+            case Button_Prev_Tank_Type:{
+                if(g_current_tank_type == 0)
+                    g_current_tank_type = g_tank_types_count;
+                g_current_tank_type--;
             } break;
 
             case Button_Begin_Save:{
@@ -1132,7 +1150,7 @@ public void editor_toggle(App_State* s){
 
         g_overhead_view = true;
 
-        g_window_memory = malloc(2048)[0 .. 2048];
+        g_window_memory = malloc(4096)[0 .. 4096];
         g_panel_memory  = malloc(2048)[0 .. 2048];
 
         /+

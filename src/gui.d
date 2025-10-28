@@ -108,11 +108,16 @@ struct Window{
     bool       dirty; // Tells if we need to run the element layout algorithms
 }
 
+enum Window_ID_Mask = 0xff000000;
+enum User_ID_Mask   = 0x00ff0000;
+enum Widget_ID_Mask = 0x0000ffff;
+
 // NOTE: This function generates an ID for a widget. Once the widget is created, the upper bits
 // of the widget will contain the window ID.
-pragma(inline) Gui_ID gui_id(uint widget_id = __LINE__){
-    assert(widget_id <= 0xffff);
-    Gui_ID result = widget_id;
+pragma(inline) Gui_ID gui_id(uint user_id = 0, uint widget_id = __LINE__){
+    assert(widget_id <= Widget_ID_Mask);
+    assert(user_id   <= 255);
+    Gui_ID result = (widget_id & Widget_ID_Mask) | ((user_id << 16) & User_ID_Mask);
     assert(result != Null_Gui_ID);
     return result;
 }
@@ -328,7 +333,7 @@ struct Label{
 void[] add_widget(Gui_State* gui, Gui_ID id, float w, float h, Widget_Type type, uint size){
     auto window = gui.edit_window;
 
-    id |= (cast(uint)(window.id & 0xffff) << 16);
+    id |= (cast(uint)(window.id << 24) & Window_ID_Mask);
 
     auto cmd = cast(Window_Cmd*)push_to_command_buffer(window, Window_Cmd.sizeof);
     cmd.type = Window_Cmd_Type.Widget;
@@ -376,7 +381,7 @@ struct Spin_Button{
     uint  data_max;
 }
 
-enum Spin_Button_Text_Entry_Width = 96.0f;
+enum Spin_Button_Text_Entry_Width = 116.0f;
 
 void spin_button(Gui_State* gui, Gui_ID id, uint* data, uint data_max = uint.max){
     auto font = gui.font;
@@ -531,8 +536,8 @@ Widget* get_widget_by_id(Window* window, uint widget_id){
 }
 
 void decompose_gui_id(Gui_ID id, Gui_ID* window_id, Gui_ID* widget_id){
-    *widget_id = id & 0xffff;
-    *window_id = (id >> 16) & 0xffff;
+    *widget_id = id & Widget_ID_Mask;
+    *window_id = (id & Window_ID_Mask) >> 24;
 }
 
 // TODO: This is being called everywhere just in case. We should really have a better plan
@@ -553,7 +558,7 @@ void end_text_input(Gui_State* gui){
                         uint next_value;
                         auto text = gui.text_buffer[0 .. gui.text_buffer_used];
                         if(to_int(&next_value, text)){
-                            (*btn.data) = min(next_value, btn.data_max-1);
+                            (*btn.data) = min(next_value, btn.data_max);
                         }
                     } break;
                 }
@@ -851,11 +856,11 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
                         }
                         else if(is_point_inside_rect(gui.cursor_pos, sub_bounds)){
                             end_text_input(gui);
-                            (*btn.data) = min((*btn.data) - 1, btn.data_max-1);
+                            (*btn.data) = min((*btn.data) - 1, btn.data_max);
                         }
                         else if(is_point_inside_rect(gui.cursor_pos, add_bounds)){
                             end_text_input(gui);
-                            (*btn.data) = min((*btn.data) + 1, btn.data_max-1);
+                            (*btn.data) = min((*btn.data) + 1, btn.data_max);
                         }
                     } break;
 
@@ -887,7 +892,7 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
             if(active_widget.type != Widget_Type.Text_Field){
                 gui.active_id = Null_Gui_ID;
                 if(hover_widget == active_widget){
-                    gui.message_id = (active_widget.id & 0xffff); // Strip off the window id;
+                    gui.message_id = (active_widget.id & (~Window_ID_Mask)); // Strip off the window id;
                 }
             }
         }
@@ -1048,7 +1053,7 @@ void render_gui(Gui_State* gui, Camera* camera_data, Shader* shader_rects, Shade
                         }
 
                         render_text_field(
-                            gui, rp_rects, rp_text, font, bounds, text_msg,
+                            gui, rp_rects, rp_text, font, input_bounds, text_msg,
                             gui.text_input_widget == btn.id, work_area
                         );
 
