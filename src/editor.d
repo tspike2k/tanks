@@ -134,11 +134,13 @@ __gshared bool           g_overhead_view;
 
 __gshared List!Variant    g_variants;
 __gshared List!Map_Entry  g_maps;
-__gshared List!Tank_Entry g_tank_params;
+__gshared Tank_Type[Max_Enemies+1] g_tank_types;
+__gshared uint                     g_tank_types_count;
 
-__gshared Map_Entry*     g_current_map;
-__gshared Variant*       g_current_variant;
-__gshared uint           g_editor_tab;
+__gshared Map_Entry* g_current_map;
+__gshared Variant*   g_current_variant;
+__gshared uint       g_editor_tab;
+__gshared uint       g_current_tank_type;
 
 __gshared Text_Entry!(64)  g_campaign_name;
 __gshared Text_Entry!(64)  g_campaign_author;
@@ -285,6 +287,17 @@ bool editor_load_campaign(App_State* s, uint file_flags = 0){
             else{
                 editor_add_map(24, 17);
             }
+
+            if(campaign.tank_types.length){
+                auto count = min(g_tank_types.length, campaign.tank_types.length);
+                copy(campaign.tank_types[0 .. count], g_tank_types[0 .. count]);
+                g_tank_types_count = cast(uint)count;
+            }
+            else{
+                g_tank_types_count = 2;
+                set_tank_type_to_default(&g_tank_types[0]);
+                set_tank_type_to_default(&g_tank_types[1]);
+            }
         }
         else{
             // TODO: Have a GUI-facing error log for the editor?
@@ -354,6 +367,31 @@ void editor_remove_current_map(){
         maps.remove(to_remove);
         g_current_map = next;
     }
+}
+
+void set_tank_type_to_default(Tank_Type* type){
+    type.main_color = Vec3(0.600000, 0.500000, 0.300000);
+    type.alt_color = Vec3(0.450000, 0.220000, 0.130000);
+    type.invisible = false;
+    type.speed = 0.000000;
+    type.bullet_limit = 1;
+    type.bullet_ricochets = 1;
+    type.bullet_speed = 3.000000;
+    type.bullet_min_ally_dist = 2.000000;
+    type.mine_limit = 0;
+    type.mine_timer_min = 0.000000;
+    type.mine_timer_max = 0.000000;
+    type.mine_cooldown_time = 0.100000;
+    type.mine_stun_time = 0.050000;
+    type.mine_placement_chance = 0.000000;
+    type.mine_min_ally_dist = 3.000000;
+    type.obstacle_sight_dist = float.nan; // TODO: Don't use NaN here!
+    type.fire_timer_min = 0.500000;
+    type.fire_timer_max = 0.750000;
+    type.fire_stun_time = 1.000000;
+    type.fire_cooldown_time = 5.000000;
+    type.aim_timer = 1.000000;
+    type.aim_max_angle = 2.967057;
 }
 
 public bool editor_simulate(App_State* s, float dt){
@@ -485,6 +523,33 @@ public bool editor_simulate(App_State* s, float dt){
 
         case Editor_Tab.Missions:{
             label(gui, gui_id(), "TODO: Add things!");
+        } break;
+
+        case Editor_Tab.Tanks:{
+            auto type = &g_tank_types[g_current_tank_type];
+
+            label(gui, gui_id(), "Type index:");
+            spin_button(gui, gui_id(), &g_current_tank_type, g_tank_types_count);
+            next_row(gui);
+
+            auto section_header = "-Tank Params (Enemy)-";
+            if(g_current_tank_type == 0){
+                section_header = "-Tank Params (Player)-";
+            }
+
+            label(gui, gui_id(), section_header);
+            next_row(gui);
+
+            static foreach(i, member; Tank_Type.tupleof){
+                label(gui, gui_id(), __traits(identifier, member));
+                static if(is(typeof(member) == uint)){
+                    spin_button(gui, gui_id(), &(*type).tupleof[i]);
+                }
+                else static if(is(typeof(member) == bool)){
+                    checkbox(gui, gui_id(), &(*type).tupleof[i]);
+                }
+                next_row(gui);
+            }
         } break;
 
         case Editor_Tab.Info:{
@@ -1001,13 +1066,15 @@ void prepare_campaign(){
     reset(g_allocator); // IMPORTANT: This frees all the memory used by the editor.
     g_variants.make();
     g_maps.make();
-    g_tank_params.make();
 }
 
 void editor_new_campaign(){
     prepare_campaign();
     editor_add_variant();
     editor_add_map(22, 17);
+    g_tank_types_count = 2;
+    set_tank_type_to_default(&g_tank_types[0]);
+    set_tank_type_to_default(&g_tank_types[1]);
 }
 
 /+

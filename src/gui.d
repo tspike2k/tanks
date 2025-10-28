@@ -553,7 +553,7 @@ void end_text_input(Gui_State* gui){
                         uint next_value;
                         auto text = gui.text_buffer[0 .. gui.text_buffer_used];
                         if(to_int(&next_value, text)){
-                            (*btn.data) = min(next_value, btn.data_max);
+                            (*btn.data) = min(next_value, btn.data_max-1);
                         }
                     } break;
                 }
@@ -851,11 +851,11 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
                         }
                         else if(is_point_inside_rect(gui.cursor_pos, sub_bounds)){
                             end_text_input(gui);
-                            (*btn.data) = min((*btn.data) - 1, btn.data_max);
+                            (*btn.data) = min((*btn.data) - 1, btn.data_max-1);
                         }
                         else if(is_point_inside_rect(gui.cursor_pos, add_bounds)){
                             end_text_input(gui);
-                            (*btn.data) = min((*btn.data) + 1, btn.data_max);
+                            (*btn.data) = min((*btn.data) + 1, btn.data_max-1);
                         }
                     } break;
 
