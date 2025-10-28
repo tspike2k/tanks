@@ -1104,7 +1104,8 @@ version(opengl){
             Material* material;
             Shader* shader;
             Shader_Light* light;
-            bool scissor_enabled = false;
+            Rect[8] scissor_stack;
+            uint    scissor_stack_count = 0;
 
             auto cmd_node = pass.cmd_next;
             while(cmd_node){
@@ -1352,15 +1353,25 @@ version(opengl){
                     } break;
 
                     case Command.Push_Scissor:{
-                        // TODO: Allow for a scissor stack!
                         auto cmd = cast(Push_Scissor*)cmd_node;
-                        glEnable(GL_SCISSOR_TEST);
-                        scissor_enabled = true;
-                        auto min_p = min(cmd.scissor);
-                        glScissor(
-                            cast(int)min_p.x, cast(int)min_p.y,
-                            cast(int)width(cmd.scissor), cast(int)height(cmd.scissor)
-                        );
+
+                        if(scissor_stack_count == 0){
+                            glEnable(GL_SCISSOR_TEST);
+                        }
+                        scissor_stack[scissor_stack_count++] = cmd.scissor;
+                        set_scissor(cmd.scissor);
+                    } break;
+
+                    case Command.Pop_Scissor:{
+                        auto cmd = cast(Push_Scissor*)cmd_node;
+
+                        auto r = scissor_stack[scissor_stack_count-1];
+                        set_scissor(r);
+                        scissor_stack_count--;
+
+                        if(scissor_stack_count == 0){
+                            glDisable(GL_SCISSOR_TEST);
+                        }
                     } break;
 
                     case Command.Set_Texture:{
@@ -1372,7 +1383,7 @@ version(opengl){
                 cmd_node = cmd_node.next;
             }
 
-            if(scissor_enabled){
+            if(scissor_stack_count){
                 glDisable(GL_SCISSOR_TEST);
             }
 
@@ -1399,6 +1410,14 @@ version(opengl){
             pass = pass.next;
         }
 
+    }
+
+    private void set_scissor(Rect r){
+        auto min_p = min(r);
+        glScissor(
+            cast(int)min_p.x, cast(int)min_p.y,
+            cast(int)width(r), cast(int)height(r)
+        );
     }
 
     public void render_submit_frame(){

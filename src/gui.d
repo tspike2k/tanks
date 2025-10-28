@@ -915,30 +915,46 @@ bool is_active, bool is_hover, Rect bounds, String text){
     render_text(rp_text, font, baseline, text, Vec4(0, 0, 0, 1));
 }
 
-void draw_cursor_for_text_field(Render_Pass* pass, Font* font, Rect bounds, float padding, float baseline_y){
-    auto text_input = get_text_input_state();
-    auto cursor = min(text_input.cursor, text_input.text.length);
-    auto text = text_input.text[0 .. cursor];
-    auto cursor_pos_x = get_text_width(font, text);
+private void render_text_field(Gui_State* gui, Render_Pass* rp_rects, Render_Pass* rp_text,
+Font *font, Rect bounds, const(char)[] text, bool is_active, Rect work_area){
+    auto min_p = max(Vec2(left(bounds), bottom(bounds)), Vec2(left(work_area), bottom(work_area)));
+    auto max_p = min(Vec2(right(bounds), top(bounds)), Vec2(right(work_area), top(work_area)));
+    auto field_scissor = rect_from_min_max(min_p, max_p);
 
-    auto cursor_bounds = rect_from_min_wh(
-        Vec2(left(bounds) + cursor_pos_x + padding, baseline_y),
-        2, font.metrics.height
-    );
-    render_rect(pass, cursor_bounds, Vec4(0, 0, 0, 1));
-}
+    push_scissor(rp_rects, field_scissor);
+    push_scissor(rp_text, field_scissor);
 
-private void render_text_field(Render_Pass* rp_rects, Render_Pass* rp_text, Font *font, Rect bounds,
-const(char)[] text, bool is_active){
     render_rect(rp_rects, bounds, Vec4(1, 1, 1, 1));
     render_rect_outline(rp_rects, bounds, Vec4(0, 0, 0, 1), 1.0f);
 
     auto text_p = center_text_left(font, text, bounds) + Vec2(Button_Padding, 0);
-    render_text(rp_text, font, text_p, text, Vec4(0, 0, 0, 1));
-
     if(is_active){
-        draw_cursor_for_text_field(rp_rects, font, bounds, 2, text_p.y);
+        enum Cursor_Width = 2;
+
+        auto text_input = get_text_input_state();
+        auto cursor = min(text_input.cursor, text_input.text.length); // TODO: Is this a sanity check? Why are we doing this?
+        auto cursor_tw = get_text_width(font, text[0 .. cursor]);
+
+        auto text_offset = Vec2(0, 0);
+        auto bounds_w = width(bounds);
+        if(cursor_tw > bounds_w){
+            text_offset.x = -cursor_tw - Cursor_Width*2.0f - Button_Padding*2.0f + bounds_w;
+        }
+
+        auto cursor_bounds = rect_from_min_wh(
+            Vec2(text_p.x + text_offset.x + cursor_tw, text_p.y),
+            Cursor_Width, font.metrics.height
+        );
+
+        render_text(rp_text, font, text_p + text_offset, text, Vec4(0, 0, 0, 1));
+        render_rect(rp_rects, cursor_bounds, Vec4(0, 0, 0, 1));
     }
+    else{
+        render_text(rp_text, font, text_p, text, Vec4(0, 0, 0, 1));
+    }
+
+    pop_scissor(rp_rects);
+    pop_scissor(rp_text);
 }
 
 void render_gui(Gui_State* gui, Camera* camera_data, Shader* shader_rects, Shader* shader_text, Allocator* allocator){
@@ -989,108 +1005,110 @@ void render_gui(Gui_State* gui, Camera* camera_data, Shader* shader_rects, Shade
             auto is_widget_active = gui.active_id == widget.id;
             auto is_widget_hover =  gui.hover_widget == widget.id;
 
-            final switch(widget.type){
-                case Widget_Type.None:
-                case Widget_Type.Custom:
-                    assert(0);
+            if(rects_overlap(bounds, work_area)){
+                final switch(widget.type){
+                    case Widget_Type.None:
+                    case Widget_Type.Custom:
+                        assert(0);
 
-                case Widget_Type.Button:{
-                    auto btn = cast(Button*)widget;
-                    render_text_button(
-                        rp_rects, rp_text, font,
-                        is_widget_active, is_widget_hover, bounds, btn.label
-                    );
-                } break;
+                    case Widget_Type.Button:{
+                        auto btn = cast(Button*)widget;
+                        render_text_button(
+                            rp_rects, rp_text, font,
+                            is_widget_active, is_widget_hover, bounds, btn.label
+                        );
+                    } break;
 
-                case Widget_Type.Text_Field:{
-                    auto field = cast(Text_Field*)widget;
-                    auto text = field.buffer[0 .. (*field.used)];
-                    render_text_field(
-                        rp_rects, rp_text, font, bounds, text,
-                        gui.text_input_widget == field.id
-                    );
-                } break;
+                    case Widget_Type.Text_Field:{
+                        auto field = cast(Text_Field*)widget;
+                        auto text = field.buffer[0 .. (*field.used)];
+                        bool is_active = gui.text_input_widget == field.id;
+                        render_text_field(
+                            gui, rp_rects, rp_text, font, bounds, text, is_active, work_area
+                        );
+                    } break;
 
-                case Widget_Type.Label:{
-                    auto label = cast(Label*)widget;
-                    auto baseline = center_text_left(font, label.text, bounds) + Vec2(Button_Padding, 0);
-                    render_text(rp_text, font, baseline, label.text, Vec4(0, 0, 0, 1));
-                } break;
+                    case Widget_Type.Label:{
+                        auto label = cast(Label*)widget;
+                        auto baseline = center_text_left(font, label.text, bounds) + Vec2(Button_Padding, 0);
+                        render_text(rp_text, font, baseline, label.text, Vec4(0, 0, 0, 1));
+                    } break;
 
-                case Widget_Type.Spin_Button:{
-                    auto btn = cast(Spin_Button*)widget;
-                    Rect input_bounds, sub_bounds, add_bounds = void;
-                    get_spin_button_bounds(bounds, btn.button_width, &input_bounds, &sub_bounds, &add_bounds);
+                    case Widget_Type.Spin_Button:{
+                        auto btn = cast(Spin_Button*)widget;
+                        Rect input_bounds, sub_bounds, add_bounds = void;
+                        get_spin_button_bounds(bounds, btn.button_width, &input_bounds, &sub_bounds, &add_bounds);
 
-                    String text_msg;
-                    if(gui.text_input_widget == btn.id){
-                        text_msg = gui.text_buffer[0 .. gui.text_buffer_used];
-                    }
-                    else{
-                        text_msg = gen_string("{0}", (*btn.data), allocator);
-                    }
-
-                    render_text_field(
-                        rp_rects, rp_text, font, bounds, text_msg,
-                        gui.text_input_widget == btn.id
-                    );
-
-                    auto sub_hover = is_point_inside_rect(gui.cursor_pos, sub_bounds);
-                    render_text_button(
-                        rp_rects, rp_text, font,
-                        is_widget_active && sub_hover, is_widget_hover && sub_hover,
-                        sub_bounds, "-"
-                    );
-
-                    auto add_hover = is_point_inside_rect(gui.cursor_pos, add_bounds);
-                    render_text_button(
-                        rp_rects, rp_text, font,
-                        is_widget_active && add_hover, is_widget_hover && add_hover,
-                        add_bounds, "+"
-                    );
-                } break;
-
-                case Widget_Type.Checkbox:{
-                    auto cbx = cast(Checkbox*)widget;
-                    render_rect(rp_rects, bounds, Vec4(1, 1, 1, 1));
-                    render_rect_outline(rp_rects, bounds, Vec4(0, 0, 0, 1), 1.0f);
-                    float padding = 3.0f;
-                    /+
-                    auto p0 = Vec2(left(bounds), top(bounds)) + Vec2(padding, -padding);
-                    auto p1 = Vec2(right(bounds), bottom(bounds)) + Vec2(padding, padding);
-                    render_line(rp_rects, p0, p1, Vec4(0, 0, 0, 1), 2.0f);
-+/
-                    if(*cbx.value){
-                        // TODO: Render an X or a checkmark instead if we decide to add a
-                        // "render_line" function.
-                        render_rect(rp_rects, shrink(bounds, Vec2(4, 4)), Vec4(0, 0, 0, 1));
-                    }
-                } break;
-
-                case Widget_Type.Tab:{
-                    auto tb = cast(Tab*)widget;
-
-                    auto bg_color = Hover_Button_Color;
-                    if(*tb.current_value == tb.target_value){
-                        if(tb.id != gui.hover_widget){
-                            bg_color *= 0.75f;
-                            bg_color.a = 1.0f;
+                        String text_msg;
+                        if(gui.text_input_widget == btn.id){
+                            text_msg = gui.text_buffer[0 .. gui.text_buffer_used];
                         }
-                    }
-                    else{
-                        if(tb.id != gui.hover_widget){
-                            bg_color *= 0.5f;
-                            bg_color.a = 1.0f;
+                        else{
+                            text_msg = gen_string("{0}", (*btn.data), allocator);
                         }
 
-                        cut_top(&bounds, Tab_Overhang);
-                    }
+                        render_text_field(
+                            gui, rp_rects, rp_text, font, bounds, text_msg,
+                            gui.text_input_widget == btn.id, work_area
+                        );
 
-                    render_rect(rp_rects, bounds, bg_color);
-                    render_rect_outline(rp_rects, bounds, Button_BG_Color, 1);
-                    auto baseline = center_text_left(font, tb.text, bounds) + Vec2(Button_Padding, 0);
-                    render_text(rp_text, font, baseline, tb.text, Vec4(0, 0, 0, 1));
-                } break;
+                        auto sub_hover = is_point_inside_rect(gui.cursor_pos, sub_bounds);
+                        render_text_button(
+                            rp_rects, rp_text, font,
+                            is_widget_active && sub_hover, is_widget_hover && sub_hover,
+                            sub_bounds, "-"
+                        );
+
+                        auto add_hover = is_point_inside_rect(gui.cursor_pos, add_bounds);
+                        render_text_button(
+                            rp_rects, rp_text, font,
+                            is_widget_active && add_hover, is_widget_hover && add_hover,
+                            add_bounds, "+"
+                        );
+                    } break;
+
+                    case Widget_Type.Checkbox:{
+                        auto cbx = cast(Checkbox*)widget;
+                        render_rect(rp_rects, bounds, Vec4(1, 1, 1, 1));
+                        render_rect_outline(rp_rects, bounds, Vec4(0, 0, 0, 1), 1.0f);
+                        float padding = 3.0f;
+                        /+
+                        auto p0 = Vec2(left(bounds), top(bounds)) + Vec2(padding, -padding);
+                        auto p1 = Vec2(right(bounds), bottom(bounds)) + Vec2(padding, padding);
+                        render_line(rp_rects, p0, p1, Vec4(0, 0, 0, 1), 2.0f);
+    +/
+                        if(*cbx.value){
+                            // TODO: Render an X or a checkmark instead if we decide to add a
+                            // "render_line" function.
+                            render_rect(rp_rects, shrink(bounds, Vec2(4, 4)), Vec4(0, 0, 0, 1));
+                        }
+                    } break;
+
+                    case Widget_Type.Tab:{
+                        auto tb = cast(Tab*)widget;
+
+                        auto bg_color = Hover_Button_Color;
+                        if(*tb.current_value == tb.target_value){
+                            if(tb.id != gui.hover_widget){
+                                bg_color *= 0.75f;
+                                bg_color.a = 1.0f;
+                            }
+                        }
+                        else{
+                            if(tb.id != gui.hover_widget){
+                                bg_color *= 0.5f;
+                                bg_color.a = 1.0f;
+                            }
+
+                            cut_top(&bounds, Tab_Overhang);
+                        }
+
+                        render_rect(rp_rects, bounds, bg_color);
+                        render_rect_outline(rp_rects, bounds, Button_BG_Color, 1);
+                        auto baseline = center_text_left(font, tb.text, bounds) + Vec2(Button_Padding, 0);
+                        render_text(rp_text, font, baseline, tb.text, Vec4(0, 0, 0, 1));
+                    } break;
+                }
             }
         }
 
