@@ -1365,12 +1365,13 @@ version(opengl){
                     case Command.Pop_Scissor:{
                         auto cmd = cast(Push_Scissor*)cmd_node;
 
-                        auto r = scissor_stack[scissor_stack_count-1];
-                        set_scissor(r);
                         scissor_stack_count--;
-
                         if(scissor_stack_count == 0){
                             glDisable(GL_SCISSOR_TEST);
+                        }
+                        else{
+                            auto r = scissor_stack[scissor_stack_count-1];
+                            set_scissor(r);
                         }
                     } break;
 
