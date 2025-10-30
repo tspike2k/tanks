@@ -81,6 +81,7 @@ enum Gui_Action : uint{
     None,
     Dragging_Window,
     Resizing_Window,
+    Scrolling_Window,
 }
 
 enum Window_Resize_Flag : uint{
@@ -106,6 +107,11 @@ struct Window{
     size_t     buffer_used;
     Rect       bounds;
     bool       dirty; // Tells if we need to run the element layout algorithms
+
+    // For scrolling:
+    float      content_height;
+    Vec2       scroll_offset;
+    bool       is_scrolling_y;
 }
 
 enum Window_ID_Mask = 0xff000000;
@@ -640,6 +646,11 @@ void handle_event(Gui_State* gui, Event* evt){
     }
 }
 
+bool should_scroll(Window* window, Rect work_area){
+    bool result = window.content_height > height(work_area);
+    return result;
+}
+
 void do_layout(Window* window){
     auto gui = window.gui;
 
@@ -647,6 +658,7 @@ void do_layout(Window* window){
     auto margins = Vec2(Default_Margin, Default_Margin); // TODO: Should this be called "margin?"
     auto pen = margins; // Pen is from the top-left
 
+    window.content_height = 0;
     float max_row_height = 0;
     auto buffer = Serializer(window.buffer[0 .. window.buffer_used]);
     while(auto cmd = eat_type!Window_Cmd(&buffer)){
@@ -658,6 +670,7 @@ void do_layout(Window* window){
                 pen.y += max_row_height + margins.y;
                 max_row_height = 0;
                 pen.x = margins.x;
+                window.content_height = pen.y;
             } break;
 
             case Window_Cmd_Type.Widget:{
@@ -666,6 +679,8 @@ void do_layout(Window* window){
                 widget.rel_bounds.center = pen + widget.rel_bounds.extents;
                 pen.x += width(widget.rel_bounds) + get_widget_advance_x(widget.type);
                 max_row_height = max(max_row_height, height(widget.rel_bounds));
+
+                window.content_height = pen.y + max_row_height;
             } break;
         }
     }
@@ -684,14 +699,14 @@ float get_widget_advance_x(Widget_Type type){
     return result;
 }
 
-Rect get_widget_bounds(Rect window_work_area, Widget* widget){
+Rect get_widget_bounds(Rect window_work_area, Widget* widget, Vec2 scroll_offset){
     auto top_left = Vec2(left(window_work_area), top(window_work_area));
 
     // rel_bounds are relative to the top-left of the work area of the window
     // (window bounds excluding border and titlebar). Therefore we need to
     // flip the y coordinate of the widget center.
     auto result = Rect(
-        top_left + Vec2(widget.rel_bounds.center.x, -widget.rel_bounds.center.y),
+        top_left + Vec2(widget.rel_bounds.center.x, -widget.rel_bounds.center.y) + scroll_offset,
         widget.rel_bounds.extents
     );
     return result;
@@ -699,6 +714,16 @@ Rect get_widget_bounds(Rect window_work_area, Widget* widget){
 
 bool has_border(Window* window){
     bool result = !(window.flags & Window_Flag_Borderless);
+    return result;
+}
+
+enum Scrollbar_Size = 16.0f;
+
+Rect get_scroll_region_y(Rect canvas){
+    auto result = rect_from_min_wh(
+        Vec2(right(canvas) - Scrollbar_Size, bottom(canvas)),
+        Scrollbar_Size, height(canvas)
+    );
     return result;
 }
 
@@ -721,6 +746,7 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
 
                 auto cursor = gui.cursor_pos;
                 auto titlebar_bounds = get_titlebar_bounds(window);
+                auto work_area       = get_work_area(window);
                 auto resize_flags = get_window_resize_flags(gui.cursor_pos, window.bounds);
                 if(resize_flags != Window_Resize_Flag.None){
                     gui.action      = Gui_Action.Resizing_Window; // TODO: Rename this Window_Action?
@@ -735,6 +761,14 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
                     gui.grab_offset = window.bounds.center - gui.cursor_pos;
                     end_text_input(gui);
                 }
+                else if(should_scroll(window, work_area)){
+                    auto scroll_region = get_scroll_region_y(work_area);
+                    if(is_point_inside_rect(cursor, scroll_region)){
+                        gui.action    = Gui_Action.Scrolling_Window;
+                        gui.active_id = window.id;
+                        gui.grab_offset = window.bounds.center - gui.cursor_pos;
+                    }
+                }
             }
             else{
                 end_text_input(gui);
@@ -743,6 +777,7 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
     }
     else{
         auto window = get_window_by_id(gui, gui.active_id);
+        auto cursor = gui.cursor_pos;
         if(window){
             switch(gui.action){
                 default: assert(0);
@@ -752,7 +787,6 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
                 } break;
 
                 case Gui_Action.Resizing_Window:{
-                    auto cursor = gui.cursor_pos;
                     if(gui.window_resize_flags & Window_Resize_Flag.Left){
                         auto delta_x = left(window.bounds) - cursor.x;
                         auto next_w  = max(width(window.bounds) + delta_x, Window_Min_Width);
@@ -775,6 +809,23 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
                             Vec2(left(window.bounds), top(window.bounds) - next_h),
                             width(window.bounds), next_h
                         );
+                    }
+                } break;
+
+                case Gui_Action.Scrolling_Window:{
+                    auto work_area = get_work_area(window);
+                    auto scroll_region = get_scroll_region_y(work_area);
+                    auto region_height = height(scroll_region);
+
+                    if(window.content_height >= region_height){
+                        auto click_percent = cursor.y / region_height;
+                        window.scroll_offset.y = (1.0f-click_percent)*(window.content_height - region_height);
+                        window.scroll_offset.y = clamp(window.scroll_offset.y, 0, window.content_height - region_height);
+                        window.scroll_offset.y = floor(window.scroll_offset.y);
+                    }
+                    else{
+                        gui.action = Gui_Action.None;
+                        window.scroll_offset.y = 0;
                     }
                 } break;
             }
@@ -801,7 +852,7 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
         // Search for the current hover widget
         auto work_area = get_work_area(window);
         foreach(ref widget; iterate_widgets(window)){
-            auto bounds = get_widget_bounds(work_area, widget);
+            auto bounds = get_widget_bounds(work_area, widget, window.scroll_offset);
             if(hover_window == window
             && is_point_inside_rect(cursor, work_area)
             && is_point_inside_rect(cursor, bounds)){
@@ -819,6 +870,11 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
             // TODO: Update widgets that need updating even when they're not the
             // active widget here. Also, call the update_custom_widgets function
             // (when we add it) here.
+        }
+
+        if(!should_scroll(window, work_area)){
+            window.is_scrolling_y = false;
+            window.scroll_offset.y = 0.0f;
         }
     }
 
@@ -842,7 +898,7 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
                     case Widget_Type.Spin_Button:{
                         auto btn = cast(Spin_Button*)hover_widget;
                         auto work_area = get_work_area(hover_window);
-                        auto bounds = get_widget_bounds(work_area, hover_widget);
+                        auto bounds = get_widget_bounds(work_area, hover_widget, hover_window.scroll_offset);
 
                         Rect input_bounds, sub_bounds, add_bounds = void;
                         get_spin_button_bounds(bounds, btn.button_width, &input_bounds, &sub_bounds, &add_bounds);
@@ -897,6 +953,26 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
             }
         }
     }
+
+    /+
+    if(hover_window){
+        auto work_area = get_work_area(hover_window);
+
+        if(!should_scroll(hover_window, work_area)){
+            gui.is_scrolling = false;
+            gui.scroll_offset.y = 0.0f;
+        }
+        else{
+            auto scroll_region = get_scroll_region_y(work_area);
+            auto region_height = height(scroll_region);
+            if(menu.is_scrolling_y){
+                auto click_percent = menu.mouse_p.y / region_height;
+                gui.scroll_offset.y = (1.0f-click_percent)*(gui.content_height - region_height);
+            }
+            assert(gui.content_height >= region_height);
+            gui.scroll_offset.y = clamp(gui.scroll_offset.y, 0, gui.content_height - region_height);
+        }
+    }+/
 
     // Clear event flags
     gui.mouse_left_pressed  = false;
@@ -989,13 +1065,19 @@ void render_gui(Gui_State* gui, Camera* camera_data, Shader* shader_rects, Shade
 
             auto title_bounds = get_titlebar_bounds(window);
             render_rect(rp_rects, work_area, internal_color);
-            render_rect_outline(rp_rects, work_area, seperator_color, 1.0f);
+            auto inset_area = rect_from_min_max(min(work_area) - Vec2(1, 1), max(work_area) + Vec2(1, 1));
+            render_rect_outline(rp_rects, inset_area, seperator_color, 1.0f);
 
             auto title_baseline = center_text(font, window.name, title_bounds);
             render_text(rp_text, gui.font, title_baseline, window.name, Vec4(1, 1, 1, 1));
         }
         else{
             render_rect(rp_rects, work_area, internal_color);
+        }
+
+        if(should_scroll(window, work_area)){
+            auto scroll_region = get_scroll_region_y(work_area);
+            render_rect(rp_rects, scroll_region, Vec4(0, 1, 0, 1));
         }
 
         // Account for work area outline.
@@ -1006,7 +1088,7 @@ void render_gui(Gui_State* gui, Camera* camera_data, Shader* shader_rects, Shade
         push_scissor(rp_text, scissor_area);
 
         foreach(ref widget; iterate_widgets(window)){
-            auto bounds = get_widget_bounds(work_area, widget);
+            auto bounds = get_widget_bounds(work_area, widget, window.scroll_offset);
             auto is_widget_active = gui.active_id == widget.id;
             auto is_widget_hover =  gui.hover_widget == widget.id;
 
