@@ -817,8 +817,9 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
                     auto scroll_region = get_scroll_region_y(work_area);
                     auto region_height = height(scroll_region);
 
+                    auto rel_y = cursor.y - bottom(scroll_region);
                     if(window.content_height >= region_height){
-                        auto click_percent = cursor.y / region_height;
+                        auto click_percent = rel_y / region_height;
                         window.scroll_offset.y = (1.0f-click_percent)*(window.content_height - region_height);
                         window.scroll_offset.y = clamp(window.scroll_offset.y, 0, window.content_height - region_height);
                         window.scroll_offset.y = floor(window.scroll_offset.y);
@@ -875,6 +876,10 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
         if(!should_scroll(window, work_area)){
             window.is_scrolling_y = false;
             window.scroll_offset.y = 0.0f;
+        }
+        else{
+            auto scroll_region     = get_scroll_region_y(work_area);
+            window.scroll_offset.y = clamp(window.scroll_offset.y, 0, window.content_height - height(scroll_region));
         }
     }
 
@@ -1078,6 +1083,20 @@ void render_gui(Gui_State* gui, Camera* camera_data, Shader* shader_rects, Shade
         if(should_scroll(window, work_area)){
             auto scroll_region = get_scroll_region_y(work_area);
             render_rect(rp_rects, scroll_region, Vec4(0, 1, 0, 1));
+
+            auto region_height = height(scroll_region);
+
+            auto height_percent = min(0.85f, region_height / window.content_height);
+            auto bar_height = max(region_height*height_percent, Scrollbar_Size);
+            auto bar_bottom = region_height - map_range(window.scroll_offset.y, 0, window.content_height - region_height, bar_height, region_height);
+
+            auto scroll_bar = rect_from_min_wh(
+                Vec2(left(scroll_region), bottom(scroll_region) + bar_bottom),
+                Scrollbar_Size, bar_height
+            );
+
+            render_rect(rp_rects, scroll_bar, Vec4(1, 1, 1, 1));
+            //render_button_border(rp_rects, Vec4(0, 0, 0, 1));
         }
 
         // Account for work area outline.
