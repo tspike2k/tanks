@@ -500,10 +500,10 @@ public bool editor_simulate(App_State* s, float dt){
             button(gui, Button_New_Map, "+", 0);
             next_row(gui);
             label(gui, gui_id(), "Map width:");
-            spin_button(gui, gui_id(), &map.width, 1, 0, Map_Width_Max);
+            spin_button(gui, gui_id(), &map.width, 1, Map_Width_Max);
             next_row(gui);
             label(gui, gui_id(), "Map height:");
-            spin_button(gui, gui_id(), &map.height, 1, 0, Map_Height_Max);
+            spin_button(gui, gui_id(), &map.height, 1, Map_Height_Max);
             next_row(gui);
         } break;
 
@@ -523,7 +523,7 @@ public bool editor_simulate(App_State* s, float dt){
                 checkbox(gui, gui_id(), &tile.is_special);
                 next_row(gui);
                 label(gui, gui_id(), "Index:");
-                spin_button(gui, gui_id(), &tile.index, max_index);
+                spin_button(gui, gui_id(), &tile.index, 0, max_index);
                 next_row(gui);
             }
             else{
@@ -556,7 +556,7 @@ public bool editor_simulate(App_State* s, float dt){
                 // TODO: Break colors into RGB fields.
                 label(gui, gui_id(), __traits(identifier, member) ~ ":");
                 static if(is(typeof(member) == uint) || is(typeof(member) == float)){
-                    spin_button(gui, gui_id(i), &type.tupleof[i]);
+                    spin_button(gui, gui_id(i), &type.tupleof[i], 0);
                 }
                 else static if(is(typeof(member) == bool)){
                     checkbox(gui, gui_id(i), &type.tupleof[i]);
