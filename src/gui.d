@@ -377,18 +377,92 @@ void text_field(Gui_State* gui, Gui_ID id, char[] buffer, uint* buffer_used){
     txt.used   = buffer_used;
 }
 
+import std.meta : AliasSeq, staticIndexOf;
+alias Types_Aliases = AliasSeq!(
+    uint,
+    float,
+);
+
 struct Spin_Button{
     enum Type = Widget_Type.Spin_Button;
     Widget widget;
     alias widget this;
 
+    uint type_index;
     float button_width;
-    uint* data;
-    uint  data_max;
+    void *data;
+    ulong data_min;
+    ulong data_max;
+    ulong data_incr;
 }
 
 enum Spin_Button_Text_Entry_Width = 116.0f;
 
+// TODO: Though a neat use of metaprogramming, I feel there should be an easier way to have a
+// spin_button that handles different data types.
+private void spin_button_clamp(Spin_Button* btn){
+    outer: switch(btn.type_index){
+        default: assert(0);
+
+        static foreach(i, T; Types_Aliases){
+            case i:{
+                T* data = cast(T*)btn.data;
+                T* data_min = cast(T*)&btn.data_min;
+                T* data_max = cast(T*)&btn.data_max;
+                *data = clamp(*data, *data_min, *data_max);
+            } break outer;
+        }
+    }
+}
+
+private void spin_button_incr(Spin_Button* btn){
+    outer: switch(btn.type_index){
+        default: assert(0);
+
+        static foreach(i, T; Types_Aliases){
+            case i:{
+                T* data = cast(T*)btn.data;
+                T* data_min = cast(T*)&btn.data_min;
+                T* data_max = cast(T*)&btn.data_max;
+                T* incr     = cast(T*)&btn.data_incr;
+                *data = clamp(*data + *incr, *data_min, *data_max);
+            } break outer;
+        }
+    }
+}
+
+private void spin_button_decr(Spin_Button* btn){
+    outer: switch(btn.type_index){
+        default: assert(0);
+
+        static foreach(i, T; Types_Aliases){
+            case i:{
+                T* data = cast(T*)btn.data;
+                T* data_min = cast(T*)&btn.data_min;
+                T* data_max = cast(T*)&btn.data_max;
+                T* incr     = cast(T*)&btn.data_incr;
+                *data = clamp(*data - *incr, *data_min, *data_max);
+            } break outer;
+        }
+    }
+}
+
+private String spin_button_text(Spin_Button* btn, Allocator* allocator){
+    String result;
+    outer: switch(btn.type_index){
+        default: assert(0);
+
+        static foreach(i, T; Types_Aliases){
+            case i:{
+                T* data = cast(T*)btn.data;
+                result = gen_string("{0}", *data, allocator);
+            } break outer;
+        }
+    }
+    return result;
+}
+
+/+
 void spin_button(Gui_State* gui, Gui_ID id, uint* data, uint data_max = uint.max){
     auto font = gui.font;
     auto button_width = get_text_width(font, "+") + Button_Padding*2.0f;
@@ -400,6 +474,22 @@ void spin_button(Gui_State* gui, Gui_ID id, uint* data, uint data_max = uint.max
     *data = min(*data, data_max);
     btn.button_width = button_width;
     btn.data_max = data_max;
+}
++/
+
+void spin_button(T)(Gui_State* gui, Gui_ID id, T* data, T increment = 1, T data_min = 0, T data_max = T.max){
+    auto font = gui.font;
+    auto button_width = get_text_width(font, "+") + Button_Padding*2.0f;
+    float w = Spin_Button_Text_Entry_Width + button_width*2.0f;
+    float h = font.metrics.height + Button_Padding*2.0f;
+
+    auto btn = cast(Spin_Button*)add_widget(gui, id, w, h, Widget_Type.Spin_Button, Spin_Button.sizeof);
+    btn.data = data;
+    btn.button_width = button_width;
+    btn.type_index = staticIndexOf!(T, Types_Aliases);
+    memcpy(&btn.data_min,  &data_min, T.sizeof);
+    memcpy(&btn.data_max,  &data_max, T.sizeof);
+    memcpy(&btn.data_incr, &increment, T.sizeof);
 }
 
 private void get_spin_button_bounds(Rect bounds, float button_width, Rect* input_bounds, Rect* sub_bounds, Rect* add_bounds){
@@ -561,11 +651,8 @@ void end_text_input(Gui_State* gui){
 
                     case Widget_Type.Spin_Button:{
                         auto btn = cast(Spin_Button*)widget;
-                        uint next_value;
-                        auto text = gui.text_buffer[0 .. gui.text_buffer_used];
-                        if(to_int(&next_value, text)){
-                            (*btn.data) = min(next_value, btn.data_max);
-                        }
+                        // TODO: Convert text input into value, set the spin button to that value.
+                        spin_button_clamp(btn);
                     } break;
                 }
             }
@@ -909,7 +996,7 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
                         get_spin_button_bounds(bounds, btn.button_width, &input_bounds, &sub_bounds, &add_bounds);
                         if(is_point_inside_rect(gui.cursor_pos, input_bounds)
                         && gui.text_input_widget != hover_widget.id){
-                            auto initial_text = gen_string("{0}", (*btn.data), allocator);
+                            auto initial_text = spin_button_text(btn, allocator);
                             copy(initial_text, gui.text_buffer[0 .. initial_text.length]);
                             gui.text_input_widget = hover_widget.id;
                             gui.text_buffer_used = cast(uint)initial_text.length;
@@ -917,11 +1004,11 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
                         }
                         else if(is_point_inside_rect(gui.cursor_pos, sub_bounds)){
                             end_text_input(gui);
-                            (*btn.data) = min((*btn.data) - 1, btn.data_max);
+                            spin_button_decr(btn);
                         }
                         else if(is_point_inside_rect(gui.cursor_pos, add_bounds)){
                             end_text_input(gui);
-                            (*btn.data) = min((*btn.data) + 1, btn.data_max);
+                            spin_button_incr(btn);
                         }
                     } break;
 
@@ -1150,7 +1237,7 @@ void render_gui(Gui_State* gui, Camera* camera_data, Shader* shader_rects, Shade
                             text_msg = gui.text_buffer[0 .. gui.text_buffer_used];
                         }
                         else{
-                            text_msg = gen_string("{0}", (*btn.data), allocator);
+                            text_msg = spin_button_text(btn, allocator);
                         }
 
                         render_text_field(

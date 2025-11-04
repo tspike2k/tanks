@@ -442,13 +442,15 @@ public bool editor_simulate(App_State* s, float dt){
         } break;
 
         case File_Op.Save:{
-            button(gui, Button_Confirm_Save, "Confirm");
-            button(gui, Button_Cancel_File_Op, "Cancel");
+            label(gui, gui_id(), "Save?");
+            button(gui, Button_Confirm_Save, "Yes");
+            button(gui, Button_Cancel_File_Op, "No");
         } break;
 
         case File_Op.Load:{
-            button(gui, Button_Confirm_Load, "Confirm");
-            button(gui, Button_Cancel_File_Op, "Cancel");
+            label(gui, gui_id(), "Load?");
+            button(gui, Button_Confirm_Load, "Yes");
+            button(gui, Button_Cancel_File_Op, "No");
         } break;
     }
 
@@ -475,6 +477,10 @@ public bool editor_simulate(App_State* s, float dt){
     begin_window(gui, Window_ID_Main, "Editor", rect_from_min_wh(Vec2(20, 400), 400, 200), g_window_memory);
     next_row(gui);
 
+    // NOTE: This is a good reason to have seperate "scroll regions." Ideally the tabs group
+    // should remain at the top of the window while the rest of the contents scroll. That's
+    // the reason classical GUIs do that. For this project, it's fine, but in the future more
+    // control should be given to the client.
     tab(gui, gui_id(), "Selected", &g_editor_tab, Editor_Tab.Selected);
     tab(gui, gui_id(), "Map", &g_editor_tab, Editor_Tab.Map);
     tab(gui, gui_id(), "Mission", &g_editor_tab, Editor_Tab.Missions);
@@ -494,10 +500,10 @@ public bool editor_simulate(App_State* s, float dt){
             button(gui, Button_New_Map, "+", 0);
             next_row(gui);
             label(gui, gui_id(), "Map width:");
-            spin_button(gui, gui_id(), &map.width, Map_Width_Max);
+            spin_button(gui, gui_id(), &map.width, 1, 0, Map_Width_Max);
             next_row(gui);
             label(gui, gui_id(), "Map height:");
-            spin_button(gui, gui_id(), &map.height, Map_Height_Max);
+            spin_button(gui, gui_id(), &map.height, 1, 0, Map_Height_Max);
             next_row(gui);
         } break;
 
@@ -547,8 +553,9 @@ public bool editor_simulate(App_State* s, float dt){
             next_row(gui);
 
             static foreach(i, member; type.tupleof){
+                // TODO: Break colors into RGB fields.
                 label(gui, gui_id(), __traits(identifier, member) ~ ":");
-                static if(is(typeof(member) == uint)){
+                static if(is(typeof(member) == uint) || is(typeof(member) == float)){
                     spin_button(gui, gui_id(i), &type.tupleof[i]);
                 }
                 else static if(is(typeof(member) == bool)){
