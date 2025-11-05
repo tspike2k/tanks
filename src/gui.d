@@ -181,10 +181,13 @@ bool window_has_focus(Window* window){
     return result;
 }
 
-Rect get_titlebar_bounds(Window* window){
-    auto font   = window.gui.font;
-    float title_bar_height = font.metrics.height + Window_Border_Size*2;
+float get_titlebar_height(Font* font){
+    float result = font.metrics.height + Window_Border_Size*2;
+    return result;
+}
 
+Rect get_titlebar_bounds(Window* window){
+    auto title_bar_height = get_titlebar_height(window.gui.font);
     auto r      = window.bounds;
     auto min_p  = Vec2(left(r), top(r)) - Vec2(0, title_bar_height);
     auto result = rect_from_min_wh(min_p, width(r), title_bar_height);
@@ -223,6 +226,10 @@ Rect get_work_area(Window* window){
         auto min_p = Vec2(left(r), bottom(r)) + border;
         auto max_p = min_p + Vec2(width(r), height(r)) - Vec2(0, height(title_bar_bounds)) - border*2.0f;
         auto result = rect_from_min_max(min_p, max_p);
+
+        if(should_scroll(gui, window)){
+            result = cut_right(result, Scrollbar_Size);
+        }
 
         return result;
     }
@@ -695,8 +702,12 @@ void handle_event(Gui_State* gui, Event* evt){
     }
 }
 
-bool should_scroll(Window* window, Rect work_area){
-    bool result = window.content_height > height(work_area);
+bool should_scroll(Gui_State* gui, Window* window){
+    bool result = false;
+    if(!(window.flags & Window_Flag_Borderless)){
+        auto border_size = get_titlebar_height(gui.font) + Window_Border_Size;
+        result = window.content_height > height(window.bounds) - border_size;
+    }
     return result;
 }
 
@@ -770,7 +781,7 @@ enum Scrollbar_Size = 16.0f;
 
 Rect get_scroll_region_y(Rect canvas){
     auto result = rect_from_min_wh(
-        Vec2(right(canvas) - Scrollbar_Size, bottom(canvas)),
+        Vec2(right(canvas), bottom(canvas)),
         Scrollbar_Size, height(canvas)
     );
     return result;
@@ -810,7 +821,7 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
                     gui.grab_offset = window.bounds.center - gui.cursor_pos;
                     end_text_input(gui);
                 }
-                else if(should_scroll(window, work_area)){
+                else if(should_scroll(gui, window)){
                     auto scroll_region = get_scroll_region_y(work_area);
                     if(is_point_inside_rect(cursor, scroll_region)){
                         gui.action    = Gui_Action.Scrolling_Window;
@@ -922,7 +933,7 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
             // (when we add it) here.
         }
 
-        if(!should_scroll(window, work_area)){
+        if(!should_scroll(gui, window)){
             window.is_scrolling_y = false;
             window.scroll_offset.y = 0.0f;
         }
@@ -1065,17 +1076,21 @@ void update_gui(Gui_State* gui, float dt, Allocator* allocator){
     gui.mouse_left_released = false;
 }
 
-void render_text_button(Render_Pass* rp_rects, Render_Pass* rp_text, Font* font,
-bool is_active, bool is_hover, Rect bounds, String text){
-    auto bg_color = Button_BG_Color;
+private Vec4 get_text_button_bg_color(bool is_active, bool is_hover){
+    auto result = Button_BG_Color;
     if(is_active){
-        bg_color *= 0.75f;
-        bg_color.a = 1;
+        result *= 0.75f;
+        result.a = 1;
     }
     else if(is_hover){
-        bg_color = Hover_Button_Color;
+        result = Hover_Button_Color;
     }
+    return result;
+}
 
+void render_text_button(Render_Pass* rp_rects, Render_Pass* rp_text, Font* font,
+bool is_active, bool is_hover, Rect bounds, String text){
+    auto bg_color = get_text_button_bg_color(is_active, is_hover);
     render_rect(rp_rects, bounds, bg_color);
     render_button_bounds(rp_rects, bounds, is_active);
     auto baseline = center_text(font, text, bounds);
@@ -1159,25 +1174,6 @@ void render_gui(Gui_State* gui, Camera* camera_data, Shader* shader_rects, Shade
         }
         else{
             render_rect(rp_rects, work_area, internal_color);
-        }
-
-        if(should_scroll(window, work_area)){
-            auto scroll_region = get_scroll_region_y(work_area);
-            render_rect(rp_rects, scroll_region, Vec4(0, 1, 0, 1));
-
-            auto region_height = height(scroll_region);
-
-            auto height_percent = min(0.85f, region_height / window.content_height);
-            auto bar_height = max(region_height*height_percent, Scrollbar_Size);
-            auto bar_bottom = region_height - map_range(window.scroll_offset.y, 0, window.content_height - region_height, bar_height, region_height);
-
-            auto scroll_bar = rect_from_min_wh(
-                Vec2(left(scroll_region), bottom(scroll_region) + bar_bottom),
-                Scrollbar_Size, bar_height
-            );
-
-            render_rect(rp_rects, scroll_bar, Vec4(1, 1, 1, 1));
-            //render_button_border(rp_rects, Vec4(0, 0, 0, 1));
         }
 
         // Account for work area outline.
@@ -1309,6 +1305,28 @@ void render_gui(Gui_State* gui, Camera* camera_data, Shader* shader_rects, Shade
 
         pop_scissor(rp_rects);
         pop_scissor(rp_text);
+
+        if(should_scroll(gui, window)){
+            auto scroll_region = get_scroll_region_y(work_area);
+            auto gutter_color = Hover_Button_Color*0.5f;
+            gutter_color.a = 1.0f;
+            render_rect(rp_rects, scroll_region, gutter_color);
+
+            auto region_height = height(scroll_region);
+
+            auto height_percent = min(0.85f, region_height / window.content_height);
+            auto bar_height = max(region_height*height_percent, Scrollbar_Size);
+            auto bar_bottom = region_height - map_range(window.scroll_offset.y, 0, window.content_height - region_height, bar_height, region_height);
+
+            auto scroll_bar = rect_from_min_wh(
+                Vec2(left(scroll_region), bottom(scroll_region) + bar_bottom),
+                Scrollbar_Size, bar_height
+            );
+
+            auto bg_color = Button_BG_Color;
+            render_rect(rp_rects, scroll_bar, bg_color);
+            render_button_bounds(rp_rects, scroll_bar, false);
+        }
     }
 }
 

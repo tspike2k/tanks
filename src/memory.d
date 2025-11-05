@@ -58,15 +58,13 @@ Unqual!T[] dup_array(T)(T[] src, Allocator* allocator){
     return result;
 }
 
-void copy(T)(const(T[]) src, T[] dest){
-    version(LDC){
-        // NOTE: Workaround for LDC compilation issues.
-        assert(dest.length == src.length);
-        memcpy(dest.ptr, src.ptr, src.length*src[0].sizeof);
+size_t copy(T)(const(T[]) src, T[] dest){
+    size_t elements_copied = 0;
+    if(src.length && dest.length){
+        elements_copied = src.length < dest.length ? src.length : dest.length;
+        memcpy(dest.ptr, src.ptr, elements_copied*src[0].sizeof);
     }
-    else{
-        dest[0 .. $] = src[0 .. $];
-    }
+    return elements_copied;
 }
 
 char[] copy_string_to_buffer(const(char)[] src, char[] dest){

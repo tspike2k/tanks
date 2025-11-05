@@ -271,6 +271,9 @@ bool editor_load_campaign(App_State* s, uint file_flags = 0){
             if(campaign.variants.length){
                 foreach(ref source_variant; campaign.variants){
                     auto variant = editor_add_variant();
+                    variant.lives   = source_variant.lives;
+                    variant.players = source_variant.players;
+                    variant.name_used = cast(uint)copy(source_variant.name, variant.name);
                 }
             }
             else{
@@ -827,6 +830,30 @@ public bool editor_simulate(App_State* s, float dt){
                 g_current_map = next_map;
             } break;
 
+            case Button_Prev_Variant:{
+                auto next     = g_current_variant.prev;
+                if(g_variants.is_sentinel(next)){
+                    next = next.prev;
+                }
+                g_current_variant = next;
+            } break;
+
+            case Button_Next_Variant:{
+                auto next     = g_current_variant.next;
+                if(g_variants.is_sentinel(next)){
+                    next = next.next;
+                }
+                g_current_variant = next;
+            } break;
+
+            case Button_Delete_Variant:{
+
+            } break;
+
+            case Button_New_Variant:{
+                editor_add_variant();
+            } break;
+
             case Button_Next_Tank_Type:{
                 g_current_tank_type++;
                 if(g_current_tank_type == g_tank_types_count)
@@ -1160,8 +1187,12 @@ Variant* editor_add_variant(){
     g_variants.insert(g_variants.top, variant);
     g_current_variant = variant;
 
+    auto default_name = "New Variant";
+    copy(default_name, variant.name[0 .. default_name.length]);
+    variant.name_used = cast(uint)default_name.length;
     variant.players = 1;
     variant.lives   = 4; // TODO: Is this the default of the WII original?
+    variant.difficulty = Campaign_Difficuly.Normal;
 
     variant.missions.make();
 
