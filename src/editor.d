@@ -606,18 +606,18 @@ public bool editor_simulate(App_State* s, float dt){
             next_row(gui);
         } break;
 
-        /+
         case Editor_Tab.Missions:{
             auto variant  = g_current_variant;
-            auto variant_label = gen_string("Variant: {0}", , &s.frame_memory);
+            auto variant_label = gen_string("Variant: {0}", variant.name[0 .. variant.name_used], &s.frame_memory);
+        /+
 
             auto index_label =
             button(gui, Button_Prev_Tank_Type, "<", 0);
             label(gui, gui_id(), index_label);
             button(gui, Button_Next_Tank_Type, ">", 0);
-            next_row(gui);
+            next_row(gui);+/
         } break;
-+/
+
         case Editor_Tab.Tanks:{
             auto type = &g_tank_types[g_current_tank_type];
 
