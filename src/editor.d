@@ -41,9 +41,9 @@ enum Place_Type : uint{
 enum Editor_Tab : uint{
     Selected,
     Map,
+    Variant,
     Missions,
     Tanks,
-    View,
     Info,
 }
 
@@ -88,8 +88,11 @@ struct Variant{
     Variant* next;
     Variant* prev;
 
-    uint players;
-    uint lives;
+    char[256] name;
+    uint      name_used;
+    uint      players;
+    uint      lives;
+    Campaign_Difficuly difficulty;
 
     List!Mission_Entry  missions;
 }
@@ -112,6 +115,12 @@ enum Button_Confirm_Save       = gui_id();
 enum Button_Cancel_File_Op     = gui_id();
 enum Button_Prev_Tank_Type     = gui_id();
 enum Button_Next_Tank_Type     = gui_id();
+enum Button_Prev_Difficulty    = gui_id();
+enum Button_Next_Difficulty    = gui_id();
+enum Button_Prev_Variant       = gui_id();
+enum Button_Next_Variant       = gui_id();
+enum Button_Delete_Variant     = gui_id();
+enum Button_New_Variant        = gui_id();
 
 enum File_Op : uint{
     None,
@@ -357,6 +366,21 @@ uint get_map_index(Map_Entry* map){
     return index;
 }
 
+uint get_variant_index(Variant* variant){
+    uint index = 0;
+    bool found_entry = false;
+    foreach(entry; g_variants.iterate()){
+        if(entry == variant){
+            found_entry = true;
+            break;
+        }
+        index++;
+    }
+
+    assert(found_entry);
+    return index;
+}
+
 void editor_remove_current_map(){
     auto maps = &g_maps;
     if(maps.count > 1){
@@ -483,8 +507,9 @@ public bool editor_simulate(App_State* s, float dt){
     // control should be given to the client.
     tab(gui, gui_id(), "Selected", &g_editor_tab, Editor_Tab.Selected);
     tab(gui, gui_id(), "Map", &g_editor_tab, Editor_Tab.Map);
+    tab(gui, gui_id(), "Variant", &g_editor_tab, Editor_Tab.Variant);
     tab(gui, gui_id(), "Mission", &g_editor_tab, Editor_Tab.Missions);
-    tab(gui, gui_id(), "Tanks", &g_editor_tab, Editor_Tab.Tanks);
+    tab(gui, gui_id(), "Tank", &g_editor_tab, Editor_Tab.Tanks);
     tab(gui, gui_id(), "Info", &g_editor_tab, Editor_Tab.Info);
     next_row(gui);
     switch(g_editor_tab){
@@ -499,6 +524,7 @@ public bool editor_simulate(App_State* s, float dt){
             button(gui, Button_Delete_Map, "-", 0);
             button(gui, Button_New_Map, "+", 0);
             next_row(gui);
+
             label(gui, gui_id(), "Map width:");
             spin_button(gui, gui_id(), &map.width, 1, Map_Width_Max);
             next_row(gui);
@@ -531,10 +557,53 @@ public bool editor_simulate(App_State* s, float dt){
             }
         } break;
 
-        case Editor_Tab.Missions:{
-            label(gui, gui_id(), "TODO: Add things!");
+        case Editor_Tab.Variant:{
+            auto variant  = g_current_variant;
+
+            button(gui, Button_Prev_Variant, "<", 0);
+            auto variant_index = get_variant_index(variant);
+            auto variant_label = gen_string("Variant: {0}", variant_index, &s.frame_memory);
+            label(gui, gui_id(), variant_label);
+            button(gui, Button_Next_Variant, ">", 0);
+            button(gui, Button_Delete_Variant, "-", 0);
+            button(gui, Button_New_Variant, "+", 0);
+            next_row(gui);
+
+            label(gui, gui_id(), "Name:");
+            text_field(gui, gui_id(), variant.name[], &variant.name_used);
+            next_row(gui);
+
+            auto difficulty_label = gen_string("Difficulty: {0}", variant.difficulty, &s.frame_memory);
+            button(gui, Button_Prev_Difficulty, "<", 0);
+            button(gui, Button_Next_Difficulty, ">", 0);
+            label(gui, gui_id(), difficulty_label);
+            next_row(gui);
+
+            auto missions_label = gen_string("Missions: {0}", variant.missions.count, &s.frame_memory);
+            label(gui, gui_id(), missions_label);
+            next_row(gui);
+
+            label(gui, gui_id(), "Lives:");
+            spin_button(gui, gui_id(), &variant.lives);
+            next_row(gui);
+
+            label(gui, gui_id(), "Players:");
+            spin_button(gui, gui_id(), &variant.players, 1, 4);
+            next_row(gui);
         } break;
 
+        /+
+        case Editor_Tab.Missions:{
+            auto variant  = g_current_variant;
+            auto variant_label = gen_string("Variant: {0}", , &s.frame_memory);
+
+            auto index_label =
+            button(gui, Button_Prev_Tank_Type, "<", 0);
+            label(gui, gui_id(), index_label);
+            button(gui, Button_Next_Tank_Type, ">", 0);
+            next_row(gui);
+        } break;
++/
         case Editor_Tab.Tanks:{
             auto type = &g_tank_types[g_current_tank_type];
 
@@ -552,17 +621,30 @@ public bool editor_simulate(App_State* s, float dt){
             label(gui, gui_id(), section_header);
             next_row(gui);
 
-            static foreach(i, member; type.tupleof){
-                // TODO: Break colors into RGB fields.
+            static foreach(i, member; type.tupleof){{
+                alias T = typeof(member);
                 label(gui, gui_id(), __traits(identifier, member) ~ ":");
-                static if(is(typeof(member) == uint) || is(typeof(member) == float)){
+                static if(is(T == uint) || is(T == float)){
                     spin_button(gui, gui_id(i), &type.tupleof[i], 0);
                 }
-                else static if(is(typeof(member) == bool)){
+                else static if(is(T == Vec3)){
+                    auto v = &type.tupleof[i];
+                    next_row(gui);
+                    label(gui, gui_id(), "R:");
+                    spin_button(gui, gui_id(i), &v.r, 0, 1, 0.1f);
+                    next_row(gui);
+                    label(gui, gui_id(), "G:");
+                    spin_button(gui, gui_id(i), &v.g, 0, 1, 0.1f);
+                    next_row(gui);
+                    label(gui, gui_id(), "B:");
+                    spin_button(gui, gui_id(i), &v.b, 0, 1, 0.1f);
+                    next_row(gui);
+                }
+                else static if(is(T == bool)){
                     checkbox(gui, gui_id(i), &type.tupleof[i]);
                 }
                 next_row(gui);
-            }
+            }}
         } break;
 
         case Editor_Tab.Info:{
@@ -755,6 +837,20 @@ public bool editor_simulate(App_State* s, float dt){
                 if(g_current_tank_type == 0)
                     g_current_tank_type = g_tank_types_count;
                 g_current_tank_type--;
+            } break;
+
+            case Button_Next_Difficulty:{
+                auto variant = g_current_variant;
+                auto d = cast(uint)variant.difficulty;
+                d = clamp(d + 1, 0, Campaign_Difficuly.max);
+                variant.difficulty = cast(Campaign_Difficuly)d;
+            } break;
+
+            case Button_Prev_Difficulty:{
+                auto variant = g_current_variant;
+                auto d = cast(uint)variant.difficulty;
+                d = clamp(d - 1, 0, Campaign_Difficuly.max);
+                variant.difficulty = cast(Campaign_Difficuly)d;
             } break;
 
             case Button_Begin_Save:{

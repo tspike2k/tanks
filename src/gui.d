@@ -603,7 +603,7 @@ void end_text_input(Gui_State* gui){
                                 auto data = &btn.data_u32;
                                 uint next_value;
                                 if(to_int(&next_value, text)){
-                                    (*data.value) = clamp((*data.value), data.min, data.max);
+                                    (*data.value) = clamp(next_value, data.min, data.max);
                                 }
                             } break;
 
@@ -611,7 +611,7 @@ void end_text_input(Gui_State* gui){
                                 auto data = &btn.data_f32;
                                 float next_value;
                                 if(to_float(&next_value, text)){
-                                    (*data.value) = clamp((*data.value), data.min, data.max);
+                                    (*data.value) = clamp(next_value, data.min, data.max);
                                 }
                             } break;
                         }

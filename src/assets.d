@@ -167,8 +167,6 @@ struct Campaign_Map{
 // the array. Otherwise, the index is a random number between type_min and type_max, inclusive.
 //
 // spawn_index: The index of the tank spawner to use encoded in the map cells.
-//
-// TODO: This could be easily encoded as a uint.
 struct Enemy_Tank{
     uint type_min;
     uint type_max;
