@@ -213,6 +213,16 @@ void editor_save_campaign_file(App_State* s){
         }
     }
 
+    campaign.variants = alloc_array!Campaign_Variant(scratch, g_variants.count);
+    uint variant_index  = 0;
+    foreach(variant; g_variants.iterate()){
+        auto dest = &campaign.variants[variant_index++];
+        dest.name = variant.name[0 .. variant.name_used];
+        dest.players = variant.players;
+        dest.lives   = variant.lives;
+        dest.difficulty = variant.difficulty;
+    }
+
 
 
     // TODO: Put date
@@ -274,6 +284,7 @@ bool editor_load_campaign(App_State* s, uint file_flags = 0){
                     variant.lives   = source_variant.lives;
                     variant.players = source_variant.players;
                     variant.name_used = cast(uint)copy(source_variant.name, variant.name);
+                    variant.difficulty = source_variant.difficulty;
                 }
             }
             else{
@@ -773,7 +784,13 @@ public bool editor_simulate(App_State* s, float dt){
                             case Key_ID_S:{
                                 if(!key.is_repeat){
                                     if(key.modifier & Key_Modifier_Ctrl){
-                                        editor_save_campaign_file(s);
+                                        if(g_file_op != File_Op.Save){
+                                            g_file_op = File_Op.Save;
+                                        }
+                                        else{
+                                            g_file_op = File_Op.None;
+                                            editor_save_campaign_file(s);
+                                        }
                                     }
                                     else{
                                         g_cursor_mode = Cursor_Mode.Select;
@@ -783,7 +800,13 @@ public bool editor_simulate(App_State* s, float dt){
 
                             case Key_ID_L:{
                                 if(!key.is_repeat && key.modifier & Key_Modifier_Ctrl){
-                                    editor_load_campaign(s);
+                                    if(g_file_op != File_Op.Load){
+                                        g_file_op = File_Op.Load;
+                                    }
+                                    else{
+                                        g_file_op = File_Op.None;
+                                        editor_load_campaign(s);
+                                    }
                                 }
                             } break;
 
