@@ -103,6 +103,10 @@ struct Variant{
     List!Mission_Entry  missions;
 }
 
+struct Free_List(T){
+    T* next;
+}
+
 struct Text_Entry(uint Count){
     char[Count] buffer;
     uint        used;
@@ -163,6 +167,10 @@ __gshared Map_Entry*     g_current_map;
 __gshared Variant*       g_current_variant;
 __gshared uint           g_editor_tab;
 __gshared uint           g_current_tank_type;
+
+__gshared Free_List!Mission_Entry  g_mission_freelist;
+__gshared Free_List!Map_Entry      g_maps_freelist;
+__gshared Free_List!Variant        g_variant_freelist;
 
 __gshared Text_Entry!(64)  g_campaign_name;
 __gshared Text_Entry!(64)  g_campaign_author;
@@ -431,20 +439,6 @@ uint get_mission_index(Mission_Entry* mission){
     return index;
 }
 
-void editor_remove_current_map(){
-    auto maps = &g_maps;
-    if(maps.count > 1){
-        auto to_remove = g_current_map;
-        auto next = g_current_map.next;
-        if(maps.is_sentinel(next)){
-            next = g_current_map.prev;
-        }
-        assert(!maps.is_sentinel(next));
-        maps.remove(to_remove);
-        g_current_map = next;
-    }
-}
-
 void set_tank_type_to_default(Tank_Type* type){
     type.main_color = Vec3(0.600000, 0.500000, 0.300000);
     type.alt_color = Vec3(0.450000, 0.220000, 0.130000);
@@ -470,8 +464,6 @@ void set_tank_type_to_default(Tank_Type* type){
     type.aim_max_angle = 2.967057;
 }
 
-__gshared uint[4] spin_test;
-
 T* list_get_prev(List, T)(List* list, T* node){
     auto result = node.prev;
     if(list.is_sentinel(result)){
@@ -487,6 +479,37 @@ T* list_get_next(List, T)(List* list, T* node){
     }
     return result;
 }
+
+T* list_remove_current(List, T, Free_List)(List* list, T* node, Free_List* freelist){
+    T* result = node;
+    if(list.count > 1){
+        auto to_remove = node;
+        result = node.next;
+        if(list.is_sentinel(result)){
+            result = result.next;
+        }
+        assert(!list.is_sentinel(result));
+        assert(result != to_remove);
+        list.remove(to_remove);
+        to_remove.next = freelist.next;
+        freelist.next = to_remove;
+    }
+    return result;
+}
+
+T* alloc_or_freelist(T, Freelist)(Freelist* freelist){
+    T* result;
+    if(freelist.next){
+        result = freelist.next;
+        freelist.next = result.next;
+        clear_to_zero(*result);
+    }
+    else{
+        result = alloc_type!T(g_allocator);
+    }
+    return result;
+}
+
 
 public bool editor_simulate(App_State* s, float dt){
     assert(g_editor_is_open);
@@ -915,7 +938,7 @@ public bool editor_simulate(App_State* s, float dt){
             } break;
 
             case Button_Delete_Map:{
-                editor_remove_current_map();
+                g_current_map = list_remove_current(&g_maps, g_current_map, &g_maps_freelist);
             } break;
 
             case Button_Next_Map:{
@@ -937,8 +960,8 @@ public bool editor_simulate(App_State* s, float dt){
             } break;
 
             case Button_Delete_Variant:{
-                // TODO: Implement this!
-                assert(0);
+                g_current_variant = list_remove_current(&g_variants, g_current_variant, &g_variant_freelist);
+                g_current_mission = g_current_variant.missions.bottom;
             } break;
 
             case Button_New_Variant:{
@@ -1290,7 +1313,7 @@ public void editor_render(App_State* s, Render_Passes rp){
 }
 
 Variant* editor_add_variant(){
-    auto variant = alloc_type!Variant(g_allocator);
+    auto variant = alloc_or_freelist!Variant(&g_variant_freelist);
     g_variants.insert(g_variants.top, variant);
     g_current_variant = variant;
 
@@ -1308,7 +1331,7 @@ Variant* editor_add_variant(){
 }
 
 Map_Entry* editor_add_map(uint width, uint height){
-    auto map = alloc_type!Map_Entry(g_allocator);
+    auto map = alloc_or_freelist!Map_Entry(&g_maps_freelist);
 
     // Default values.
     assert(width <= Map_Width_Max);
