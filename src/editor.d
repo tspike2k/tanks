@@ -75,6 +75,12 @@ struct Map_Entry{
 struct Mission_Entry{
     Mission_Entry* next;
     Mission_Entry* prev;
+
+    bool awards_tank_bonus;
+    uint map_index_min;
+    uint map_index_max;
+    Enemy_Tank[32] enemies;
+    uint           enemies_count;
 }
 
 struct Tank_Entry{
@@ -121,6 +127,10 @@ enum Button_Prev_Variant       = gui_id();
 enum Button_Next_Variant       = gui_id();
 enum Button_Delete_Variant     = gui_id();
 enum Button_New_Variant        = gui_id();
+enum Button_Prev_Mission       = gui_id();
+enum Button_Next_Mission       = gui_id();
+enum Button_Delete_Mission     = gui_id();
+enum Button_New_Mission        = gui_id();
 
 enum File_Op : uint{
     None,
@@ -148,10 +158,11 @@ __gshared List!Map_Entry  g_maps;
 __gshared Tank_Type[Max_Enemies+1] g_tank_types;
 __gshared uint                     g_tank_types_count;
 
-__gshared Map_Entry* g_current_map;
-__gshared Variant*   g_current_variant;
-__gshared uint       g_editor_tab;
-__gshared uint       g_current_tank_type;
+__gshared Mission_Entry* g_current_mission;
+__gshared Map_Entry*     g_current_map;
+__gshared Variant*       g_current_variant;
+__gshared uint           g_editor_tab;
+__gshared uint           g_current_tank_type;
 
 __gshared Text_Entry!(64)  g_campaign_name;
 __gshared Text_Entry!(64)  g_campaign_author;
@@ -285,6 +296,15 @@ bool editor_load_campaign(App_State* s, uint file_flags = 0){
                     variant.players = source_variant.players;
                     variant.name_used = cast(uint)copy(source_variant.name, variant.name);
                     variant.difficulty = source_variant.difficulty;
+
+                    foreach(ref src_mission; source_variant.missions){
+                        auto mission = editor_add_mission();
+                        mission.awards_tank_bonus = src_mission.awards_tank_bonus;
+                        mission.map_index_min     = src_mission.map_index_min;
+                        mission.map_index_max     = src_mission.map_index_max;
+                        copy(src_mission.enemies, mission.enemies);
+                    }
+                    g_current_mission = variant.missions.bottom;
                 }
             }
             else{
@@ -395,6 +415,22 @@ uint get_variant_index(Variant* variant){
     return index;
 }
 
+uint get_mission_index(Mission_Entry* mission){
+    uint index = 0;
+    bool found_entry = false;
+    auto variant = g_current_variant;
+    foreach(entry; variant.missions.iterate()){
+        if(entry == mission){
+            found_entry = true;
+            break;
+        }
+        index++;
+    }
+
+    assert(found_entry);
+    return index;
+}
+
 void editor_remove_current_map(){
     auto maps = &g_maps;
     if(maps.count > 1){
@@ -435,6 +471,22 @@ void set_tank_type_to_default(Tank_Type* type){
 }
 
 __gshared uint[4] spin_test;
+
+T* list_get_prev(List, T)(List* list, T* node){
+    auto result = node.prev;
+    if(list.is_sentinel(result)){
+        result = result.prev;
+    }
+    return result;
+}
+
+T* list_get_next(List, T)(List* list, T* node){
+    auto result = node.next;
+    if(list.is_sentinel(result)){
+        result = result.next;
+    }
+    return result;
+}
 
 public bool editor_simulate(App_State* s, float dt){
     assert(g_editor_is_open);
@@ -607,8 +659,39 @@ public bool editor_simulate(App_State* s, float dt){
         } break;
 
         case Editor_Tab.Missions:{
-            auto variant  = g_current_variant;
+            auto variant = g_current_variant;
+            auto mission = g_current_mission;
+
             auto variant_label = gen_string("Variant: {0}", variant.name[0 .. variant.name_used], &s.frame_memory);
+            label(gui, gui_id(), variant_label);
+            next_row(gui);
+
+            button(gui, Button_Prev_Mission, "<", 0);
+            auto mission_index = get_mission_index(mission);
+            auto mission_label = gen_string("Mission: {0}", mission_index, &s.frame_memory);
+            label(gui, gui_id(), mission_label);
+            button(gui, Button_Next_Mission, ">", 0);
+            button(gui, Button_Delete_Mission, "-", 0);
+            button(gui, Button_New_Mission, "+", 0);
+            next_row(gui);
+
+            label(gui, gui_id(), "Tank bonus:");
+            checkbox(gui, gui_id(), &mission.awards_tank_bonus);
+            next_row(gui);
+
+            label(gui, gui_id(), "Map Min:");
+            spin_button(gui, gui_id(), &mission.map_index_min, 0, mission.map_index_max);
+            next_row(gui);
+
+            label(gui, gui_id(), "Map Max:");
+            spin_button(gui, gui_id(), &mission.map_index_max, 0, cast(uint)g_maps.count);
+            next_row(gui);
+
+            // TODO: Enemies.
+
+            /+
+            Enemy_Tank[32] enemies;
+            uint           enemies_count;+/
         /+
 
             auto index_label =
@@ -836,45 +919,46 @@ public bool editor_simulate(App_State* s, float dt){
             } break;
 
             case Button_Next_Map:{
-                auto next_map = g_current_map.next;
-                auto variant  = g_current_variant;
-                if(g_maps.is_sentinel(next_map)){
-                    next_map = next_map.next;
-                }
-                g_current_map = next_map;
+                g_current_map = list_get_next(&g_maps, g_current_map);
             } break;
 
             case Button_Prev_Map:{
-                auto next_map = g_current_map.prev;
-                auto variant  = g_current_variant;
-                if(g_maps.is_sentinel(next_map)){
-                    next_map = next_map.prev;
-                }
-                g_current_map = next_map;
+                g_current_map = list_get_prev(&g_maps, g_current_map);
             } break;
 
             case Button_Prev_Variant:{
-                auto next     = g_current_variant.prev;
-                if(g_variants.is_sentinel(next)){
-                    next = next.prev;
-                }
-                g_current_variant = next;
+                g_current_variant = list_get_prev(&g_variants, g_current_variant);
+                g_current_mission = g_current_variant.missions.bottom;
             } break;
 
             case Button_Next_Variant:{
-                auto next     = g_current_variant.next;
-                if(g_variants.is_sentinel(next)){
-                    next = next.next;
-                }
-                g_current_variant = next;
+                g_current_variant = list_get_next(&g_variants, g_current_variant);
+                g_current_mission = g_current_variant.missions.bottom;
             } break;
 
             case Button_Delete_Variant:{
-
+                // TODO: Implement this!
+                assert(0);
             } break;
 
             case Button_New_Variant:{
                 editor_add_variant();
+            } break;
+
+            case Button_Prev_Mission:{
+                g_current_mission = list_get_prev(&g_current_variant.missions, g_current_mission);
+            } break;
+
+            case Button_Next_Mission:{
+                g_current_mission = list_get_next(&g_current_variant.missions, g_current_mission);
+            } break;
+
+            case Button_Delete_Mission:{
+                assert(0); // TODO: Implement this!
+            } break;
+
+            case Button_New_Mission:{
+                editor_add_mission();
             } break;
 
             case Button_Next_Tank_Type:{
@@ -1218,12 +1302,12 @@ Variant* editor_add_variant(){
     variant.difficulty = Campaign_Difficuly.Normal;
 
     variant.missions.make();
+    editor_add_mission();
 
     return variant;
 }
 
 Map_Entry* editor_add_map(uint width, uint height){
-    auto variant = g_current_variant;
     auto map = alloc_type!Map_Entry(g_allocator);
 
     // Default values.
@@ -1235,6 +1319,15 @@ Map_Entry* editor_add_map(uint width, uint height){
     g_maps.insert(g_maps.top, map);
     g_current_map = map;
     return map;
+}
+
+Mission_Entry* editor_add_mission(){
+    auto variant = g_current_variant;
+
+    auto mission = alloc_type!Mission_Entry(g_allocator);
+    variant.missions.insert(variant.missions.top, mission);
+    g_current_mission = mission;
+    return mission;
 }
 
 void prepare_campaign(){
