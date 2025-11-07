@@ -6,10 +6,6 @@ See accompanying file LICENSE_BOOST.txt or copy at http://www.boost.org/LICENSE_
 
 /+
 TODO:
-    - Fix memory leak with calls to load_campaign_from_file. This should load the campaign into
-    an allocator specially reserved for campaign memory. When we load, we should reset the
-    allocator each time.
-
     - Undo buffer. This should be an expanding array (so use malloc/realloc?). We should directly
     push the state of removed maps/missions into this buffer so they can be restored easily.
     This way we don't have to ask the user if they're really sure they want to delete a map/mission.
@@ -17,6 +13,8 @@ TODO:
 
     - Input verification. Make sure the user can't add more thanks than a level can contain. Make
     sure multiple tanks cannot exist for a single spawn point, etc.
+
+    - Better visualization for the effect editing properties will produce and on what.
 +/
 
 import app;
@@ -136,6 +134,11 @@ enum Button_Next_Mission       = gui_id();
 enum Button_Delete_Mission     = gui_id();
 enum Button_New_Mission        = gui_id();
 
+enum Button_Prev_Enemy         = gui_id();
+enum Button_Next_Enemy         = gui_id();
+enum Button_Delete_Enemy       = gui_id();
+enum Button_New_Enemy          = gui_id();
+
 enum File_Op : uint{
     None,
     Save,
@@ -153,9 +156,9 @@ __gshared bool           g_mouse_right_is_down;
 __gshared Place_Type     g_place_type;
 __gshared Cursor_Mode    g_cursor_mode;
 __gshared Tile*          g_selected_tile;
-__gshared bool           g_dragging_selected;
 __gshared Vec2           g_drag_offset;
 __gshared bool           g_overhead_view;
+__gshared uint           g_current_enemy_index;
 
 __gshared List!Variant    g_variants;
 __gshared List!Map_Entry  g_maps;
@@ -241,29 +244,6 @@ void editor_save_campaign_file(App_State* s){
         dest.lives   = variant.lives;
         dest.difficulty = variant.difficulty;
     }
-
-
-
-    // TODO: Put date
-    //info.missions_count = cast(uint)g_missions.count;
-    //info.maps_count     = cast(uint)g_maps.count;
-
-    /+
-    auto section = begin_writing_section(&serializer, Campaign_Section_Type.Maps);
-    auto maps_count = cast(uint)g_maps.count;
-    write(&serializer, maps_count);
-    foreach(ref entry; g_maps.iterate()){
-        write(&serializer, entry.map);
-    }
-    end_writing_section(&serializer, section);
-+/
-    /+
-    foreach(ref entry; g_missions.iterate()){
-        auto section = begin_writing_section(&serializer, Campaign_Section_Type.Mission);
-        auto mission = &entry.mission;
-        write(&serializer, *mission);
-        end_writing_section(&serializer, section);
-    }+/
 
     auto dest_buffer = begin_reserve_all(scratch);
     auto serializer = Serializer(dest_buffer);
@@ -367,10 +347,17 @@ bool inside_grid(Map_Entry* map, Vec2 p){
     return result;
 }
 
+/+
 bool is_cell_occupied(Map_Entry* map, Vec2 pos){
     assert(inside_grid(map, pos));
     auto x = cast(int)pos.x;
     auto y = cast(int)pos.y;
+    auto result = map.cells[x + y * Map_Width_Max].occupied;
+    return result;
+}+/
+
+bool is_cell_occupied(Map_Entry* map, int x, int y){
+    assert(inside_grid(map, Vec2(x, y)));
     auto result = map.cells[x + y * Map_Width_Max].occupied;
     return result;
 }
@@ -710,18 +697,31 @@ public bool editor_simulate(App_State* s, float dt){
             spin_button(gui, gui_id(), &mission.map_index_max, 0, cast(uint)g_maps.count);
             next_row(gui);
 
-            // TODO: Enemies.
+            label(gui, gui_id(), "-Enemies-");
+            next_row(gui);
 
-            /+
-            Enemy_Tank[32] enemies;
-            uint           enemies_count;+/
-        /+
+            button(gui, Button_Prev_Enemy, "<", 0);
+            auto enemy_label= gen_string("Enemy: {0}", g_current_enemy_index, &s.frame_memory);
+            label(gui, gui_id(), enemy_label);
+            button(gui, Button_Next_Enemy, ">", 0);
+            button(gui, Button_Delete_Enemy, "-", 0);
+            button(gui, Button_New_Enemy, "+", 0);
+            next_row(gui);
 
-            auto index_label =
-            button(gui, Button_Prev_Tank_Type, "<", 0);
-            label(gui, gui_id(), index_label);
-            button(gui, Button_Next_Tank_Type, ">", 0);
-            next_row(gui);+/
+            g_current_enemy_index = min(mission.enemies_count, g_current_enemy_index);
+            auto enemy = &mission.enemies[g_current_enemy_index];
+
+            label(gui, gui_id(), "Type Min:");
+            spin_button(gui, gui_id(), &enemy.type_min, 0, enemy.type_max);
+            next_row(gui);
+
+            label(gui, gui_id(), "Type Max:");
+            spin_button(gui, gui_id(), &enemy.type_max, 0, g_tank_types_count);
+            next_row(gui);
+
+            label(gui, gui_id(), "Spawn index:");
+            spin_button(gui, gui_id(), &enemy.spawn_index);
+            next_row(gui);
         } break;
 
         case Editor_Tab.Tanks:{
@@ -829,34 +829,6 @@ public bool editor_simulate(App_State* s, float dt){
                                 arrow_down_pressed = true;
                             } break;
 
-/+
-                            case Key_ID_U:{
-                                if(g_cursor_mode == Cursor_Mode.Select && g_selected_cell){
-                                    (*g_selected_cell) ^= Map_Cell_Is_Special; // Toggle the special bit
-                                }
-                            } break;
-                            case Key_ID_0:
-                            case Key_ID_1:
-                            case Key_ID_2:
-                            case Key_ID_3:
-                            case Key_ID_4:
-                            case Key_ID_5:
-                            case Key_ID_6:
-                            case Key_ID_7:
-                            {
-                                if(!key.is_repeat){
-                                    ubyte index = cast(ubyte)(key.id - Key_ID_0);
-                                    if(g_cursor_mode == Cursor_Mode.Select && g_selected_cell){
-                                        auto entity_type = *g_selected_cell;
-                                        if(!(entity_type & Map_Cell_Is_Tank)){
-                                            entity_type &= ~Map_Cell_Index_Mask;
-                                            entity_type |= (index & Map_Cell_Index_Mask);
-                                        }
-                                        *g_selected_cell = entity_type;
-                                    }
-                                }
-                            } break;
-+/
                             case Key_ID_T:{
                                 g_place_type = Place_Type.Tank;
                             } break;
@@ -970,17 +942,21 @@ public bool editor_simulate(App_State* s, float dt){
 
             case Button_Prev_Mission:{
                 g_current_mission = list_get_prev(&g_current_variant.missions, g_current_mission);
+                g_current_enemy_index = 0;
             } break;
 
             case Button_Next_Mission:{
+                g_current_enemy_index = 0;
                 g_current_mission = list_get_next(&g_current_variant.missions, g_current_mission);
             } break;
 
             case Button_Delete_Mission:{
-                assert(0); // TODO: Implement this!
+                g_current_enemy_index = 0;
+                g_current_mission = list_remove_current(&g_current_variant.missions, g_current_mission, &g_mission_freelist);
             } break;
 
             case Button_New_Mission:{
+                g_current_enemy_index = 0;
                 editor_add_mission();
             } break;
 
@@ -1039,7 +1015,9 @@ public bool editor_simulate(App_State* s, float dt){
 
         case Cursor_Mode.Place:{
             if(g_mouse_left_is_down){
-                if(inside_grid(map, s.mouse_world) && !is_cell_occupied(map, s.mouse_world)){
+                auto x = cast(int)s.mouse_world.x;
+                auto y = cast(int)s.mouse_world.y;
+                if(inside_grid(map, s.mouse_world) && !is_cell_occupied(map, x, y)){
                     bool is_tank = g_place_type == Place_Type.Tank;
                     set_cell(map, s.mouse_world, is_tank, false, 1);
                 }
@@ -1054,112 +1032,31 @@ public bool editor_simulate(App_State* s, float dt){
 
         case Cursor_Mode.Select:{
             if(mouse_left_pressed){
-                if(inside_grid(map, s.mouse_world) && is_cell_occupied(map, s.mouse_world)){
-                    auto x = cast(int)s.mouse_world.x;
-                    auto y = cast(int)s.mouse_world.y;
+                auto x = cast(int)s.mouse_world.x;
+                auto y = cast(int)s.mouse_world.y;
+                if(inside_grid(map, s.mouse_world) && is_cell_occupied(map, x, y)){
                     g_selected_tile = &map.cells[x + y * Map_Width_Max];
+                    g_drag_offset = Vec2(x, y) - s.mouse_world;
                 }
                 else{
                     g_selected_tile = null;
                 }
             }
+
+            if(g_mouse_left_is_down && g_selected_tile){
+                auto dest_p = s.mouse_world + g_drag_offset;
+                auto x = cast(int)s.mouse_world.x;
+                auto y = cast(int)s.mouse_world.y;
+                if(inside_grid(map, dest_p) && !is_cell_occupied(map, x, y)){
+                    auto tile_value  = *g_selected_tile;
+                    g_selected_tile.occupied = false;
+
+                    g_selected_tile = &map.cells[x + y * Map_Width_Max];
+                    *g_selected_tile = tile_value;
+                }
+            }
         } break;
     }
-
-    /+
-    switch(g_cursor_mode){
-        default: break;
-
-        case Cursor_Mode.Select:{
-            if(g_selected_entity){
-                s.highlight_entity_id = g_selected_entity.id;
-            }
-            else{
-                s.highlight_entity_id = Null_Entity_ID;
-            }
-            s.highlight_material = &s.material_eraser;
-
-            if(mouse_left_pressed){
-                auto e = editor_get_entity(layer, s.mouse_world);
-                g_selected_entity = e;
-                if(e){
-                    g_drag_offset = e.pos - s.mouse_world;
-                }
-            }
-
-            if(g_selected_entity){
-                auto e = g_selected_entity;
-                if(e){
-                    if(g_mouse_right_is_down){
-                        // TODO: We'd like to be able to use shift+click or ctrl+click to
-                        // allow the user to snap rotation to fixed points.
-                        auto dir = normalize(s.mouse_world - e.pos);
-                        e.angle = atan2(dir.y, dir.x);
-                    }
-
-                    if(g_mouse_left_is_down){
-                        if(g_dragging_selected){
-                            auto dest_p = s.mouse_world + g_drag_offset;
-                            if(inside_grid(dest_p)){
-                                if(e.type == Entity_Type.Block){
-                                    e.pos = floor(dest_p) + Vec2(0.5f, 0.5f);
-                                }
-                                else{
-                                    e.pos = dest_p;
-                                }
-                            }
-                        }
-                        else{
-                            g_dragging_selected = dist_sq(e.pos, s.mouse_world + g_drag_offset) > squared(0.5f);
-                        }
-                    }
-                    else{
-                        g_dragging_selected = false;
-                    }
-
-                    if(arrow_up_pressed && e.type == Entity_Type.Block && e.block_height < 7){
-                        e.block_height++;
-                    }
-
-                    if(arrow_down_pressed && e.type == Entity_Type.Block && e.block_height > 0){
-                        e.block_height--;
-                    }
-                }
-                else{
-                    g_selected_entity = null;
-                }
-            }
-        } break;
-
-        case Cursor_Mode.Place:{
-            if(inside_grid(s.mouse_world)){
-                if(g_edit_mode == Edit_Mode.Map && g_mouse_left_is_down){
-                    auto tile = floor(s.mouse_world);
-                    if(!block_exists_on_tile(tile)){
-                        editor_add_entity(g_current_map, tile + Vec2(0.5f, 0.5f), Entity_Type.Block);
-                    }
-                }
-                else if(g_edit_mode == Edit_Mode.Level && mouse_left_pressed){
-                    editor_add_entity(g_current_level, s.mouse_world, Entity_Type.Tank);
-                }
-            }
-        } break;
-
-        case Cursor_Mode.Erase:{
-            auto hover_e = editor_get_entity(layer, s.mouse_world);
-            if(hover_e){
-                s.highlight_entity_id = hover_e.id;
-                s.highlight_material  = &s.material_eraser;
-
-                if(g_mouse_left_is_down && hover_e){
-                    remove_entity(layer, hover_e);
-                }
-            }
-            else{
-                s.highlight_entity_id = Null_Entity_ID;
-            }
-        } break;
-    }+/
 
     if(should_close){
         editor_toggle(s);
@@ -1347,7 +1244,7 @@ Map_Entry* editor_add_map(uint width, uint height){
 Mission_Entry* editor_add_mission(){
     auto variant = g_current_variant;
 
-    auto mission = alloc_type!Mission_Entry(g_allocator);
+    auto mission = alloc_or_freelist!Mission_Entry(&g_mission_freelist);
     variant.missions.insert(variant.missions.top, mission);
     g_current_mission = mission;
     return mission;
@@ -1368,26 +1265,6 @@ void editor_new_campaign(){
     set_tank_type_to_default(&g_tank_types[1]);
 }
 
-/+
-void editor_load_maps_file(String name){
-    push_frame(g_allocator.scratch);
-    scope(exit) pop_frame(g_allocator.scratch);
-
-    auto memory = read_file_into_memory(name, g_allocator.scratch);
-    auto reader = Serializer(memory, g_allocator.scratch);
-    auto header = eat_type!Asset_Header(&reader);
-    if(verify_asset_header!Maps_Meta(name, header)){
-        Campaign_Map[] maps;
-        read(&reader, maps);
-
-        foreach(ref source; maps){
-            auto map_entry = editor_add_map();
-            map_entry.map = source;
-            map_entry.map.cells = dup_array(source.cells, g_allocator);
-        }
-    }
-}+/
-
 Vec3 get_map_center(Campaign_Map* map){
     auto grid_extents = Vec2(map.width, map.height)*0.5f;
     auto result = world_to_render_pos(grid_extents);
@@ -1395,7 +1272,6 @@ Vec3 get_map_center(Campaign_Map* map){
 }
 
 public void editor_toggle(App_State* s){
-    // TODO: Don't use malloc and free. Have a free list of window memory.
     import core.stdc.stdlib : malloc, free;
 
     auto gui = &s.gui;
@@ -1414,7 +1290,6 @@ public void editor_toggle(App_State* s){
 
         if(!editor_load_campaign(s, File_Flag_No_Open_Errors)){
             editor_new_campaign();
-            //editor_load_maps_file("./build/wii_16x9.maps");
         }
 
         auto map = g_current_map;
@@ -1425,11 +1300,6 @@ public void editor_toggle(App_State* s){
 
         g_window_memory = malloc(4096)[0 .. 4096];
         g_panel_memory  = malloc(2048)[0 .. 2048];
-
-        /+
-        memory = (malloc(4086)[0 .. 4086]);
-        window = add_window(gui, "Alt Window", Window_ID_Editor_Test_2, rect_from_min_wh(Vec2(20, 20), 200, 80), memory);
-        button(window, Button_ID_Editor_Test_2, "Test Button");+/
     }
     else{
         // Close all the windows.
