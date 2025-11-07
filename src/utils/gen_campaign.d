@@ -290,6 +290,8 @@ __gshared Tank_Type[] g_tank_types = [
         mine_placement_chance: 0.1f,
         mine_min_ally_dist:    3.0f,
 
+        turret_turn_speed: 0.05f,
+
         fire_cooldown_time: 6.0f/60.0f,
         fire_stun_time:     5.0f/60.0f,
     },
@@ -317,6 +319,8 @@ __gshared Tank_Type[] g_tank_types = [
         fire_timer_max:     (45.0f)/60.0f,
         fire_timer_min:     (30.0f)/60.0f,
         fire_stun_time:     60.0f/60.0f,
+
+        turret_turn_speed: 0.01f,
 
         aim_timer: 60.0f/60.0f,
         aim_max_angle: deg_to_rad(170),
@@ -346,6 +350,8 @@ __gshared Tank_Type[] g_tank_types = [
         fire_timer_min:     (30.0f)/60.0f,
         fire_stun_time:     10.0f/60.0f,
 
+        turret_turn_speed: 0.01f,
+
         aim_timer: 45.0f/60.0f,
         aim_max_angle: deg_to_rad(40),
     },
@@ -373,6 +379,8 @@ __gshared Tank_Type[] g_tank_types = [
         fire_timer_max:     (10.0f)/60.0f,
         fire_timer_min:     (5.0f)/60.0f,
         fire_stun_time:     20.0f/60.0f,
+
+        turret_turn_speed: 0.05f,
 
         aim_timer: 8.0f/60.0f,
         aim_max_angle: 0,
@@ -402,6 +410,8 @@ __gshared Tank_Type[] g_tank_types = [
         fire_timer_min:     (5.0f)/60.0f,
         fire_stun_time:     5.0f/60.0f,
 
+        turret_turn_speed: 0.02f,
+
         aim_timer: 20.0f/60.0f,
         aim_max_angle: deg_to_rad(40),
     },
@@ -429,6 +439,8 @@ __gshared Tank_Type[] g_tank_types = [
         fire_timer_min:     (30.0f)/60.0f,
         fire_stun_time:     10.0f/60.0f,
         mine_placement_chance: 0.5f,
+
+        turret_turn_speed: 0.02f,
 
         aim_timer: 30.0f/60.0f,
         aim_max_angle: deg_to_rad(40),
@@ -458,6 +470,8 @@ __gshared Tank_Type[] g_tank_types = [
         fire_timer_min:     (5.0f)/60.0f,
         fire_stun_time:     5.0f/60.0f,
 
+        turret_turn_speed: 0.03f,
+
         aim_timer: 20.0f/60.0f,
         aim_max_angle: deg_to_rad(40),
     },
@@ -485,6 +499,8 @@ __gshared Tank_Type[] g_tank_types = [
         fire_timer_max:     (10.0f)/60.0f,
         fire_timer_min:     (5.0f)/60.0f,
         fire_stun_time:     5.0f/60.0f,
+
+        turret_turn_speed: 0.02f,
 
         aim_timer: 30.0f/60.0f,
         aim_max_angle: deg_to_rad(80),
@@ -514,6 +530,8 @@ __gshared Tank_Type[] g_tank_types = [
         fire_timer_min:     (5.0f)/60.0f,
         fire_stun_time:     5.0f/60.0f,
 
+        turret_turn_speed: 0.03f,
+
         aim_timer: 30.0f/60.0f,
         aim_max_angle: deg_to_rad(40),
     },
@@ -541,6 +559,8 @@ __gshared Tank_Type[] g_tank_types = [
         fire_timer_max:     (10.0f)/60.0f,
         fire_timer_min:     (5.0f)/60.0f,
         fire_stun_time:     10.0f/60.0f,
+
+        turret_turn_speed: 0.03f,
 
         aim_timer: 20.0f/60.0f,
         aim_max_angle: deg_to_rad(5),

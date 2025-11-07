@@ -95,8 +95,6 @@ struct Pixels{
 //
 ////
 
-// TODO: Convert Campaign files to using the Asset structure.
-
 enum Campaign_File_Magic = ('T' << 0 | 'a' << 8 | 'n' << 16 | 'k' << 24);
 enum Campaign_File_Version = 4;
 
@@ -185,13 +183,17 @@ struct Tank_Type{
     float bullet_speed;
     float bullet_min_ally_dist;  // Word 41
 
-    uint mine_limit;             // Word 3
+    uint  mine_limit;             // Word 3
     float mine_timer_min;        // Word 5
     float mine_timer_max;        // Word 4
     float mine_cooldown_time;    // Word 9
     float mine_stun_time;        // Word 10
     float mine_placement_chance; // Word 8
     float mine_min_ally_dist;    // Word 6
+
+    float turret_turn_speed;     // Word 39
+
+    bool aggressive_survival;    // Word 20
 
     float obstacle_sight_dist; // Obstacle Awareness (Movement)
 
@@ -493,7 +495,7 @@ bool load_font_from_file(String file_name, Font* font, Pixels* pixels, Allocator
         read(&serializer, header);
         if(verify_asset_header!Font_Meta(file_name, &header)){
             // TODO: Read sections based on the sizes in the section header.
-            // Have a function that will return the section payload, deflating compressed
+            // Have a function that will return the section payload, inflating compressed
             // data as needed.
             Font_Metrics* metrics;
             while(auto section = eat_type!Asset_Section(&serializer)){

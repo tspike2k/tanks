@@ -10,23 +10,15 @@ Credits:
     TheGoldfishKing for the equally helpful "Tanks_Documentation"
 
 TODO:
-    - More editor features (tank params, level size, etc)
     - Finish porting over tank params
     - Support playing custom campaigns.
-    - Add enemy missiles
+    - Add score multipliers? Ricochet hit should count for more, as should mine hits.
     - Show multiplier text during mission gameplay. Bounce score display each time you get a point
 
 Enemy AI:
     - Enemies are supposed to enter "survival mode" when they see a bullet (I think) or a mine.
       In this mode, the enemy tries to move as far back as needed.
     - Enemies should make sure they have room to drive away from a mine before placing one.
-
-Sound effects:
-    - Firing missile (Can we just up-pitch the normal shot sound?)
-
-Interesting article on frequency of packet transmission in multiplayer games
-used in Source games.
-https://developer.valvesoftware.com/wiki/Source_Multiplayer_Networking
 +/
 
 import display;
@@ -1710,11 +1702,6 @@ void apply_tank_commands(App_State* s, Entity* e, Tank_Commands* input, float dt
         e.total_meters_moved += (squared(radius)*abs(rotation))/2.0f;
     }
 
-    if(!is_player_tank(e)){
-        auto target_angle = get_angle(e.aim_target_pos - e.pos);
-        e.turret_angle = rotate_towards(e.turret_angle, target_angle, (PI*0.50f)*dt);
-    }
-
     e.vel = Vec2(0, 0);
     auto facing = vec2_from_angle(e.angle);
     float speed = tank_info.speed;
@@ -1901,8 +1888,13 @@ bool should_take_mine_opportunity(World* world, Entity* e, Tank_Type* tank_info,
     auto chance = random_percent(rng);
     // TODO: Depending on the AI type, AI tanks shouldn't be allowed to lay mines
     // if they're in "survival mode."
+    bool survival_mode = false;
 
-    bool result = chance >= tank_info.mine_placement_chance
+    // TODO: Only allow laying a mine if an empty safe area exists. If it does, set the tank
+    // to move to that area.
+    auto count = get_child_entity_count(world, e.id, Entity_Type.Mine);
+    bool result = count < tank_info.mine_limit
+    && chance >= tank_info.mine_placement_chance
     && !is_ally_within_range(world, e, tank_info.mine_min_ally_dist);
     return result;
 }
@@ -1950,13 +1942,6 @@ void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
         }
     }
 
-    auto sight_range = 8.0f;           // TODO: Get this from tank params
-    auto sight_angle = deg_to_rad(65); // TODO: Get this from tank params
-    bool fire_opportunity = timer_update(&e.fire_timer, dt, &s.rng);
-    if(should_take_fire_opportunity(&s.world, e, tank_info, fire_opportunity)){
-        cmd.fire_bullet = true;
-    }
-
     if(tank_info.mine_limit > 0){
         bool mine_opportunity = timer_update(&e.place_mine_timer, dt, &s.rng);
         if(should_take_mine_opportunity(&s.world, e, tank_info, mine_opportunity, &s.rng)){
@@ -1964,6 +1949,7 @@ void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
         }
     }
 
+    // Determine where to aim turret
     e.aim_timer -= dt;
     if(e.aim_timer < 0.0f){
         e.aim_timer = tank_info.aim_timer + e.aim_timer;
@@ -1983,6 +1969,16 @@ void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
 
             e.aim_target_pos = e.pos + vec2_from_angle(angle)*len;
         }
+    }
+
+    auto target_angle = get_angle(e.aim_target_pos - e.pos);
+    e.turret_angle    = rotate_towards(e.turret_angle, target_angle, tank_info.turret_turn_speed*dt);
+
+    auto sight_range = 8.0f;           // TODO: Get this from tank params
+    auto sight_angle = deg_to_rad(65); // TODO: Get this from tank params
+    bool fire_opportunity = timer_update(&e.fire_timer, dt, &s.rng);
+    if(should_take_fire_opportunity(&s.world, e, tank_info, fire_opportunity)){
+        cmd.fire_bullet = true;
     }
 }
 

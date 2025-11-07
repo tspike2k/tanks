@@ -10,7 +10,13 @@ See accompanying file LICENSE_BOOST.txt or copy at http://www.boost.org/LICENSE_
 
     See here for more info:
     https://stackoverflow.com/a/35697810
+
+Interesting article on frequency of packet transmission in multiplayer games
+used in Source games.
+https://developer.valvesoftware.com/wiki/Source_Multiplayer_Networking
 +/
+
+
 
 // TODO: Better logging!
 

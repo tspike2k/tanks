@@ -347,15 +347,6 @@ bool inside_grid(Map_Entry* map, Vec2 p){
     return result;
 }
 
-/+
-bool is_cell_occupied(Map_Entry* map, Vec2 pos){
-    assert(inside_grid(map, pos));
-    auto x = cast(int)pos.x;
-    auto y = cast(int)pos.y;
-    auto result = map.cells[x + y * Map_Width_Max].occupied;
-    return result;
-}+/
-
 bool is_cell_occupied(Map_Entry* map, int x, int y){
     assert(inside_grid(map, Vec2(x, y)));
     auto result = map.cells[x + y * Map_Width_Max].occupied;
@@ -621,10 +612,24 @@ public bool editor_simulate(App_State* s, float dt){
                     max_index = Max_Players-1;
                 }
 
-                label(gui, gui_id(), "Special:");
+                auto special_label = "Is breakable:";
+                if(tile.is_tank){
+                    special_label = "Is player:";
+                }
+
+                label(gui, gui_id(), special_label);
                 checkbox(gui, gui_id(), &tile.is_special);
                 next_row(gui);
-                label(gui, gui_id(), "Index:");
+
+                auto index_label = "Block height:";
+                if(tile.is_tank){
+                    if(tile.is_special)
+                        index_label = "Player index:";
+                    else
+                        index_label = "Enemy spawn index:";
+                }
+
+                label(gui, gui_id(), index_label);
                 spin_button(gui, gui_id(), &tile.index, 0, max_index);
                 next_row(gui);
             }
@@ -1129,77 +1134,6 @@ public void editor_render(App_State* s, Render_Passes rp){
         render_entity(s, &e, rp);
     }
 
-    /+
-    switch(g_cursor_mode){
-        default: break;
-
-        case Cursor_Mode.Select:{
-            // Draw cursor
-            auto p = world_to_render_pos(s.mouse_world);
-            auto material = &s.material_block;
-            render_mesh(
-                rp.world, &s.cube_mesh, material,
-                mat4_translate(p)*mat4_scale(Vec3(0.25f, 0.25f, 0.25f))
-            );
-
-            auto e = g_selected_entity;
-            if(e){
-                pen.y -= font_small.metrics.line_gap;
-                pen.x = padding;
-
-                render_text(
-                    rp.hud_text, font_small, pen,
-                    gen_string("Selected : {0}", enum_string(e.type), &s.frame_memory)
-                );
-                pen.y -= font_small.metrics.line_gap;
-
-                switch(e.type){
-                    default: break;
-
-                    case Entity_Type.Block:{
-                        String extra = "";
-                        if(e.block_height == 0){
-                            extra = "(hole)";
-                        }
-
-                        render_text(
-                            rp.hud_text, font_small, pen,
-                            gen_string("Height: {0} {1}", e.block_height, extra, &s.frame_memory)
-                        );
-                    } break;
-
-                    case Entity_Type.Tank:{
-                        String extra = "";
-                        if(e.player_index == 0){
-                            extra = "(enemy)";
-                        }
-
-                        render_text(
-                            rp.hud_text, font_small, pen,
-                            gen_string("Player Index: {0} {1}", e.player_index, extra, &s.frame_memory)
-                        );
-                    } break;
-                }
-            }
-        } break;
-
-        case Cursor_Mode.Place:{
-            if(inside_grid(s.mouse_world)){
-                if(g_edit_mode == Edit_Mode.Map){
-                    Entity e = void;
-                    make_entity(&e, Synthetic_Entity_ID, floor(s.mouse_world) + Vec2(0.5f, 0.5f), Entity_Type.Block);
-                    render_entity(s, &e, rp);
-                }
-                else if(g_edit_mode == Edit_Mode.Level){
-                    Entity e = void;
-                    make_entity(&e, Synthetic_Entity_ID, s.mouse_world, Entity_Type.Tank);
-                    render_entity(s, &e, rp);
-                }
-            }
-        } break;
-    }
-+/
-
     // Draw cursor
     auto p = world_to_render_pos(s.mouse_world);
     auto material = (&s.material_block)[0..1];
@@ -1218,7 +1152,7 @@ Variant* editor_add_variant(){
     copy(default_name, variant.name[0 .. default_name.length]);
     variant.name_used = cast(uint)default_name.length;
     variant.players = 1;
-    variant.lives   = 4; // TODO: Is this the default of the WII original?
+    variant.lives   = 3;
     variant.difficulty = Campaign_Difficuly.Normal;
 
     variant.missions.make();
