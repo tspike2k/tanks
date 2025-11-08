@@ -162,8 +162,9 @@ __gshared uint           g_current_enemy_index;
 
 __gshared List!Variant    g_variants;
 __gshared List!Map_Entry  g_maps;
-__gshared Tank_Type[Max_Enemies+1] g_tank_types;
-__gshared uint                     g_tank_types_count;
+__gshared Tank_Type[Max_Enemies+1]      g_tank_types;
+__gshared uint                          g_tank_types_count;
+__gshared Tank_Materials[Max_Enemies+1] g_tank_materials;
 
 __gshared Mission_Entry* g_current_mission;
 __gshared Map_Entry*     g_current_map;
@@ -1074,6 +1075,13 @@ public bool editor_simulate(App_State* s, float dt){
         } break;
     }
 
+    // Setup tank materials
+    foreach(i, ref entry; g_tank_types[0 .. g_tank_types_count]){
+        auto tank_mats = &g_tank_materials[i];
+        setup_basic_material(&tank_mats.materials[0], s.img_blank_mesh, entry.main_color);
+        setup_basic_material(&tank_mats.materials[1], s.img_blank_mesh, entry.alt_color, 256);
+    }
+
     if(should_close){
         editor_toggle(s);
     }
@@ -1129,7 +1137,8 @@ public void editor_render(App_State* s, Render_Passes rp){
             auto tile = &map.cells[x + y * Map_Width_Max];
             if(tile.occupied){
                 auto e = make_synthetic_entity(Vec2(x, y) + Vec2(0.5f, 0.5f), tile, map_center);
-                render_entity(s, &e, rp, tile == g_selected_tile);
+                auto enemy_materials = g_tank_materials[0 .. g_tank_types_count];
+                render_entity(s, &e, rp, enemy_materials, tile == g_selected_tile);
             }
         }
     }
@@ -1142,7 +1151,8 @@ public void editor_render(App_State* s, Render_Passes rp){
 
         auto p = floor(s.mouse_world) + Vec2(0.5f, 0.5f);
         auto e = make_synthetic_entity(p, &cursor_tile, map_center);
-        render_entity(s, &e, rp);
+        auto enemy_materials = g_tank_materials[0 .. g_tank_types_count];
+        render_entity(s, &e, rp, enemy_materials);
     }
 
     // Draw cursor

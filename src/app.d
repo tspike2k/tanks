@@ -178,6 +178,10 @@ struct Settings{
     Player_Name player_name;
 }
 
+struct Materials{
+
+}
+
 struct App_State{
     Allocator main_memory;
     Allocator frame_memory;
@@ -1488,7 +1492,7 @@ Mat4_Pair make_hud_camera(uint window_width, uint window_height){
     return result;
 }
 
-Material[] choose_materials(App_State* s, Entity* e, bool highlighted){
+Material[] choose_materials(App_State* s, Entity* e, bool highlighted, Tank_Materials[] enemy_tank_materials){
     Material[] result;
     if(!highlighted){
         switch(e.type){
@@ -1520,7 +1524,7 @@ Material[] choose_materials(App_State* s, Entity* e, bool highlighted){
                     result = s.material_player_tank[];
                 else{
                     assert(e.tank_type_index > 0); // NOTE: 0 is the tank type for the player. An enemy tank type should be non-zero.
-                    auto entry = &s.materials_enemy_tank[e.tank_type_index];
+                    auto entry = &enemy_tank_materials[e.tank_type_index];
                     result = entry.materials[];
                 }
             } break;
@@ -1545,8 +1549,8 @@ Material[] choose_materials(App_State* s, Entity* e, bool highlighted){
 }
 
 // TODO: We could change "highlighted" to some form of flag
-void render_entity(App_State* s, Entity* e, Render_Passes rp, bool highlighted = false){
-    Material[] materials = choose_materials(s, e, highlighted);
+void render_entity(App_State* s, Entity* e, Render_Passes rp, Tank_Materials[] enemy_tank_materials, bool highlighted = false){
+    Material[] materials = choose_materials(s, e, highlighted, enemy_tank_materials);
 
     Vec3 p = world_to_render_pos(e.pos);
     switch(e.type){
@@ -3555,7 +3559,7 @@ extern(C) int main(int args_count, char** args){
                     }
 
                     foreach(ref e; iterate_entities(&s.world)){
-                        render_entity(s, &e, render_passes);
+                        render_entity(s, &e, render_passes, s.materials_enemy_tank[]);
                     }
                 }
 
