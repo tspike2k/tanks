@@ -213,6 +213,7 @@ void editor_save_campaign_file(App_State* s){
     campaign.description    = slice_text_entry(&g_campaign_desc);
     campaign.version_string = slice_text_entry(&g_campaign_version_string);
     // TODO: Save date!
+    campaign.tank_types     = g_tank_types[0 .. g_tank_types_count];
 
     campaign.maps = alloc_array!Campaign_Map(scratch, g_maps.count);
     uint map_index = 0;
@@ -243,6 +244,16 @@ void editor_save_campaign_file(App_State* s){
         dest.players = variant.players;
         dest.lives   = variant.lives;
         dest.difficulty = variant.difficulty;
+
+        dest.missions = alloc_array!Campaign_Mission(scratch, variant.missions.count);
+        uint mission_index = 0;
+        foreach(ref src_mission; variant.missions.iterate()){
+            auto mission = &dest.missions[mission_index++];
+            mission.awards_tank_bonus = src_mission.awards_tank_bonus;
+            mission.map_index_min     = src_mission.map_index_min;
+            mission.map_index_max     = src_mission.map_index_max;
+            mission.enemies           = src_mission.enemies[0 .. src_mission.enemies_count];
+        }
     }
 
     auto dest_buffer = begin_reserve_all(scratch);
@@ -1232,7 +1243,7 @@ public void editor_toggle(App_State* s){
 
         g_overhead_view = true;
 
-        g_window_memory = malloc(4096)[0 .. 4096];
+        g_window_memory = malloc(8192)[0 .. 8192];
         g_panel_memory  = malloc(2048)[0 .. 2048];
     }
     else{

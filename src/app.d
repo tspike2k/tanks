@@ -14,6 +14,7 @@ TODO:
     - Support playing custom campaigns.
     - Add score multipliers? Ricochet hit should count for more, as should mine hits.
     - Show multiplier text during mission gameplay. Bounce score display each time you get a point
+    - choose_material should allow for the editor to have custom materials.
 
 Enemy AI:
     - Enemies are supposed to enter "survival mode" when they see a bullet (I think) or a mine.
@@ -196,6 +197,8 @@ struct App_State{
     Game_Mode    next_mode;
     Campaign     campaign;
     String       campaign_file_name;
+    char[256]    campaign_file_name_buffer;
+    uint         campaign_file_name_buffer_used;
     High_Scores  high_scores;
     Session      session;
     Xorshift32   rng;
@@ -1783,8 +1786,13 @@ void push_debug_line(Vec2 p0, Vec2 p1, Vec4 color){
     g_debug_lines[g_debug_lines_count++] = Debug_Line(p0, p1, color);
 }
 
+bool in_survival_mode(Entity* e){
+    return false; // TODO: Implement this
+}
+
 bool should_take_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info, bool has_opportunity){
-    if(is_ally_within_range(world, e, tank_info.bullet_min_ally_dist)){
+    if(is_ally_within_range(world, e, tank_info.bullet_min_ally_dist)
+    || (in_survival_mode(e) && !tank_info.aggressive_survival)){
         return false;
     }
 
@@ -1799,8 +1807,6 @@ bool should_take_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info,
     auto result = false;
     uint iterations = tank_info.bullet_ricochets+1;
 
-    // TODO: When test_radius is set to the bullet radius, shots are usually accurate. Figure out
-    // why some shots miss.
     auto bullet_extents = Vec2(Bullet_Radius, Bullet_Radius);
     float test_radius = Bullet_Radius;
     auto world_bounds = world.bounds;
@@ -1826,25 +1832,12 @@ bool should_take_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info,
             auto obb_extents = Vec2(length(ray_delta*hit.t_min)*0.5f, test_radius);
             auto obb_angle   = get_angle(ray_dir);
 
-            /+
-            // Line-of-sight algorithm thanks to:
-            // https://nic-gamedev.blogspot.com/2011/11/using-vector-mathematics-and-bit-of.html
-            Vect2 mag = normalizeSafe(fs->player.pos - enemy->pos);
-            f32 dot = dotProduct(mag, enemy->facing);
-
-            // TODO: Tune the angle (in radians)
-            if (dot >= cosine(0.7f))
-            {
-
-            }+/
-
             foreach(ref target; iterate_entities(world)){
                 if(target.type == Entity_Type.Tank){
                     auto tank_radius = target.extents.x;
                     if(circle_overlaps_obb(target.pos, tank_radius + Bullet_Radius, obb_center, obb_extents, obb_angle)){
                         if(is_player_tank(&target)){
                             result = true;
-                            //debug_pause(true);
                         }
                         else{
                             result = false;
@@ -1865,8 +1858,6 @@ bool should_take_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info,
                 }
 
                 push_debug_line(ray_start, ray_end, line_color);
-
-                //render_debug_obb(g_debug_render_pass, obb_center, obb_extents, bg_color, obb_angle);
             }
 
             ray_dir   = reflect(ray_dir, hit.normal);
@@ -1942,6 +1933,7 @@ void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
         }
     }
 
+    // Handle mine laying if applicable
     if(tank_info.mine_limit > 0){
         bool mine_opportunity = timer_update(&e.place_mine_timer, dt, &s.rng);
         if(should_take_mine_opportunity(&s.world, e, tank_info, mine_opportunity, &s.rng)){
@@ -1971,8 +1963,10 @@ void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
         }
     }
 
+    // Aim the turret towards target
     auto target_angle = get_angle(e.aim_target_pos - e.pos);
-    e.turret_angle    = rotate_towards(e.turret_angle, target_angle, tank_info.turret_turn_speed*dt);
+    auto turret_speed = tank_info.turret_turn_speed*60.0f;
+    e.turret_angle    = rotate_towards(e.turret_angle, target_angle, turret_speed*dt);
 
     auto sight_range = 8.0f;           // TODO: Get this from tank params
     auto sight_angle = deg_to_rad(65); // TODO: Get this from tank params
@@ -2076,21 +2070,6 @@ void do_collision_interaction(App_State* s, Entity* a, Entity* b, Hit_Tester* hi
             }
         } break;
 
-        case make_collision_id(Entity_Type.Bullet, Entity_Type.Bullet):{
-            // HACK: For now we use discrete collision tests. This means that we step entity A
-            // and then check it's position against the position of all other entities before
-            // we simulate entity B. In the case of two rapidly fired bullets, if the second
-            // bullet is simulated first it could "catch up" to the first and cause a collision
-            // before A has had a chance to move. This shouldn't happen. This hack should prevent
-            // that case.
-            if(dot(a.vel, b.vel) < 0){
-                // TODO: Show minor explosion
-                destroy_entity(a);
-                destroy_entity(b);
-                play_sfx(&s.sfx_pop, 0, 0.75f);
-            }
-        } break;
-
         case make_collision_id(Entity_Type.None, Entity_Type.Bullet): // HACK: Reflect off syntetic entities. For use against world bounds.
         case make_collision_id(Entity_Type.Block, Entity_Type.Bullet):{
             if(b.health > 1){
@@ -2126,7 +2105,6 @@ bool should_collide(Entity* a, Entity* b){
             result = !is_hole(a);
         } break;
 
-        case make_collision_id(Entity_Type.Bullet, Entity_Type.Bullet):
         case make_collision_id(Entity_Type.None, Entity_Type.Bullet): // Bullet vs world bounds
         case make_collision_id(Entity_Type.Block, Entity_Type.Tank):
         case make_collision_id(Entity_Type.Tank, Entity_Type.Bullet):
@@ -2171,6 +2149,21 @@ void handle_entity_overlap(App_State* s, Entity* a, Entity* b){
 
                 destroy_entity(a);
                 add_to_score_if_killed_by_player(s, a, b.parent_id);
+            }
+        } break;
+
+        case make_collision_id(Entity_Type.Bullet, Entity_Type.Bullet):{
+            // HACK: For now we use discrete collision tests. This means that we step entity A
+            // and then check it's position against the position of all other entities before
+            // we simulate entity B. In the case of two rapidly fired bullets, if the second
+            // bullet is simulated first it could "catch up" to the first and cause a collision
+            // before A has had a chance to move. This shouldn't happen. This hack should prevent
+            // that case.
+            if(dot(a.vel, b.vel) < 0){
+                // TODO: Show minor explosion
+                destroy_entity(a);
+                destroy_entity(b);
+                play_sfx(&s.sfx_pop, 0, 0.75f);
             }
         } break;
     }
@@ -2322,7 +2315,7 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
             }
         }
 
-        // Handle overlap with mines
+        // Handle overlap with entities vs mines, and with bullets vs bullets
         foreach(ref a; iterate_entities(&s.world)){
             foreach(ref b; iterate_entities(&s.world, 1)){
                 if(circles_overlap(a.pos, a.extents.x, b.pos, b.extents.x)){
@@ -2498,6 +2491,7 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
                 add_index_picker(menu, &s.session.variant_index, cast(uint)campaign.variants.length, "Variant");
                 add_text_block(menu, "", Label_Campaign_Variant_Name);
                 set_default_style(menu);
+                add_button(menu, "Custom", Menu_Action.Push_Menu, Menu_ID.Campaign_Picker);
                 add_button(menu, "Back", Menu_Action.Pop_Menu, Menu_ID.None);
                 end_block(menu);
                 end_menu_def(menu);
@@ -2647,6 +2641,26 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
                     );
                     set_text(menu, &item, msg);
                 }
+            }
+        } break;
+
+        case Menu_ID.Campaign_Picker:{
+            if(menu_changed){
+                begin_menu_def(menu);
+                begin_block(menu, title_block_height);
+                add_heading(menu, "Custom Campaign");
+                end_block(menu);
+                begin_block(menu, 1.0f - title_block_height);
+
+                auto player_name = &s.settings.player_name;
+                add_textfield(menu, "File name: ", s.campaign_file_name_buffer[], &s.campaign_file_name_buffer_used);
+                add_button(menu, "Load", Menu_Action.Load_Campaign, Menu_ID.None);
+
+                set_default_style(menu);
+                add_button(menu, "Back", Menu_Action.Pop_Menu, Menu_ID.None);
+
+                end_block(menu);
+                end_menu_def(menu);
             }
         } break;
 
@@ -2845,6 +2859,16 @@ void handle_menu_event(App_State* s, Event* evt){
                     push_menu(&s.menu, Menu_ID.High_Score_Details);
                     s.score_to_detail = score;
                 }
+            }
+        } break;
+
+        case Menu_Action.Load_Campaign:{
+            String file_name = s.campaign_file_name_buffer[0 .. s.campaign_file_name_buffer_used];
+            if(load_campaign_from_file(s, file_name)){
+                s.campaign_file_name = file_name;
+            }
+            else{
+                load_campaign_from_file(s, Campaign_File_Name);
             }
         } break;
     }

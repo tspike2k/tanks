@@ -61,6 +61,7 @@ enum Menu_Action : uint{
     Quit_Game,
     Abort_Campaign,
     Show_High_Score_Details,
+    Load_Campaign,
 }
 
 // TODO: Settings menu?
@@ -72,6 +73,7 @@ enum Menu_ID : uint{
     Campaign_Pause,
     High_Score_Details,
     Options,
+    Campaign_Picker,
 }
 
 enum Align : uint{
