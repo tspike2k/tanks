@@ -2335,7 +2335,8 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
     remove_destroyed_entities(&s.world);
 
     if(s.session.enemies_remaining == 0){
-        // TODO: End the campaign if this is the last mission
+
+
         s.session.state = Session_State.Mission_End;
         s.session.timer = 0.0f;
         auto mission = get_current_mission(s);
@@ -2815,10 +2816,10 @@ void begin_campaign(App_State* s, uint variant_index, uint players_count, uint p
 void end_campaign(App_State* s, bool aborted){
     auto variant_scores = &s.high_scores.variants[s.session.variant_index];
     s.session.score.date = get_score_date();
-    // TODO: Store the score slot somewhere so we can use it to highlight the latest high score.
     auto score_slot = maybe_post_highscore(variant_scores, &s.session.score);
     change_mode(s, Game_Mode.Menu);
 
+    s.session.state = Session_State.Inactive;
     s.menu.newly_added_score = score_slot;
     set_menu(&s.menu, Menu_ID.High_Scores);
     s.menu.variant_index = s.session.variant_index;
@@ -3409,8 +3410,6 @@ extern(C) int main(int args_count, char** args){
             s.mode = s.next_mode;
         }
 
-        auto map = get_current_map(s);
-
         Camera hud_camera = void;
         set_hud_camera(&hud_camera, window.width, window.height);
 
@@ -3418,9 +3417,12 @@ extern(C) int main(int args_count, char** args){
         auto world_up_vector = Vec3(0, 1, 0);
         set_shadow_map_camera(&shadow_map_camera, &s.light, s.world_camera_target_pos, world_up_vector);
 
-        float window_aspect_ratio = (cast(float)window.width)/(cast(float)window.height);
-        set_world_view(&s.world_camera, s.world_camera_polar, s.world_camera_target_pos, world_up_vector);
-        set_world_projection(&s.world_camera, map.width, map.height, window_aspect_ratio, 45.0f);
+        if(s.mode == Game_Mode.Campaign){
+            auto map = get_current_map(s);
+            float window_aspect_ratio = (cast(float)window.width)/(cast(float)window.height);
+            set_world_view(&s.world_camera, s.world_camera_polar, s.world_camera_target_pos, world_up_vector);
+            set_world_projection(&s.world_camera, map.width, map.height, window_aspect_ratio, 45.0f);
+        }
 
         auto mouse_world_3d = camera_ray_vs_plane(&s.world_camera, s.mouse_pixel, window.width, window.height);
         s.mouse_world = Vec2(mouse_world_3d.x, -mouse_world_3d.z);
