@@ -1,0 +1,109 @@
+----------------
+----Software----
+----------------
+
+Code editor:
+	Textadept 9
+
+Audio:
+	Audacity
+	Chiptone
+
+Graphics:
+	GIMP
+
+---------------------
+----Sound Effects----
+---------------------
+
+Title:   Thump 5
+Author:  jameswrowles
+Date:    February 12th, 2017
+License: CC0
+URL:     https://freesound.org/people/jameswrowles/sounds/380643/
+
+Title:   PressurePlateThump
+Author:  Wdomino
+Date:    March 11th, 2020
+License: CC0
+URL:     https://freesound.org/people/Wdomino/sounds/508579/
+
+Title:   Thump.wav
+Author:  hy96
+Date:    February 12th, 2008
+License: CC0
+URL:     https://freesound.org/people/hy96/sounds/48170/
+
+Title:   Cannon explosion sound
+Author:  SamsterBirdies
+Date:    February 22nd, 2022
+License: CC0
+URL:     https://freesound.org/people/SamsterBirdies/sounds/621000/
+
+Title:   Rachet_Joint
+Author:  SoundsofTheMachine
+Date:    February 17th, 2025
+License: CC0
+URL:     https://freesound.org/people/SoundsofTheMachine/sounds/789060/
+
+Title:   finger tap table counter wood various.wav
+Author:  kyles
+Date:    December 11th, 2018
+License: CC0
+URL:     https://freesound.org/people/kyles/sounds/452621/
+
+Title:   Mechanical Gear Handle
+Author:  KikeVilaplana
+Date:    September 20th, 2020
+License: CC0
+URL:     https://freesound.org/people/KikeVilaplana/sounds/535892/
+
+Title:   Firecracker Explosion (4)
+Author:  LukaCafuka
+Date:    August 9th, 2024
+License: CC0
+URL:     https://freesound.org/people/LukaCafuka/sounds/750680/
+
+Title:   EXPLODE_FIRECRACKER.wav
+Author:  keng-wai-chane-chick-te
+Date:    March 4th, 2019
+License: CC0
+URL:     https://freesound.org/people/keng-wai-chane-chick-te/sounds/462363/
+
+Title:   big boom
+Author:  SamsterBirdies
+Date:    July 29th, 2018
+License: CC0
+URL:     https://freesound.org/people/SamsterBirdies/sounds/435695/
+
+Title:   BalloonPop.wav
+Author:  vacuumfan7072
+Date:    September 11th, 2015
+License: CC0
+URL:     https://freesound.org/people/vacuumfan7072/sounds/321670/
+
+-------------
+----Fonts----
+-------------
+
+ARMY RUST by Jayde Garrow
+https://www.dafont.com/army-rust.font
+
+----------------
+----Textures----
+----------------
+
+Title:   Ovenkol
+Author:  M.Tolga Arslan
+License: CC0
+URL:     https://www.sharetextures.com/textures/wood/ovenkol
+
+Title:   Wood Fine 25
+Author:  M.Tolga Arslan
+License: CC0
+URL:     https://www.sharetextures.com/textures/wood/wood-fine-25
+
+Title:   Wood Plank 16
+Author:  M.Tolga Arslan
+License: CC0
+URL:     www.sharetextures.com/textures/wood/wood-plank-16

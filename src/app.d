@@ -11,7 +11,6 @@ Credits:
 
 TODO:
     - Finish porting over tank params
-    - Support playing custom campaigns.
     - Add score multipliers? Ricochet hit should count for more, as should mine hits.
     - Show multiplier text during mission gameplay. Bounce score display each time you get a point
     - choose_material should allow for the editor to have custom materials.
