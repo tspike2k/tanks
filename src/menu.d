@@ -221,6 +221,8 @@ Menu_ID get_parent_menu_id(Menu_ID id){
         case Menu_ID.Options:
             result = Menu_ID.Main_Menu; break;
 
+        case Menu_ID.Campaign_Picker:
+            result = Menu_ID.Campaign; break;
 
         case Menu_ID.High_Score_Details:
             result = Menu_ID.High_Scores; break;

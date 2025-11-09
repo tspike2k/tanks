@@ -2529,6 +2529,7 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
                 Menu_ID_High_Score_End   = Menu_ID_High_Score + High_Scores_Table_Size,
                 Menu_ID_Session_Score,
                 Menu_ID_Variant_Name,
+                Label_Campaign_Name,
             }
 
             auto variant_index = s.menu.variant_index;
@@ -2545,9 +2546,10 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
                 end_block(menu);
                 begin_block(menu, 1.0f - title_block_height);
 
-                // TODO: Show campaign name
                 auto campaign = &s.campaign;
                 set_style(menu, two_column_style[]);
+                add_label(menu, "Campaign:");
+                add_text_block(menu, "", Label_Campaign_Name);
                 add_index_picker(menu, &menu.variant_index, cast(uint)campaign.variants.length, "Variant");
                 add_text_block(menu, "", Menu_ID_Variant_Name);
 
@@ -2574,6 +2576,9 @@ void simulate_menu(App_State* s, float dt, Rect canvas){
                 }
                 if(item.user_id == Menu_ID_Variant_Name){
                     set_text(menu, &item, variant.name);
+                }
+                if (item.user_id == Label_Campaign_Name){
+                    set_text(menu, &item, s.campaign.name);
                 }
             }
         } break;
@@ -2868,6 +2873,10 @@ void handle_menu_event(App_State* s, Event* evt){
 
         case Menu_Action.Load_Campaign:{
             String file_name = s.campaign_file_name_buffer[0 .. s.campaign_file_name_buffer_used];
+            // NOTE: We MUST clear the campaign to zero before loading. This is because the
+            // serializer determines if dynamic arrays need to be allocated by testing if the array
+            // lengths are zero. If they're non-zero, no allocation is performed.
+            clear_to_zero(s.campaign);
             if(load_campaign_from_file(s, file_name)){
                 s.campaign_file_name = file_name;
             }

@@ -303,6 +303,7 @@ bool editor_load_campaign(App_State* s, uint file_flags = 0){
                         mission.map_index_min     = src_mission.map_index_min;
                         mission.map_index_max     = src_mission.map_index_max;
                         copy(src_mission.enemies, mission.enemies);
+                        mission.enemies_count = cast(uint)src_mission.enemies.length;
                     }
                     g_current_mission = variant.missions.bottom;
                 }
@@ -340,8 +341,8 @@ bool editor_load_campaign(App_State* s, uint file_flags = 0){
             }
             else{
                 g_tank_types_count = 2;
-                set_tank_type_to_default(&g_tank_types[0]);
-                set_tank_type_to_default(&g_tank_types[1]);
+                set_tank_type_to_default(&g_tank_types[0], true);
+                set_tank_type_to_default(&g_tank_types[1], false);
             }
         }
         else{
@@ -429,16 +430,13 @@ uint get_mission_index(Mission_Entry* mission){
     return index;
 }
 
-void set_tank_type_to_default(Tank_Type* type){
+void set_tank_type_to_default(Tank_Type* type, bool is_player){
     type.main_color = Vec3(0.600000, 0.500000, 0.300000);
     type.alt_color = Vec3(0.450000, 0.220000, 0.130000);
     type.invisible = false;
-    type.speed = 0.000000;
-    type.bullet_limit = 1;
-    type.bullet_ricochets = 1;
+    type.speed = 1.800000;
     type.bullet_speed = 3.000000;
     type.bullet_min_ally_dist = 2.000000;
-    type.mine_limit = 0;
     type.mine_timer_min = 0.000000;
     type.mine_timer_max = 0.000000;
     type.mine_cooldown_time = 0.100000;
@@ -452,6 +450,16 @@ void set_tank_type_to_default(Tank_Type* type){
     type.fire_cooldown_time = 5.000000;
     type.aim_timer = 1.000000;
     type.aim_max_angle = 2.967057;
+
+    if(is_player){
+        type.bullet_limit = 1;
+        type.mine_limit   = 3;
+        type.bullet_ricochets = 1;
+    }
+    else
+        type.mine_limit   = 0;
+        type.bullet_limit = 1;
+        type.bullet_ricochets = 0;
 }
 
 T* list_get_prev(List, T)(List* list, T* node){
@@ -725,20 +733,22 @@ public bool editor_simulate(App_State* s, float dt){
             button(gui, Button_New_Enemy, "+", 0);
             next_row(gui);
 
-            g_current_enemy_index = min(mission.enemies_count, g_current_enemy_index);
-            auto enemy = &mission.enemies[g_current_enemy_index];
+            if(mission.enemies_count > 0){
+                g_current_enemy_index = min(mission.enemies_count, g_current_enemy_index);
+                auto enemy = &mission.enemies[g_current_enemy_index];
 
-            label(gui, gui_id(), "Type Min:");
-            spin_button(gui, gui_id(), &enemy.type_min, 0, enemy.type_max);
-            next_row(gui);
+                label(gui, gui_id(), "Type Min:");
+                spin_button(gui, gui_id(), &enemy.type_min, 1, enemy.type_max);
+                next_row(gui);
 
-            label(gui, gui_id(), "Type Max:");
-            spin_button(gui, gui_id(), &enemy.type_max, 0, g_tank_types_count);
-            next_row(gui);
+                label(gui, gui_id(), "Type Max:");
+                spin_button(gui, gui_id(), &enemy.type_max, 1, g_tank_types_count);
+                next_row(gui);
 
-            label(gui, gui_id(), "Spawn index:");
-            spin_button(gui, gui_id(), &enemy.spawn_index);
-            next_row(gui);
+                label(gui, gui_id(), "Spawn index:");
+                spin_button(gui, gui_id(), &enemy.spawn_index);
+                next_row(gui);
+            }
         } break;
 
         case Editor_Tab.Tanks:{
@@ -1024,6 +1034,17 @@ public bool editor_simulate(App_State* s, float dt){
             case Button_Cancel_File_Op:{
                 g_file_op = File_Op.None;
             } break;
+
+            case Button_New_Enemy:{
+                auto mission = g_current_mission;
+                if(mission.enemies_count < mission.enemies.length){
+                    g_current_enemy_index = mission.enemies_count;
+                    auto enemy = &mission.enemies[g_current_enemy_index];
+                    enemy.type_min = 1;
+                    enemy.type_max = 1;
+                    mission.enemies_count++;
+                }
+            } break;
         }
     }
 
@@ -1177,8 +1198,6 @@ Variant* editor_add_variant(){
     variant.difficulty = Campaign_Difficuly.Normal;
 
     variant.missions.make();
-    editor_add_mission();
-
     return variant;
 }
 
@@ -1214,10 +1233,11 @@ void prepare_campaign(){
 void editor_new_campaign(){
     prepare_campaign();
     editor_add_variant();
+    editor_add_mission();
     editor_add_map(22, 17);
     g_tank_types_count = 2;
-    set_tank_type_to_default(&g_tank_types[0]);
-    set_tank_type_to_default(&g_tank_types[1]);
+    set_tank_type_to_default(&g_tank_types[0], true);
+    set_tank_type_to_default(&g_tank_types[1], false);
 }
 
 Vec3 get_map_center(Campaign_Map* map){
