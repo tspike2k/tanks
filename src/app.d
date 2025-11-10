@@ -1656,26 +1656,24 @@ bool passed_range(float a, float b, float range){
     return result;
 }
 
-float rotate_tank_part(float target_rot, float speed, float* rot_remaining){
-    auto rot_sign = signf(target_rot);
-    auto rot_abs  = abs(target_rot);
-
-    float result = void;
-    if(speed > rot_abs){
-        result         = target_rot;
-        *rot_remaining = 0.0f;
+// Restrict angle to the range [-PI, PI].
+float restrict_angle(float angle){
+    // Thanks to code from here:
+    // https://stackoverflow.com/questions/11498169/dealing-with-angle-wrap-in-c-code
+    auto result = fmodf(angle + PI, TAU);
+    if(result < 0){
+        result += TAU;
     }
-    else{
-        result         = speed*rot_sign;
-        *rot_remaining = target_rot - result;
-    }
+    result -= PI;
     return result;
 }
 
 float rotate_towards(float angle, float target_angle, float speed){
+    angle = restrict_angle(angle);
+
     // Based on code found here:
     // https://stackoverflow.com/questions/11821013/rotate-an-object-gradually-to-face-a-point
-
+    assert(angle >= -PI && angle <= PI);
     if(target_angle < 0) target_angle += TAU; // Put target angle in the range 0 .. TAU
 
     float result = angle;
@@ -1710,17 +1708,17 @@ void apply_tank_commands(App_State* s, Entity* e, Tank_Commands* input, float ro
 
     bool can_move = e.action_stun_timer <= 0.0f;
     if(input.turn_dir != 0){
+        assert(is_player_tank(e));
         float angle = deg_to_rad(90)*-signf(input.turn_dir);
         e.angle = rotate_towards(e.angle, e.angle + angle, rot_speed*dt);
         e.total_meters_moved += get_meters_for_turn(e.extents, rot_speed*dt);
     }
     else if(e.turn_type != Turn_Type.None){
         assert(!is_player_tank(e));
-        if(fabs(e.angle - input.target_angle) > 0.001f){
-            e.angle = rotate_towards(e.angle, input.target_angle, rot_speed*dt);
-            e.total_meters_moved += get_meters_for_turn(e.extents, rot_speed*dt);
-        }
-        else{
+        e.angle = rotate_towards(e.angle, input.target_angle, rot_speed*dt);
+        e.total_meters_moved += get_meters_for_turn(e.extents, rot_speed*dt);
+
+        if(fabs(e.angle - input.target_angle) < 0.001f){
             e.turn_type = Turn_Type.None;
             e.angle = input.target_angle;
         }
@@ -1951,7 +1949,7 @@ Vec2 get_major_axis(Vec2 v){
 void set_turn(Entity* e, Turn_Type type, float angle){
     assert(e.type == Entity_Type.Tank);
     e.turn_type = type;
-    e.turn_angle = angle;
+    e.turn_angle = restrict_angle(angle);
 }
 
 void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){

@@ -8,7 +8,7 @@ module math;
 
 public {
     import core.math : fabs, cos, sin;
-    import core.stdc.math : floor, ceil, atan2f, tanf, powf;
+    import core.stdc.math : floor, ceil, atan2f, tanf, powf, fmodf;
     import std.math : abs, sgn, sqrt, signbit;
     import std.math.traits : isNaN;
     import meta : isIntegral, Unqual;
@@ -22,7 +22,7 @@ alias sign  = sgn;
 alias signf = sgn;
 alias atan2 = atan2f;
 
-enum PI  = 3.14159f;
+enum PI  = 3.14159274f;
 enum TAU = PI*2.0f;
 
 //
