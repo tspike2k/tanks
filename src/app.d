@@ -87,6 +87,14 @@ enum Game_Mode : uint{
     Campaign,
 }
 
+enum Turn_Type: uint{
+    None,
+    Random,
+    Large,
+    Sequence,
+    Mine_Laying,
+}
+
 struct Render_Passes{
     Render_Pass* shadow_map;
     Render_Pass* holes;
@@ -175,10 +183,6 @@ Vec4[Max_Players] Player_Text_Colors = [
 
 struct Settings{
     Player_Name player_name;
-}
-
-struct Materials{
-
 }
 
 struct App_State{
@@ -328,8 +332,9 @@ struct Entity{
     float     aim_timer;
 
     Vec2      aim_target_pos;
-    float     target_angle;
-    float     target_aim_angle;
+    Turn_Type turn_type;
+    float     turn_angle;
+    int       move_dir;
 }
 
 struct World{
@@ -739,7 +744,6 @@ void set_default_tank_facing(Entity* e, Vec2 map_center){
     auto facing_angle  = atan2(facing.y, facing.x);
     e.turret_angle     = facing_angle;
     e.angle            = facing_angle;
-    e.target_aim_angle = facing_angle;
 }
 
 void setup_tank_by_type(App_State* s, Entity* e, uint tank_type, ubyte cell_info, Vec2 map_center){
@@ -1692,20 +1696,34 @@ float rotate_towards(float angle, float target_angle, float speed){
     return result;
 }
 
-void apply_tank_commands(App_State* s, Entity* e, Tank_Commands* input, float dt){
+float get_meters_for_turn(Vec2 extents, float rot_angle){
+    // Calculate the meters turned by using the Arc Length of the tank's circular bounds
+    // to calulate the Sector Area of said circle.
+    // https://www.geogebra.org/m/NWWDJdu8
+    float radius = extents.x;
+    float result = (squared(radius)*abs(rot_angle))/2.0f;
+    return result;
+}
+
+void apply_tank_commands(App_State* s, Entity* e, Tank_Commands* input, float rot_speed, float dt){
     auto tank_info = get_tank_info(&s.campaign, e);
 
     bool can_move = e.action_stun_timer <= 0.0f;
-    if(input.turn_angle != 0.0f && can_move){
-        float rot_speed = (PI)*dt;
-        auto rotation   = rotate_tank_part(input.turn_angle, rot_speed, &e.target_angle);
-        e.angle += rotation;
-
-        // Calculate the meters turned by using the Arc Length of the tank's circular bounds
-        // to calulate the Sector Area of said circle.
-        // https://www.geogebra.org/m/NWWDJdu8
-        float radius = e.extents.x;
-        e.total_meters_moved += (squared(radius)*abs(rotation))/2.0f;
+    if(input.turn_dir != 0){
+        float angle = deg_to_rad(90)*-signf(input.turn_dir);
+        e.angle = rotate_towards(e.angle, e.angle + angle, rot_speed*dt);
+        e.total_meters_moved += get_meters_for_turn(e.extents, rot_speed*dt);
+    }
+    else if(e.turn_type != Turn_Type.None){
+        assert(!is_player_tank(e));
+        if(fabs(e.angle - input.target_angle) > 0.001f){
+            e.angle = rotate_towards(e.angle, input.target_angle, rot_speed*dt);
+            e.total_meters_moved += get_meters_for_turn(e.extents, rot_speed*dt);
+        }
+        else{
+            e.turn_type = Turn_Type.None;
+            e.angle = input.target_angle;
+        }
     }
 
     e.vel = Vec2(0, 0);
@@ -1893,48 +1911,94 @@ bool should_take_mine_opportunity(World* world, Entity* e, Tank_Type* tank_info,
     return result;
 }
 
+enum{
+    Dir_Front = (1 << 1),
+    Dir_Back  = (1 << 2),
+    Dir_Left  = (1 << 3),
+    Dir_Right = (1 << 4),
+}
+
+uint test_for_blocks_in_cardinal_dir(World* world, Vec2 pos, Vec2 dir, float length){
+    uint result;
+
+    if(ray_vs_obstacles(world, pos, dir*length)){
+        result |= Dir_Front;
+    }
+    if(ray_vs_obstacles(world, pos, dir*-length)){
+        result |= Dir_Back;
+    }
+    if(ray_vs_obstacles(world, pos, Vec2(-dir.y, dir.x)*length)){
+        result |= Dir_Left;
+    }
+    if(ray_vs_obstacles(world, pos, Vec2(dir.y, -dir.x)*length)){
+        result |= Dir_Right;
+    }
+
+    return result;
+}
+
+Vec2 get_major_axis(Vec2 v){
+    Vec2 result = void;
+    if(fabs(v.x) > fabs(v.y)){
+        result = Vec2(v.x >= 0.0f ? 1 : -1, 0);
+    }
+    else{
+        result = Vec2(0, v.y >= 0.0f ? 1 : -1);
+    }
+    return result;
+}
+
+void set_turn(Entity* e, Turn_Type type, float angle){
+    assert(e.type == Entity_Type.Tank);
+    e.turn_type = type;
+    e.turn_angle = angle;
+}
+
 void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
     // TODO: A LOT of work needs to be done here. Here's just a few features we need:
     // - Random turning
     // - Turning in smaller increments
 
-    auto tank_info = get_tank_info(&s.campaign, e);
-    cmd.turn_angle = e.target_angle;
+    auto tank_info   = get_tank_info(&s.campaign, e);
+    cmd.target_angle = e.angle;
 
-    // If the tank isn't currently making a turn, handle forward movement
-    if(e.target_angle == 0.0f){
-        float obstacle_sight_range = 2.0f; // TODO: Get this from the tank params
-        if(ray_vs_obstacles(&s.world, e.pos, vec2_from_angle(e.angle)*obstacle_sight_range)){
+    if(e.turn_type == Turn_Type.None){
+        auto obstacle_sight_range = 2.0f; // TODO: Get this from the tank params
+        auto facing = get_major_axis(vec2_from_angle(e.angle));
+        auto wall_dir = test_for_blocks_in_cardinal_dir(&s.world, e.pos, facing, obstacle_sight_range);
+        if(wall_dir && (wall_dir & Dir_Front)){
             // If the tank has seen a wall, try to avoid it by looking to the right
             // or left. If the left and right are not obstructed, randomly pick
             // between the two.
-            bool left_is_open  = !ray_vs_obstacles(&s.world, e.pos,
-                vec2_from_angle(e.angle + deg_to_rad(90)) * obstacle_sight_range
-            );
-            bool right_is_open = !ray_vs_obstacles(&s.world, e.pos,
-                vec2_from_angle(e.angle - deg_to_rad(90)) * obstacle_sight_range
-            );
+            bool left_is_open  = !(wall_dir & Dir_Left);
+            bool right_is_open = !(wall_dir & Dir_Right);
 
             if(left_is_open && right_is_open){
                 if(random_bool(&s.rng))
-                    e.target_angle = deg_to_rad(90);
+                    set_turn(e, Turn_Type.Large, e.angle + deg_to_rad(90));
                 else
-                    e.target_angle = -deg_to_rad(90);
+                    set_turn(e, Turn_Type.Large, e.angle - deg_to_rad(90));
             }
             else if(left_is_open){
-                e.target_angle = deg_to_rad(90);
+                set_turn(e, Turn_Type.Large, e.angle + deg_to_rad(90));
             }
             else if(right_is_open){
-                e.target_angle = -deg_to_rad(90);
+                set_turn(e, Turn_Type.Large, e.angle + deg_to_rad(90));
             }
-            else{
-                // TODO: Go in reverse
+            else if(!(wall_dir & Dir_Back)){
+                e.move_dir = -1;
             }
-        }
-        else{
-            cmd.move_dir = 1;
+            cmd.target_angle = e.turn_angle;
         }
     }
+    else{
+        cmd.target_angle = e.turn_angle;
+    }
+
+    if(e.move_dir == 0)
+        e.move_dir = 1; // By default, enemies move fowards
+
+    cmd.move_dir = e.move_dir;
 
     // Handle mine laying if applicable
     if(tank_info.mine_limit > 0){
@@ -2172,7 +2236,7 @@ void handle_entity_overlap(App_State* s, Entity* a, Entity* b){
     }
 }
 
-void simulate_world(App_State* s, Tank_Commands* input, float dt){
+void simulate_world(App_State* s, Tank_Commands* player_input, float dt){
     // Entity simulation
     s.session.enemies_remaining = 0;
     g_debug_lines_count = 0;
@@ -2195,22 +2259,21 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
             default: break;
 
             case Entity_Type.Tank:{
-                auto commands = zero_type!Tank_Commands;
                 bool is_current_player = e.id == s.session.player_entity_ids[s.session.player_index];
-
-                if(is_player_tank(&e)){
-                    assert(is_current_player);
+                if(is_player_tank(&e)&& is_current_player){
                     // TODO: Do we really want to do a copy here? For now we do this since
                     // apply_tank_commands modifies things like the turn_angle. That's useful
                     // for enemy AI, but doing that for the player tank would override player
                     // input. As things are, they're perhaps a little too hackey.
-                    commands = *input;
+                    float rot_speed = PI;
+                    apply_tank_commands(s, &e, player_input, rot_speed, dt);
                 }
                 else{
+                    auto commands = zero_type!Tank_Commands;
                     handle_enemy_ai(s, &e, &commands, dt);
+                    float rot_speed = PI; // TODO: Is there a tank param for rotation speed?
+                    apply_tank_commands(s, &e, &commands, rot_speed, dt);
                 }
-
-                apply_tank_commands(s, &e, &commands, dt);
 
                 e.fire_cooldown_timer -= dt;
                 e.mine_cooldown_timer -= dt;
@@ -2360,8 +2423,8 @@ void simulate_world(App_State* s, Tank_Commands* input, float dt){
 }
 
 struct Tank_Commands{
-    float turn_angle;
-    float turret_rot;
+    float target_angle;
+    int   turn_dir; // NOTE: Only used by player controlled tanks.
     int   move_dir;
     bool  fire_bullet;
     bool  place_mine;
@@ -2987,19 +3050,23 @@ void campaign_simulate(App_State* s, Tank_Commands* player_input, float dt){
                         } break;
 
                         case Key_ID_A:{
-                            if(key.pressed)
-                                player_input.turn_angle = deg_to_rad(90);
-                            else if(player_input.turn_angle > 0.0f)
-                                player_input.turn_angle = 0.0f;
-                            evt.consumed = true;
+                            if(key.pressed){
+                                player_input.turn_dir = -1;
+                                evt.consumed = true;
+                            }
+                            else if(player_input.turn_dir == -1){
+                                player_input.turn_dir = 0;
+                            }
                         } break;
 
                         case Key_ID_D:{
-                            if(key.pressed)
-                                player_input.turn_angle = -deg_to_rad(90);
-                            else if(player_input.turn_angle < 0.0f)
-                                player_input.turn_angle = 0.0f;
-                            evt.consumed = true;
+                            if(key.pressed){
+                                player_input.turn_dir = 1;
+                                evt.consumed = true;
+                            }
+                            else if(player_input.turn_dir == 1){
+                                player_input.turn_dir = 0;
+                            }
                         } break;
 
                         case Key_ID_W:{
@@ -3571,6 +3638,39 @@ extern(C) int main(int args_count, char** args){
                     foreach(ref e; iterate_entities(&s.world)){
                         render_entity(s, &e, render_passes, s.materials_enemy_tank[]);
                     }
+                    /+
+                    auto p_up    = world_to_render_pos(s.mouse_world + Vec2(0, 1));
+                    auto p_down  = world_to_render_pos(s.mouse_world + Vec2(0, -1));
+                    auto p_left  = world_to_render_pos(s.mouse_world + Vec2(-1, 0));
+                    auto p_right = world_to_render_pos(s.mouse_world + Vec2(1, 0));
+                    auto material = (&s.material_block)[0..1];
+                    auto scale = Vec3(0.25f, 1.0f, 0.25f);
+
+                    auto block_dir = test_for_blocks_in_cardinal_dir(&s.world, s.mouse_world, Vec2(0, 1), 2.0f);
+                    if(block_dir & Dir_Front){
+                        render_mesh(
+                            render_passes.world, &s.cube_mesh, material,
+                            mat4_translate(p_up)*mat4_scale(scale)
+                        );
+                    }
+                    if(block_dir & Dir_Back){
+                        render_mesh(
+                            render_passes.world, &s.cube_mesh, material,
+                            mat4_translate(p_down)*mat4_scale(scale)
+                        );
+                    }
+                    if(block_dir & Dir_Left){
+                        render_mesh(
+                            render_passes.world, &s.cube_mesh, material,
+                            mat4_translate(p_left)*mat4_scale(scale)
+                        );
+                    }
+                    if(block_dir & Dir_Right){
+                        render_mesh(
+                            render_passes.world, &s.cube_mesh, material,
+                            mat4_translate(p_right)*mat4_scale(scale)
+                        );
+                    }+/
                 }
 
                 sort_and_render_bullet_particles(
