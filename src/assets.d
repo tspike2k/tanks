@@ -197,6 +197,9 @@ struct Tank_Type{
 
     float obstacle_sight_dist; // Obstacle Awareness (Movement)
 
+    float turn_timer_min;     // Word 15
+    float turn_timer_max;     // Word 14
+
     float fire_timer_min;     // Word 36
     float fire_timer_max;     // Word 35
     float fire_stun_time;     // Word 42

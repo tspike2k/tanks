@@ -329,6 +329,7 @@ struct Entity{
     // AI related data:
     AI_Timer  fire_timer;
     AI_Timer  place_mine_timer;
+    AI_Timer  random_turn_timer;
     float     aim_timer;
 
     Vec2      aim_target_pos;
@@ -756,6 +757,7 @@ void setup_tank_by_type(App_State* s, Entity* e, uint tank_type, ubyte cell_info
 
         e.fire_timer = AI_Timer(0, tank_info.fire_timer_min, tank_info.fire_timer_max);
         e.place_mine_timer = AI_Timer(0, tank_info.mine_timer_min, tank_info.mine_timer_max);
+        e.random_turn_timer = AI_Timer(0, tank_info.turn_timer_min, tank_info.turn_timer_max);
     }
     set_default_tank_facing(e, map_center);
 }
@@ -1612,6 +1614,10 @@ void render_entity(App_State* s, Entity* e, Render_Passes rp, Tank_Materials[] e
                 render_mesh(rp.world, &s.tank_top_mesh, materials, top_x_form);
                 render_mesh(rp.shadow_map, &s.tank_base_mesh, materials, base_x_form);
                 render_mesh(rp.shadow_map, &s.tank_top_mesh, materials, top_x_form);
+
+                if(!is_player_tank(e)){
+                    render_debug_line(g_debug_render_pass, e.pos, e.pos + vec2_from_angle(e.turn_angle), Vec4(0, 1, 0, 1));
+                }
             }
             else{
                 auto bounds = Rect(e.pos, Vec2(0.5f, 0.5f));
@@ -1656,41 +1662,29 @@ bool passed_range(float a, float b, float range){
     return result;
 }
 
-// Restrict angle to the range [-PI, PI].
-float restrict_angle(float angle){
-    // Thanks to code from here:
-    // https://stackoverflow.com/questions/11498169/dealing-with-angle-wrap-in-c-code
-    auto result = fmodf(angle + PI, TAU);
+float normalize_zero_to_tau(float angle){
+    auto result = fmodf(angle, TAU);
     if(result < 0){
         result += TAU;
     }
-    result -= PI;
     return result;
 }
 
 float rotate_towards(float angle, float target_angle, float speed){
-    angle = restrict_angle(angle);
-
     // Based on code found here:
+    // https://2dengine.com/doc/vectors.html
+    // Similar source here:
     // https://stackoverflow.com/questions/11821013/rotate-an-object-gradually-to-face-a-point
-    assert(angle >= -PI && angle <= PI);
-    if(target_angle < 0) target_angle += TAU; // Put target angle in the range 0 .. TAU
-
-    float result = angle;
     auto delta = angle - target_angle;
-    if (delta < -PI) delta += TAU;
-
+    delta = fmodf(delta + PI, TAU) - PI;
+    float result = void;
     if(abs(delta) > speed){
-        result -= speed * sign(delta);
-
-        if(result > PI)
-            result -= TAU;
-        else if(result < -PI)
-            result += TAU;
+        result = angle - speed*sign(delta);
     }
     else{
         result = target_angle;
     }
+
     return result;
 }
 
@@ -1948,8 +1942,10 @@ Vec2 get_major_axis(Vec2 v){
 
 void set_turn(Entity* e, Turn_Type type, float angle){
     assert(e.type == Entity_Type.Tank);
-    e.turn_type = type;
-    e.turn_angle = restrict_angle(angle);
+    if(e.turn_type < type){
+        e.turn_type = type;
+        e.turn_angle = angle;
+    }
 }
 
 void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
@@ -1959,6 +1955,15 @@ void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
 
     auto tank_info   = get_tank_info(&s.campaign, e);
     cmd.target_angle = e.angle;
+
+    if(tank_info.turn_timer_min < tank_info.turn_timer_max){
+        bool turn_opportunity = timer_update(&e.random_turn_timer, dt, &s.rng);
+        if(turn_opportunity && e.turn_type == Turn_Type.None){
+            auto angle_range = deg_to_rad(30);
+            auto angle = random_f32_between(&s.rng, -angle_range, angle_range);
+            set_turn(e, Turn_Type.Random, e.angle + angle);
+        }
+    }
 
     if(e.turn_type == Turn_Type.None){
         auto obstacle_sight_range = 2.0f; // TODO: Get this from the tank params
@@ -2016,12 +2021,7 @@ void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
             auto angle = get_angle(player.pos - e.pos);
             if(tank_info.aim_max_angle > 0.001f){
                 auto angle_offset = random_f32_between(&s.rng, -tank_info.aim_max_angle, tank_info.aim_max_angle);
-                angle += angle_offset;
-
-                if(angle > PI)
-                    angle -= TAU;
-                else if(angle < -PI)
-                    angle += TAU;
+                angle = angle + angle_offset;
             }
 
             e.aim_target_pos = e.pos + vec2_from_angle(angle)*len;
@@ -2269,7 +2269,7 @@ void simulate_world(App_State* s, Tank_Commands* player_input, float dt){
                 else{
                     auto commands = zero_type!Tank_Commands;
                     handle_enemy_ai(s, &e, &commands, dt);
-                    float rot_speed = PI; // TODO: Is there a tank param for rotation speed?
+                    float rot_speed = deg_to_rad(30);
                     apply_tank_commands(s, &e, &commands, rot_speed, dt);
                 }
 
@@ -2870,7 +2870,8 @@ void begin_campaign(App_State* s, uint variant_index, uint players_count, uint p
     auto player_score = &score.player_scores[0];
     player_score.name = s.settings.player_name;
 
-    begin_mission(s, s.session.mission_index);
+    //begin_mission(s, s.session.mission_index);
+    begin_mission(s, 3);
 }
 
 void end_campaign(App_State* s, bool aborted){
@@ -3271,6 +3272,14 @@ extern(C) int main(int args_count, char** args){
     auto app_memory = os_alloc(Total_Memory_Size, 0);
     scope(exit) os_dealloc(app_memory);
 
+    {
+        auto t0 = normalize_zero_to_tau(0);
+        auto t1 = normalize_zero_to_tau(TAU);
+        auto t2 = normalize_zero_to_tau(-TAU);
+        auto t3 = normalize_zero_to_tau(PI);
+        auto t4 = normalize_zero_to_tau(-PI);
+    }
+
     version(none){
         bool is_host;
         foreach(s; args[0 .. args_count]){
@@ -3605,7 +3614,7 @@ extern(C) int main(int args_count, char** args){
                 if(!g_debug_mode && menu_is_closed(&s.menu))
                     hide_and_grab_cursor_this_frame();
                 campaign_simulate(s, &player_input, target_dt);
-                render_mesh(render_passes.world, &s.cube_mesh, (&s.material_ground)[0..1], mat4_translate(s.light.pos));
+                //render_mesh(render_passes.world, &s.cube_mesh, (&s.material_ground)[0..1], mat4_translate(s.light.pos));
             } break;
         }
 

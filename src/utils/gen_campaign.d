@@ -292,6 +292,9 @@ __gshared Tank_Type[] g_tank_types = [
 
         turret_turn_speed: 0.05f,
 
+        turn_timer_min:  5.0f/60.0f,
+        turn_timer_max: 10.0f/60.0f,
+
         fire_cooldown_time: 6.0f/60.0f,
         fire_stun_time:     5.0f/60.0f,
     },
@@ -350,6 +353,9 @@ __gshared Tank_Type[] g_tank_types = [
         fire_timer_min:     (30.0f)/60.0f,
         fire_stun_time:     10.0f/60.0f,
 
+        turn_timer_min: 10.0f/60.0f,
+        turn_timer_max: 15.0f/60.0f,
+
         turret_turn_speed: 0.01f,
 
         aim_timer: 45.0f/60.0f,
@@ -380,6 +386,9 @@ __gshared Tank_Type[] g_tank_types = [
         fire_timer_min:     (5.0f)/60.0f,
         fire_stun_time:     20.0f/60.0f,
 
+        turn_timer_min:  5.0f/60.0f,
+        turn_timer_max: 10.0f/60.0f,
+
         turret_turn_speed: 0.05f,
 
         aim_timer: 8.0f/60.0f,
@@ -409,6 +418,9 @@ __gshared Tank_Type[] g_tank_types = [
         fire_timer_max:     (10.0f)/60.0f,
         fire_timer_min:     (5.0f)/60.0f,
         fire_stun_time:     5.0f/60.0f,
+
+        turn_timer_min:  5.0f/60.0f,
+        turn_timer_max: 10.0f/60.0f,
 
         turret_turn_speed: 0.02f,
 
@@ -442,6 +454,9 @@ __gshared Tank_Type[] g_tank_types = [
 
         turret_turn_speed: 0.02f,
 
+        turn_timer_min: 10.0f/60.0f,
+        turn_timer_max: 15.0f/60.0f,
+
         aim_timer: 30.0f/60.0f,
         aim_max_angle: deg_to_rad(40),
     },
@@ -469,6 +484,9 @@ __gshared Tank_Type[] g_tank_types = [
         fire_timer_max:     (10.0f)/60.0f,
         fire_timer_min:     (5.0f)/60.0f,
         fire_stun_time:     5.0f/60.0f,
+
+        turn_timer_min:  5.0f/60.0f,
+        turn_timer_max: 10.0f/60.0f,
 
         turret_turn_speed: 0.03f,
 
@@ -530,6 +548,9 @@ __gshared Tank_Type[] g_tank_types = [
         fire_timer_min:     (5.0f)/60.0f,
         fire_stun_time:     5.0f/60.0f,
 
+        turn_timer_min:  5.0f/60.0f,
+        turn_timer_max: 10.0f/60.0f,
+
         turret_turn_speed: 0.03f,
 
         aim_timer: 30.0f/60.0f,
@@ -559,6 +580,9 @@ __gshared Tank_Type[] g_tank_types = [
         fire_timer_max:     (10.0f)/60.0f,
         fire_timer_min:     (5.0f)/60.0f,
         fire_stun_time:     10.0f/60.0f,
+
+        turn_timer_min:  5.0f/60.0f,
+        turn_timer_max: 10.0f/60.0f,
 
         turret_turn_speed: 0.03f,
 
