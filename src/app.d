@@ -1949,10 +1949,6 @@ void set_turn(Entity* e, Turn_Type type, float angle){
 }
 
 void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
-    // TODO: A LOT of work needs to be done here. Here's just a few features we need:
-    // - Random turning
-    // - Turning in smaller increments
-
     auto tank_info   = get_tank_info(&s.campaign, e);
     cmd.target_angle = e.angle;
 
@@ -1965,36 +1961,37 @@ void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
         }
     }
 
-    if(e.turn_type == Turn_Type.None){
-        auto obstacle_sight_range = 2.0f; // TODO: Get this from the tank params
-        auto facing = get_major_axis(vec2_from_angle(e.angle));
-        auto wall_dir = test_for_blocks_in_cardinal_dir(&s.world, e.pos, facing, obstacle_sight_range);
-        if(wall_dir && (wall_dir & Dir_Front)){
-            // If the tank has seen a wall, try to avoid it by looking to the right
-            // or left. If the left and right are not obstructed, randomly pick
-            // between the two.
-            bool left_is_open  = !(wall_dir & Dir_Left);
-            bool right_is_open = !(wall_dir & Dir_Right);
 
-            if(left_is_open && right_is_open){
-                if(random_bool(&s.rng))
-                    set_turn(e, Turn_Type.Large, e.angle + deg_to_rad(90));
-                else
-                    set_turn(e, Turn_Type.Large, e.angle - deg_to_rad(90));
-            }
-            else if(left_is_open){
-                set_turn(e, Turn_Type.Large, e.angle + deg_to_rad(90));
-            }
-            else if(right_is_open){
-                set_turn(e, Turn_Type.Large, e.angle + deg_to_rad(90));
-            }
-            else if(!(wall_dir & Dir_Back)){
-                e.move_dir = -1;
-            }
-            cmd.target_angle = e.turn_angle;
+    // If the tank has seen a wall, try to avoid it by looking to the right
+    // or left. If both the left and right are not obstructed, randomly pick
+    // between the two.
+    auto obstacle_sight_range = 2.0f; // TODO: Get this from the tank params
+    auto facing = get_major_axis(vec2_from_angle(e.angle));
+    auto wall_dir = test_for_blocks_in_cardinal_dir(&s.world, e.pos, facing, obstacle_sight_range);
+    if(wall_dir && (wall_dir & Dir_Front)){
+        bool left_is_open  = !(wall_dir & Dir_Left);
+        bool right_is_open = !(wall_dir & Dir_Right);
+        auto cardinal_angle = lock_angle(e.angle);
+
+        if(left_is_open && right_is_open){
+            if(random_bool(&s.rng))
+                set_turn(e, Turn_Type.Large, cardinal_angle + deg_to_rad(90));
+            else
+                set_turn(e, Turn_Type.Large, cardinal_angle - deg_to_rad(90));
         }
+        else if(left_is_open){
+            set_turn(e, Turn_Type.Large, cardinal_angle + deg_to_rad(90));
+        }
+        else if(right_is_open){
+            set_turn(e, Turn_Type.Large, cardinal_angle + deg_to_rad(90));
+        }
+        else if(!(wall_dir & Dir_Back)){
+            e.move_dir = -1;
+        }
+        cmd.target_angle = e.turn_angle;
     }
-    else{
+
+    if(e.turn_type != Turn_Type.None){
         cmd.target_angle = e.turn_angle;
     }
 
@@ -2068,6 +2065,15 @@ struct Hit_Tester{
 
 Vec2 get_final_hit_pos(Vec2 ray_start, Vec2 ray_delta, float t_min, Vec2 hit_normal){
     auto result = ray_start + ray_delta*t_min + hit_normal*0.0001f;
+    return result;
+}
+
+float lock_angle(float angle, uint segments = 4){
+    // Adapted from the following:
+    // https://gamedev.stackexchange.com/a/7330
+    enum bias = deg_to_rad(45);
+    float f = TAU / (cast(float)segments);
+    auto result = f * floor((angle + bias) / f);
     return result;
 }
 
@@ -2270,6 +2276,9 @@ void simulate_world(App_State* s, Tank_Commands* player_input, float dt){
                     auto commands = zero_type!Tank_Commands;
                     handle_enemy_ai(s, &e, &commands, dt);
                     float rot_speed = deg_to_rad(30);
+                    if(e.turn_type == Turn_Type.Large){
+                        rot_speed = PI;
+                    }
                     apply_tank_commands(s, &e, &commands, rot_speed, dt);
                 }
 
@@ -3272,14 +3281,6 @@ extern(C) int main(int args_count, char** args){
     auto app_memory = os_alloc(Total_Memory_Size, 0);
     scope(exit) os_dealloc(app_memory);
 
-    {
-        auto t0 = normalize_zero_to_tau(0);
-        auto t1 = normalize_zero_to_tau(TAU);
-        auto t2 = normalize_zero_to_tau(-TAU);
-        auto t3 = normalize_zero_to_tau(PI);
-        auto t4 = normalize_zero_to_tau(-PI);
-    }
-
     version(none){
         bool is_host;
         foreach(s; args[0 .. args_count]){
@@ -3901,6 +3902,13 @@ extern(C) int main(int args_count, char** args){
                     auto cursor_p = Vec2(s.mouse_pixel.x, window.height - s.mouse_pixel.y);
                     set_texture(render_passes.hud_text, s.img_crosshair);
                     render_rect(render_passes.hud_text, Rect(cursor_p, Vec2(window.width, window.width)*0.025f), color);
+                }
+
+                {
+                    auto p0 = Vec2(8, 8);
+                    auto angle = lock_angle(get_angle(s.mouse_world - p0));
+                    auto p1 = p0 + vec2_from_angle(angle)*2.0f;
+                    render_debug_line(g_debug_render_pass, p0, p1, Vec4(1, 0, 0, 1));
                 }
             } break;
         }
