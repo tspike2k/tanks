@@ -4,7 +4,7 @@ A remake of the minigame "Tanks" from the 2006 game Wii Play by Nintendo.
 
 ## About
 
-This is a small scale remake of the "Tanks!" minigame from the game Wii Play. Originally the goal of this project was to choose a small-scale game to remake as a way to learn how to develop networked multiplayer video games. The various parts of the project took longer than expected, so the netplay aspect has been indefinitely scrapped. What is finished is a fairly faithful, if crude, recreation of the original. Also featured is a cryptic (and buggy) level editor. Use at your own peril!
+This is a small -scale remake of the "Tanks!" minigame from the game Wii Play. Originally the goal of this project was to choose a simple game to remake as a way to learn how to develop networked multiplayer video games. The various parts of the project took longer than expected, so the netplay aspect has been indefinitely scrapped. What is finished is a fairly faithful, if crude, recreation of the original. Also featured is a cryptic (and buggy) level editor. Use at your own peril!
 
 This game can only be played on Linux, though support for additional platforms could be added by any intrepid programmers out there if desired.
 
