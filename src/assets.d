@@ -195,17 +195,17 @@ struct Tank_Type{
 
     bool aggressive_survival;    // Word 20
 
-    float obstacle_sight_dist; // Obstacle Awareness (Movement)
+    float obstacle_sight_dist;  // Word 28
 
-    float turn_timer_min;     // Word 15
-    float turn_timer_max;     // Word 14
+    float turn_timer_min;      // Word 15
+    float turn_timer_max;      // Word 14
 
-    float fire_timer_min;     // Word 36
-    float fire_timer_max;     // Word 35
-    float fire_stun_time;     // Word 42
-    float fire_cooldown_time; // Word 37
-    float aim_timer;          // Word 40
-    float aim_max_angle;      // Word 29
+    float fire_timer_min;      // Word 36
+    float fire_timer_max;      // Word 35
+    float fire_stun_time;      // Word 42
+    float fire_cooldown_time;  // Word 37
+    float aim_timer;           // Word 40
+    float aim_max_angle;       // Word 29
 }
 
 struct Campaign_Mission{

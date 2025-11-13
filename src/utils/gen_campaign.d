@@ -297,6 +297,8 @@ __gshared Tank_Type[] g_tank_types = [
 
         fire_cooldown_time: 6.0f/60.0f,
         fire_stun_time:     5.0f/60.0f,
+
+        obstacle_sight_dist: 50.0f/35.0f,
     },
     {
         // Brown
@@ -327,6 +329,8 @@ __gshared Tank_Type[] g_tank_types = [
 
         aim_timer: 60.0f/60.0f,
         aim_max_angle: deg_to_rad(170),
+
+        obstacle_sight_dist: 30.0f/35.0f,
     },
     {
         // Ash
@@ -360,6 +364,8 @@ __gshared Tank_Type[] g_tank_types = [
 
         aim_timer: 45.0f/60.0f,
         aim_max_angle: deg_to_rad(40),
+
+        obstacle_sight_dist: 30.0f/35.0f,
     },
     {
         // Teal
@@ -393,6 +399,8 @@ __gshared Tank_Type[] g_tank_types = [
 
         aim_timer: 8.0f/60.0f,
         aim_max_angle: 0,
+
+        obstacle_sight_dist: 30.0f/35.0f,
     },
     {
         // Pink
@@ -426,6 +434,8 @@ __gshared Tank_Type[] g_tank_types = [
 
         aim_timer: 20.0f/60.0f,
         aim_max_angle: deg_to_rad(40),
+
+        obstacle_sight_dist: 50.0f/35.0f,
     },
     {
         // Yellow
@@ -459,6 +469,8 @@ __gshared Tank_Type[] g_tank_types = [
 
         aim_timer: 30.0f/60.0f,
         aim_max_angle: deg_to_rad(40),
+
+        obstacle_sight_dist: 30.0f/35.0f,
     },
     {
         // Purple
@@ -492,6 +504,8 @@ __gshared Tank_Type[] g_tank_types = [
 
         aim_timer: 20.0f/60.0f,
         aim_max_angle: deg_to_rad(40),
+
+        obstacle_sight_dist: 50.0f/35.0f,
     },
     {
         // Green
@@ -522,6 +536,8 @@ __gshared Tank_Type[] g_tank_types = [
 
         aim_timer: 30.0f/60.0f,
         aim_max_angle: deg_to_rad(80),
+
+        obstacle_sight_dist: 50.0f/35.0f,
     },
     {
         // White
@@ -555,6 +571,8 @@ __gshared Tank_Type[] g_tank_types = [
 
         aim_timer: 30.0f/60.0f,
         aim_max_angle: deg_to_rad(40),
+
+        obstacle_sight_dist: 50.0f/35.0f,
     },
     {
         // Black
@@ -588,6 +606,8 @@ __gshared Tank_Type[] g_tank_types = [
 
         aim_timer: 20.0f/60.0f,
         aim_max_angle: deg_to_rad(5),
+
+        obstacle_sight_dist: 50.0f/35.0f,
     },
 ];
 

@@ -1887,19 +1887,30 @@ bool should_take_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info,
 }
 
 bool should_take_mine_opportunity(World* world, Entity* e, Tank_Type* tank_info, bool has_opportunity, Xorshift32* rng){
-    if(!has_opportunity) return false;
+    if(!has_opportunity
+    || (in_survival_mode(e) && !tank_info.aggressive_survival)){
+        return false;
+    }
 
     auto chance = random_percent(rng);
-    // TODO: Depending on the AI type, AI tanks shouldn't be allowed to lay mines
-    // if they're in "survival mode."
-    bool survival_mode = false;
 
-    // TODO: Only allow laying a mine if an empty safe area exists. If it does, set the tank
-    // to move to that area.
+    bool result = false;
+
     auto count = get_child_entity_count(world, e.id, Entity_Type.Mine);
-    bool result = count < tank_info.mine_limit
+    if(count < tank_info.mine_limit
     && chance >= tank_info.mine_placement_chance
-    && !is_ally_within_range(world, e, tank_info.mine_min_ally_dist);
+    && !is_ally_within_range(world, e, tank_info.mine_min_ally_dist)){
+        // Only allow laying a mine if an empty safe area exists. If it does, set the tank
+        // to move to that area.
+        auto obstacle_sight_range = tank_info.obstacle_sight_dist;
+        auto facing = get_major_axis(vec2_from_angle(e.angle));
+        auto wall_dir = test_for_blocks_in_cardinal_dir(world, e.pos, facing, obstacle_sight_range);
+        if(wall_dir != (Dir_Front|Dir_Back|Dir_Left|Dir_Right)){
+            set_turn_based_on_blocked_cardinal_dir(e, wall_dir, Turn_Type.Mine_Laying, rng);
+            result = true;
+        }
+    }
+
     return result;
 }
 
@@ -1948,6 +1959,31 @@ void set_turn(Entity* e, Turn_Type type, float angle){
     }
 }
 
+void set_turn_based_on_blocked_cardinal_dir(Entity* e, uint wall_dir, Turn_Type turn_type, Xorshift32* rng){
+    bool left_is_open  = !(wall_dir & Dir_Left);
+    bool right_is_open = !(wall_dir & Dir_Right);
+    auto cardinal_angle = lock_angle(e.angle);
+
+    if(!(wall_dir & Dir_Front)){
+        e.move_dir = 1;
+    }
+    else if(left_is_open && right_is_open){
+        if(random_bool(rng))
+            set_turn(e, turn_type, cardinal_angle + deg_to_rad(90));
+        else
+            set_turn(e, turn_type, cardinal_angle - deg_to_rad(90));
+    }
+    else if(left_is_open){
+        set_turn(e, turn_type, cardinal_angle + deg_to_rad(90));
+    }
+    else if(right_is_open){
+        set_turn(e, turn_type, cardinal_angle + deg_to_rad(90));
+    }
+    else if(!(wall_dir & Dir_Back)){
+        e.move_dir = -1;
+    }
+}
+
 void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
     auto tank_info   = get_tank_info(&s.campaign, e);
     cmd.target_angle = e.angle;
@@ -1961,35 +1997,13 @@ void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
         }
     }
 
-
     // If the tank has seen a wall, try to avoid it by looking to the right
     // or left. If both the left and right are not obstructed, randomly pick
     // between the two.
-    auto obstacle_sight_range = 2.0f; // TODO: Get this from the tank params
+    auto obstacle_sight_range = tank_info.obstacle_sight_dist;
     auto facing = get_major_axis(vec2_from_angle(e.angle));
     auto wall_dir = test_for_blocks_in_cardinal_dir(&s.world, e.pos, facing, obstacle_sight_range);
-    if(wall_dir && (wall_dir & Dir_Front)){
-        bool left_is_open  = !(wall_dir & Dir_Left);
-        bool right_is_open = !(wall_dir & Dir_Right);
-        auto cardinal_angle = lock_angle(e.angle);
-
-        if(left_is_open && right_is_open){
-            if(random_bool(&s.rng))
-                set_turn(e, Turn_Type.Large, cardinal_angle + deg_to_rad(90));
-            else
-                set_turn(e, Turn_Type.Large, cardinal_angle - deg_to_rad(90));
-        }
-        else if(left_is_open){
-            set_turn(e, Turn_Type.Large, cardinal_angle + deg_to_rad(90));
-        }
-        else if(right_is_open){
-            set_turn(e, Turn_Type.Large, cardinal_angle + deg_to_rad(90));
-        }
-        else if(!(wall_dir & Dir_Back)){
-            e.move_dir = -1;
-        }
-        cmd.target_angle = e.turn_angle;
-    }
+    set_turn_based_on_blocked_cardinal_dir(e, wall_dir, Turn_Type.Large, &s.rng);
 
     if(e.turn_type != Turn_Type.None){
         cmd.target_angle = e.turn_angle;
@@ -3902,13 +3916,6 @@ extern(C) int main(int args_count, char** args){
                     auto cursor_p = Vec2(s.mouse_pixel.x, window.height - s.mouse_pixel.y);
                     set_texture(render_passes.hud_text, s.img_crosshair);
                     render_rect(render_passes.hud_text, Rect(cursor_p, Vec2(window.width, window.width)*0.025f), color);
-                }
-
-                {
-                    auto p0 = Vec2(8, 8);
-                    auto angle = lock_angle(get_angle(s.mouse_world - p0));
-                    auto p1 = p0 + vec2_from_angle(angle)*2.0f;
-                    render_debug_line(g_debug_render_pass, p0, p1, Vec4(1, 0, 0, 1));
                 }
             } break;
         }
