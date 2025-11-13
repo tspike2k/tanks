@@ -10,15 +10,9 @@ Credits:
     TheGoldfishKing for the equally helpful "Tanks_Documentation"
 
 TODO:
-    - Finish porting over tank params
     - Add score multipliers? Ricochet hit should count for more, as should mine hits.
     - Show multiplier text during mission gameplay. Bounce score display each time you get a point
     - choose_material should allow for the editor to have custom materials.
-
-Enemy AI:
-    - Enemies are supposed to enter "survival mode" when they see a bullet (I think) or a mine.
-      In this mode, the enemy tries to move as far back as needed.
-    - Enemies should make sure they have room to drive away from a mine before placing one.
 +/
 
 import display;
@@ -327,6 +321,7 @@ struct Entity{
     float action_stun_timer; // Time a tank cannot move after firing a bullet or laying a mine
 
     // AI related data:
+    bool      survival_mode;
     AI_Timer  fire_timer;
     AI_Timer  place_mine_timer;
     AI_Timer  random_turn_timer;
@@ -1606,18 +1601,17 @@ void render_entity(App_State* s, Entity* e, Render_Passes rp, Tank_Materials[] e
 
         case Entity_Type.Tank:{
             if(e.health > 0){
+                auto tank_info = get_tank_info(&s.campaign, e);
                 auto mat_tran = mat4_translate(p + Vec3(0, 0.18f, 0))*mat4_scale(Vec3(0.5f, 0.5f, 0.5f));
 
                 auto base_x_form = mat_tran*mat4_rot_y(e.angle);
                 auto top_x_form  = mat_tran*mat4_rot_y(e.turret_angle);
-                render_mesh(rp.world, &s.tank_base_mesh, materials, base_x_form);
-                render_mesh(rp.world, &s.tank_top_mesh, materials, top_x_form);
+                if(!tank_info.invisible){
+                    render_mesh(rp.world, &s.tank_base_mesh, materials, base_x_form);
+                    render_mesh(rp.world, &s.tank_top_mesh, materials, top_x_form);
+                }
                 render_mesh(rp.shadow_map, &s.tank_base_mesh, materials, base_x_form);
                 render_mesh(rp.shadow_map, &s.tank_top_mesh, materials, top_x_form);
-
-                if(!is_player_tank(e)){
-                    render_debug_line(g_debug_render_pass, e.pos, e.pos + vec2_from_angle(e.turn_angle), Vec4(0, 1, 0, 1));
-                }
             }
             else{
                 auto bounds = Rect(e.pos, Vec2(0.5f, 0.5f));
@@ -1750,6 +1744,14 @@ void apply_tank_commands(App_State* s, Entity* e, Tank_Commands* input, float ro
             play_sfx(&s.sfx_fire_bullet, 0, 1.0f, pitch);
         }
     }
+
+    if(g_debug_mode && !is_player_tank(e)){
+        auto turn_color = Vec4(0, 1, 0, 1);
+        if(in_survival_mode(e)){
+            turn_color = Vec4(1, 0, 0, 1);
+        }
+        render_debug_line(g_debug_render_pass, e.pos, e.pos + vec2_from_angle(input.target_angle), turn_color);
+    }
 }
 
 /+
@@ -1800,7 +1802,8 @@ void push_debug_line(Vec2 p0, Vec2 p1, Vec4 color){
 }
 
 bool in_survival_mode(Entity* e){
-    return false; // TODO: Implement this
+    bool result = e.survival_mode;
+    return result;
 }
 
 bool should_take_fire_opportunity(World* world, Entity* e, Tank_Type* tank_info, bool has_opportunity){
@@ -1964,6 +1967,9 @@ void set_turn_based_on_blocked_cardinal_dir(Entity* e, uint wall_dir, Turn_Type 
     bool right_is_open = !(wall_dir & Dir_Right);
     auto cardinal_angle = lock_angle(e.angle);
 
+    // If the tank has seen a wall, try to avoid it by looking to the right
+    // or left. If both the left and right are not obstructed, randomly pick
+    // between the two.
     if(!(wall_dir & Dir_Front)){
         e.move_dir = 1;
     }
@@ -1984,7 +1990,56 @@ void set_turn_based_on_blocked_cardinal_dir(Entity* e, uint wall_dir, Turn_Type 
     }
 }
 
-void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
+bool ai_check_for_threats_in_range(World* world, Entity* e, float* target_angle, Allocator* allocator){
+    mixin(Scratch_Frame!());
+
+    struct Angle{
+        Angle* next;
+        Angle* prev;
+        float angle;
+    }
+
+    List!Angle angles;
+    angles.make();
+
+    float min_mine_range = 4.0f;
+    float min_bullet_range = 2.5f;
+
+    foreach(ref test_e; iterate_entities(world)){
+        switch(test_e.type){
+            default: break;
+
+            case Entity_Type.Bullet:{
+                if(dist_sq(e.pos, test_e.pos) <= squared(min_bullet_range)){
+                    auto entry = alloc_type!Angle(allocator);
+                    entry.angle = get_angle(e.pos - test_e.pos);
+                    angles.insert(angles.top, entry);
+                }
+            } break;
+
+            case Entity_Type.Mine:{
+                if((test_e.parent_id != e.id || (test_e.flags & Entity_Flag_Mine_Active))
+                && dist_sq(e.pos, test_e.pos) <= squared(min_mine_range)){
+                    auto entry = alloc_type!Angle(allocator);
+                    entry.angle = get_angle(e.pos - test_e.pos);
+                    angles.insert(angles.top, entry);
+                }
+            } break;
+        }
+    }
+
+    bool result = false;
+    if(angles.count > 0){
+        result = true;
+        foreach(entry; angles.iterate()){
+            *target_angle += entry.angle;
+        }
+        *target_angle /= cast(float)angles.count;
+    }
+    return result;
+}
+
+void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt, Allocator* allocator){
     auto tank_info   = get_tank_info(&s.campaign, e);
     cmd.target_angle = e.angle;
 
@@ -1997,16 +2052,20 @@ void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
         }
     }
 
-    // If the tank has seen a wall, try to avoid it by looking to the right
-    // or left. If both the left and right are not obstructed, randomly pick
-    // between the two.
-    auto obstacle_sight_range = tank_info.obstacle_sight_dist;
-    auto facing = get_major_axis(vec2_from_angle(e.angle));
-    auto wall_dir = test_for_blocks_in_cardinal_dir(&s.world, e.pos, facing, obstacle_sight_range);
-    set_turn_based_on_blocked_cardinal_dir(e, wall_dir, Turn_Type.Large, &s.rng);
+    float survival_angle = 0;
+    e.survival_mode = ai_check_for_threats_in_range(&s.world, e, &survival_angle, allocator);
+    if(in_survival_mode(e)){
+        cmd.target_angle = survival_angle;
+    }
+    else{
+        auto obstacle_sight_range = tank_info.obstacle_sight_dist;
+        auto facing = get_major_axis(vec2_from_angle(e.angle));
+        auto wall_dir = test_for_blocks_in_cardinal_dir(&s.world, e.pos, facing, obstacle_sight_range);
+        set_turn_based_on_blocked_cardinal_dir(e, wall_dir, Turn_Type.Large, &s.rng);
 
-    if(e.turn_type != Turn_Type.None){
-        cmd.target_angle = e.turn_angle;
+        if(e.turn_type != Turn_Type.None){
+            cmd.target_angle = e.turn_angle;
+        }
     }
 
     if(e.move_dir == 0)
@@ -2044,8 +2103,6 @@ void handle_enemy_ai(App_State* s, Entity* e, Tank_Commands* cmd, float dt){
     auto turret_speed = tank_info.turret_turn_speed*60.0f;
     e.turret_angle    = rotate_towards(e.turret_angle, target_angle, turret_speed*dt);
 
-    auto sight_range = 8.0f;           // TODO: Get this from tank params
-    auto sight_angle = deg_to_rad(65); // TODO: Get this from tank params
     bool fire_opportunity = timer_update(&e.fire_timer, dt, &s.rng);
     if(should_take_fire_opportunity(&s.world, e, tank_info, fire_opportunity)){
         cmd.fire_bullet = true;
@@ -2288,7 +2345,7 @@ void simulate_world(App_State* s, Tank_Commands* player_input, float dt){
                 }
                 else{
                     auto commands = zero_type!Tank_Commands;
-                    handle_enemy_ai(s, &e, &commands, dt);
+                    handle_enemy_ai(s, &e, &commands, dt, &s.frame_memory);
                     float rot_speed = deg_to_rad(30);
                     if(e.turn_type == Turn_Type.Large){
                         rot_speed = PI;
@@ -2893,8 +2950,7 @@ void begin_campaign(App_State* s, uint variant_index, uint players_count, uint p
     auto player_score = &score.player_scores[0];
     player_score.name = s.settings.player_name;
 
-    //begin_mission(s, s.session.mission_index);
-    begin_mission(s, 3);
+    begin_mission(s, s.session.mission_index);
 }
 
 void end_campaign(App_State* s, bool aborted){
@@ -3660,39 +3716,6 @@ extern(C) int main(int args_count, char** args){
                     foreach(ref e; iterate_entities(&s.world)){
                         render_entity(s, &e, render_passes, s.materials_enemy_tank[]);
                     }
-                    /+
-                    auto p_up    = world_to_render_pos(s.mouse_world + Vec2(0, 1));
-                    auto p_down  = world_to_render_pos(s.mouse_world + Vec2(0, -1));
-                    auto p_left  = world_to_render_pos(s.mouse_world + Vec2(-1, 0));
-                    auto p_right = world_to_render_pos(s.mouse_world + Vec2(1, 0));
-                    auto material = (&s.material_block)[0..1];
-                    auto scale = Vec3(0.25f, 1.0f, 0.25f);
-
-                    auto block_dir = test_for_blocks_in_cardinal_dir(&s.world, s.mouse_world, Vec2(0, 1), 2.0f);
-                    if(block_dir & Dir_Front){
-                        render_mesh(
-                            render_passes.world, &s.cube_mesh, material,
-                            mat4_translate(p_up)*mat4_scale(scale)
-                        );
-                    }
-                    if(block_dir & Dir_Back){
-                        render_mesh(
-                            render_passes.world, &s.cube_mesh, material,
-                            mat4_translate(p_down)*mat4_scale(scale)
-                        );
-                    }
-                    if(block_dir & Dir_Left){
-                        render_mesh(
-                            render_passes.world, &s.cube_mesh, material,
-                            mat4_translate(p_left)*mat4_scale(scale)
-                        );
-                    }
-                    if(block_dir & Dir_Right){
-                        render_mesh(
-                            render_passes.world, &s.cube_mesh, material,
-                            mat4_translate(p_right)*mat4_scale(scale)
-                        );
-                    }+/
                 }
 
                 sort_and_render_bullet_particles(

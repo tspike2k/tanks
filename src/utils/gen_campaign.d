@@ -331,6 +331,8 @@ __gshared Tank_Type[] g_tank_types = [
         aim_max_angle: deg_to_rad(170),
 
         obstacle_sight_dist: 30.0f/35.0f,
+
+        aggressive_survival: true,
     },
     {
         // Ash
@@ -436,6 +438,7 @@ __gshared Tank_Type[] g_tank_types = [
         aim_max_angle: deg_to_rad(40),
 
         obstacle_sight_dist: 50.0f/35.0f,
+        aggressive_survival: true,
     },
     {
         // Yellow
@@ -538,6 +541,7 @@ __gshared Tank_Type[] g_tank_types = [
         aim_max_angle: deg_to_rad(80),
 
         obstacle_sight_dist: 50.0f/35.0f,
+        aggressive_survival: true,
     },
     {
         // White
@@ -608,6 +612,7 @@ __gshared Tank_Type[] g_tank_types = [
         aim_max_angle: deg_to_rad(5),
 
         obstacle_sight_dist: 50.0f/35.0f,
+        aggressive_survival: true,
     },
 ];
 
