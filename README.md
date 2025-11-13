@@ -12,6 +12,21 @@ This game can only be played on Linux, though support for additional platforms c
 
 Mostly complete. Due to the unexpected length of development, the author decided to pursue other projects rather than put more time into this one. But who knows what the future will bring.
 
+## Features
+
+- Campaign from the original game
+- Temp saves on window close
+- Editor
+- Simple 3D Graphics
+
+## Issues
+
+Due to limited time, there are many issues with this codebase that haven't been addressed:
+- No support for platforms other than Linux (X11)
+- No sprite batching for quads
+- Poor collision handling
+- Buggy editor with little in the way of visualization and no documentation.
+
 ## Credits
 
 None of this would have been possible without the extensive analysis of the game documented by both TheGoldfishKing and BigKitty1011. Their work is incredibly impressive and quite thorough.
